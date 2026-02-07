@@ -1,0 +1,188 @@
+/* Thermal receipt print styles (58mm with safe 57mm content). */
+:root {
+  --receipt-paper-width: 58mm;
+  --receipt-safe-width: 57mm;
+  --receipt-margin: 1mm;
+  --receipt-font-size: 11px;
+  --receipt-line-height: 1.35;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Arial", sans-serif;
+  font-size: var(--receipt-font-size);
+  line-height: var(--receipt-line-height);
+  color: #111;
+  background: #f5f5f5;
+}
+
+.receipt-page {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.receipt-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+}
+
+.receipt-toolbar ul {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+
+.receipt-toolbar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.btn {
+  border: 1px solid #111;
+  background: #111;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: none;
+  text-align: center;
+}
+
+.receipt-error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.receipt {
+  width: var(--receipt-paper-width);
+  background: #fff;
+  padding: 8px;
+  align-self: flex-start;
+}
+
+.receipt-header {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.receipt-logo img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.receipt-store {
+  max-width: var(--receipt-safe-width);
+}
+
+.receipt-store-name {
+  font-weight: 700;
+}
+
+.receipt-store-line {
+  font-size: 10px;
+}
+
+.receipt-meta {
+  font-size: 10px;
+  border-top: 1px dashed #d1d5db;
+  border-bottom: 1px dashed #d1d5db;
+  padding: 6px 0;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.receipt-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.receipt-item-name {
+  font-weight: 600;
+  font-size: 10.5px;
+}
+
+.receipt-item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.receipt-item-subtotal {
+  min-width: 60px;
+  text-align: right;
+}
+
+.receipt-summary {
+  border-top: 1px dashed #d1d5db;
+  margin-top: 8px;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.receipt-footer {
+  margin-top: 8px;
+  font-size: 10px;
+  text-align: center;
+}
+
+/* Print rules for thermal paper. */
+@media print {
+  :root {
+    --receipt-margin: 1mm;
+  }
+
+  @page {
+    size: 58mm auto;
+    margin: var(--receipt-margin);
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .receipt-page {
+    padding: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .receipt {
+    width: var(--receipt-paper-width);
+    max-width: var(--receipt-safe-width);
+    padding: 0;
+  }
+}

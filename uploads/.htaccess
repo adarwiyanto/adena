@@ -1,0 +1,11 @@
+Options -Indexes
+
+<IfModule mod_php.c>
+  php_flag engine off
+</IfModule>
+
+<FilesMatch "\.(php|phtml|phar|php\d?)$">
+  Require all denied
+</FilesMatch>
+
+AddType text/plain .php .php5 .phtml .phar
