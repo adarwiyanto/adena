@@ -279,7 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </form>
   </div>
 </div>
-<script>
+<script nonce="<?php echo e(csp_nonce()); ?>">
   document.getElementById('device_info').value = navigator.userAgent || '';
 
   const fileInput = document.getElementById('attendance_photo');
@@ -292,19 +292,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   const geoStatus = document.getElementById('geo_status');
   const geoBtn = document.getElementById('btn-geo');
 
-  geoBtn.addEventListener('click', () => {
-    if (!navigator.geolocation) {
-      geoStatus.textContent = 'Browser tidak mendukung geolocation.';
-      return;
+  function getLocation(options) {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+  }
+
+  function geolocationErrorMessage(error) {
+    if (!error || typeof error.code === 'undefined') {
+      return 'Terjadi kesalahan tidak dikenal saat mengambil lokasi.';
     }
-    geoStatus.textContent = 'Mengambil lokasi...';
-    navigator.geolocation.getCurrentPosition((position) => {
-      geoLat.value = position.coords.latitude.toFixed(7);
-      geoLng.value = position.coords.longitude.toFixed(7);
-      geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value}`;
-    }, (error) => {
-      geoStatus.textContent = 'Gagal mengambil lokasi: ' + error.message;
-    }, { enableHighAccuracy: true, timeout: 15000 });
+    if (error.code === error.PERMISSION_DENIED) {
+      return 'Izin lokasi ditolak. Aktifkan izin lokasi pada browser/perangkat Anda.';
+    }
+    if (error.code === error.POSITION_UNAVAILABLE) {
+      return 'Lokasi tidak tersedia. Pastikan GPS/lokasi perangkat aktif.';
+    }
+    if (error.code === error.TIMEOUT) {
+      return 'Waktu pengambilan lokasi habis. Coba lagi di area dengan sinyal GPS lebih baik.';
+    }
+    return 'Gagal mengambil lokasi: ' + (error.message || 'unknown error');
+  }
+
+  geoBtn.addEventListener('click', async () => {
+    console.debug('[geo] tombol ambil lokasi diklik');
+    geoBtn.disabled = true;
+    try {
+      if (!navigator.geolocation) {
+        geoStatus.textContent = 'Browser tidak mendukung geolocation.';
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        geoStatus.textContent = 'Lokasi butuh HTTPS. Buka halaman lewat https:// agar browser dapat meminta izin lokasi.';
+      }
+
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const permission = await navigator.permissions.query({ name: 'geolocation' });
+          if (permission.state === 'denied') {
+            geoStatus.textContent = 'Izin lokasi diblokir browser. Aktifkan kembali izin lokasi di pengaturan browser.';
+            return;
+          }
+          if (permission.state === 'prompt') {
+            geoStatus.textContent = 'Mengambil lokasi... izinkan akses lokasi saat diminta browser.';
+          }
+        } catch (permError) {
+          console.debug('[geo] permissions API tidak tersedia penuh:', permError);
+        }
+      } else {
+        geoStatus.textContent = 'Mengambil lokasi...';
+      }
+
+      const primaryOptions = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
+      try {
+        const position = await getLocation(primaryOptions);
+        geoLat.value = position.coords.latitude.toFixed(7);
+        geoLng.value = position.coords.longitude.toFixed(7);
+        geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value} (akurasi ±${Math.round(position.coords.accuracy || 0)}m)`;
+      } catch (primaryError) {
+        if (primaryError && primaryError.code === primaryError.TIMEOUT) {
+          geoStatus.textContent = 'Lokasi timeout. Mencoba ulang dengan mode hemat GPS...';
+          const fallbackOptions = { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 };
+          const fallbackPosition = await getLocation(fallbackOptions);
+          geoLat.value = fallbackPosition.coords.latitude.toFixed(7);
+          geoLng.value = fallbackPosition.coords.longitude.toFixed(7);
+          geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value} (akurasi ±${Math.round(fallbackPosition.coords.accuracy || 0)}m)`;
+        } else {
+          throw primaryError;
+        }
+      }
+    } catch (error) {
+      console.error('[geo] gagal mengambil lokasi', error);
+      geoStatus.textContent = geolocationErrorMessage(error);
+    } finally {
+      geoBtn.disabled = false;
+    }
   });
 
   document.getElementById('absen-form').addEventListener('submit', (e) => {
