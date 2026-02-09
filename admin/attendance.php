@@ -18,7 +18,7 @@ $month = max(1, min(12, (int)($_GET['month'] ?? date('n'))));
 $year = max(2000, min(2100, (int)($_GET['year'] ?? date('Y'))));
 $isExport = (($_GET['export'] ?? '') === 'csv');
 
-$employees = db()->query("SELECT id,name,role FROM users WHERE role IN ('pegawai','pegawai_pos','pegawai_non_pos','manager_toko') ORDER BY name")->fetchAll();
+$employees = db()->query("SELECT id,name,role FROM users WHERE role IN ('pegawai','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur') ORDER BY name")->fetchAll();
 $employeeIds = array_map(static fn($r) => (int) $r['id'], $employees);
 $rows = [];
 $summaryRows = [];

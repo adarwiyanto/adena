@@ -110,6 +110,8 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
             <a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a>
             <a href="<?php echo e(base_url('admin/schedule.php')); ?>">Jadwal Pegawai</a>
             <a href="<?php echo e(base_url('admin/attendance.php')); ?>">Rekap Absensi</a>
+            <a href="<?php echo e(base_url('admin/work_locations.php')); ?>">Lokasi Kerja</a>
+            <a href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>">Kinerja Dapur</a>
             <?php if (($u['role'] ?? '') === 'owner'): ?>
               <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
             <?php endif; ?>
