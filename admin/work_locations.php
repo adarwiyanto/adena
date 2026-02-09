@@ -84,6 +84,7 @@ $customCss = setting('custom_css', '');
             <div class="row"><label>Longitude</label><input name="longitude" id="longitude" readonly required></div>
             <div class="row"><label>Radius Valid (meter)</label><input type="number" name="radius_meters" value="150" min="20" max="1000"></div>
             <button class="btn" type="button" id="btn-geotag">Ambil Lokasi dari Browser</button>
+            <p><small id="geo_status">Belum ada lokasi GPS.</small></p>
             <button class="btn" type="submit">Simpan Lokasi</button>
             <p><small>Absensi di luar radius lokasi kerja akan dianggap tidak sah.</small></p>
           </form>
@@ -117,18 +118,88 @@ $customCss = setting('custom_css', '');
   </div>
 </div>
 <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
-<script>
-  document.getElementById('btn-geotag').addEventListener('click', function () {
-    if (!navigator.geolocation) {
-      alert('Browser tidak mendukung geolocation.');
-      return;
+<script nonce="<?php echo e(csp_nonce()); ?>">
+  const geoBtn = document.getElementById('btn-geotag');
+  const geoStatus = document.getElementById('geo_status');
+  const latInput = document.getElementById('latitude');
+  const lngInput = document.getElementById('longitude');
+
+  function getLocation(options) {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+  }
+
+  function geolocationErrorMessage(error) {
+    if (!error || typeof error.code === 'undefined') {
+      return 'Terjadi kesalahan tidak dikenal saat mengambil lokasi.';
     }
-    navigator.geolocation.getCurrentPosition(function (position) {
-      document.getElementById('latitude').value = position.coords.latitude.toFixed(7);
-      document.getElementById('longitude').value = position.coords.longitude.toFixed(7);
-    }, function (error) {
-      alert('Gagal mengambil lokasi: ' + error.message);
-    }, { enableHighAccuracy: true, timeout: 15000 });
+    if (error.code === error.PERMISSION_DENIED) {
+      return 'Izin lokasi ditolak. Aktifkan izin lokasi pada browser/perangkat Anda.';
+    }
+    if (error.code === error.POSITION_UNAVAILABLE) {
+      return 'Lokasi tidak tersedia. Pastikan GPS/lokasi perangkat aktif.';
+    }
+    if (error.code === error.TIMEOUT) {
+      return 'Waktu pengambilan lokasi habis. Coba lagi di area dengan sinyal GPS lebih baik.';
+    }
+    return 'Gagal mengambil lokasi: ' + (error.message || 'unknown error');
+  }
+
+  geoBtn.addEventListener('click', async () => {
+    console.debug('[admin geo] tombol ambil lokasi diklik');
+    geoBtn.disabled = true;
+    try {
+      if (!navigator.geolocation) {
+        geoStatus.textContent = 'Browser tidak mendukung geolocation.';
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        geoStatus.textContent = 'Lokasi butuh HTTPS. Buka halaman lewat https:// agar browser dapat meminta izin lokasi.';
+      }
+
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const permission = await navigator.permissions.query({ name: 'geolocation' });
+          if (permission.state === 'denied') {
+            geoStatus.textContent = 'Izin lokasi diblokir browser. Aktifkan kembali izin lokasi di pengaturan browser.';
+            return;
+          }
+          if (permission.state === 'prompt') {
+            geoStatus.textContent = 'Mengambil lokasi... izinkan akses lokasi saat diminta browser.';
+          }
+        } catch (permError) {
+          console.debug('[admin geo] permissions API tidak tersedia penuh:', permError);
+        }
+      } else {
+        geoStatus.textContent = 'Mengambil lokasi...';
+      }
+
+      const primaryOptions = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
+      try {
+        const position = await getLocation(primaryOptions);
+        latInput.value = position.coords.latitude.toFixed(7);
+        lngInput.value = position.coords.longitude.toFixed(7);
+        geoStatus.textContent = `Lokasi didapat: ${latInput.value}, ${lngInput.value} (akurasi ±${Math.round(position.coords.accuracy || 0)}m)`;
+      } catch (primaryError) {
+        if (primaryError && primaryError.code === primaryError.TIMEOUT) {
+          geoStatus.textContent = 'Lokasi timeout. Mencoba ulang dengan mode hemat GPS...';
+          const fallbackOptions = { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 };
+          const fallbackPosition = await getLocation(fallbackOptions);
+          latInput.value = fallbackPosition.coords.latitude.toFixed(7);
+          lngInput.value = fallbackPosition.coords.longitude.toFixed(7);
+          geoStatus.textContent = `Lokasi didapat: ${latInput.value}, ${lngInput.value} (akurasi ±${Math.round(fallbackPosition.coords.accuracy || 0)}m)`;
+        } else {
+          throw primaryError;
+        }
+      }
+    } catch (error) {
+      console.error('[admin geo] gagal mengambil lokasi', error);
+      geoStatus.textContent = geolocationErrorMessage(error);
+    } finally {
+      geoBtn.disabled = false;
+    }
   });
 </script>
 </body>
