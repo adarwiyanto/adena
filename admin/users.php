@@ -10,7 +10,23 @@ start_secure_session();
 require_admin();
 ensure_owner_role();
 ensure_user_invites_table();
+
 $me = current_user();
+
+function user_manageable_roles_for(string $role): array {
+  if ($role === 'owner') {
+    return ['owner', 'admin', 'pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur'];
+  }
+  if ($role === 'admin') {
+    return ['pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur'];
+  }
+  if ($role === 'manager_toko') {
+    return ['pegawai_pos', 'pegawai_non_pos'];
+  }
+  return [];
+}
+
+$manageableRoles = user_manageable_roles_for((string)($me['role'] ?? ''));
 
 $err = '';
 $ok = '';
@@ -37,13 +53,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'update_role') {
-      if (($me['role'] ?? '') !== 'owner') {
-        throw new Exception('Hanya owner yang bisa mengubah role user.');
+      if (!in_array(($me['role'] ?? ''), ['owner', 'admin'], true)) {
+        throw new Exception('Anda tidak punya akses mengubah role user.');
       }
       $id = (int)($_POST['id'] ?? 0);
       $role = $_POST['role'] ?? 'pegawai';
-      if (!in_array($role, ['admin', 'owner', 'pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) $role = 'pegawai';
+      if (!in_array($role, $manageableRoles, true)) {
+        throw new Exception('Role tujuan tidak diizinkan.');
+      }
       if ($id > 0 && $id !== (int)($me['id'] ?? 0)) {
+        $stmt = db()->prepare("SELECT id, role FROM users WHERE id=? LIMIT 1");
+        $stmt->execute([$id]);
+        $target = $stmt->fetch();
+        if (!$target) {
+          throw new Exception('User tidak ditemukan.');
+        }
+        if (($me['role'] ?? '') === 'admin' && in_array((string)($target['role'] ?? ''), ['owner', 'superadmin', 'admin'], true)) {
+          throw new Exception('Admin tidak bisa mengubah role owner/admin.');
+        }
         $stmt = db()->prepare("UPDATE users SET role=? WHERE id=?");
         $stmt->execute([$role, $id]);
         redirect(base_url('admin/users.php'));
@@ -51,15 +78,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'invite') {
-      if (($me['role'] ?? '') !== 'owner') {
-        throw new Exception('Hanya owner yang bisa mengundang user.');
+      if (!in_array(($me['role'] ?? ''), ['owner', 'admin', 'manager_toko'], true)) {
+        throw new Exception('Anda tidak punya akses mengundang user.');
       }
       $email = trim($_POST['email'] ?? '');
       $role = $_POST['role'] ?? 'pegawai';
       if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new Exception('Email tidak valid.');
       }
-      if (!in_array($role, ['admin', 'owner', 'pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true)) $role = 'pegawai';
+      if (!in_array($role, $manageableRoles, true)) {
+        throw new Exception('Role undangan tidak diizinkan.');
+      }
 
       $token = bin2hex(random_bytes(16));
       $tokenHash = hash('sha256', $token);
@@ -144,7 +173,7 @@ $mailCfg = mail_settings();
           <?php if ($ok): ?>
             <div class="card" style="border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.10)"><?php echo e($ok); ?></div>
           <?php endif; ?>
-          <?php if (($me['role'] ?? '') === 'owner'): ?>
+          <?php if (!empty($manageableRoles)): ?>
             <form method="post">
               <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
               <input type="hidden" name="action" value="invite">
@@ -152,19 +181,16 @@ $mailCfg = mail_settings();
               <div class="row">
                 <label>Role</label>
                 <select name="role">
-                  <option value="admin">admin</option>
-                  <option value="owner">owner</option>
-                  <option value="pegawai" selected>pegawai</option>
-                  <option value="pegawai_pos">pegawai_pos</option>
-                  <option value="pegawai_non_pos">pegawai_non_pos</option>
-                  <option value="manager_toko">manager_toko</option>
+                  <?php foreach ($manageableRoles as $r): ?>
+                    <option value="<?php echo e($r); ?>" <?php echo $r === 'pegawai' ? 'selected' : ''; ?>><?php echo e($r); ?></option>
+                  <?php endforeach; ?>
                 </select>
               </div>
               <button class="btn" type="submit">Kirim Undangan</button>
               <p><small>Link undangan berlaku 2 hari.</small></p>
             </form>
           <?php else: ?>
-            <p><small>Hanya owner yang bisa mengundang user.</small></p>
+            <p><small>Anda tidak punya hak untuk mengundang user.</small></p>
           <?php endif; ?>
         </div>
 
@@ -183,6 +209,7 @@ $mailCfg = mail_settings();
                     'pegawai_pos' => 'pegawai_pos',
                     'pegawai_non_pos' => 'pegawai_non_pos',
                     'manager_toko' => 'manager_toko',
+                    'pegawai_dapur' => 'pegawai_dapur',
                   ];
                   $roleValue = (string)($u['role'] ?? '');
                   $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : $roleValue;
@@ -206,6 +233,7 @@ $mailCfg = mail_settings();
                           <option value="pegawai_pos" <?php echo ($roleValueNormalized === 'pegawai_pos') ? 'selected' : ''; ?>>pegawai_pos</option>
                           <option value="pegawai_non_pos" <?php echo ($roleValueNormalized === 'pegawai_non_pos') ? 'selected' : ''; ?>>pegawai_non_pos</option>
                           <option value="manager_toko" <?php echo ($roleValueNormalized === 'manager_toko') ? 'selected' : ''; ?>>manager_toko</option>
+                          <option value="pegawai_dapur" <?php echo ($roleValueNormalized === 'pegawai_dapur') ? 'selected' : ''; ?>>pegawai_dapur</option>
                         </select>
                         <button class="btn" type="submit">Simpan</button>
                       </form>
@@ -215,7 +243,19 @@ $mailCfg = mail_settings();
                         <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
                         <button class="btn" type="submit">Hapus</button>
                       </form>
-                    <?php elseif (($me['role'] ?? '') === 'admin' && (int)$u['id'] !== (int)($me['id'] ?? 0) && !in_array(($u['role'] ?? ''), ['owner', 'superadmin'], true)): ?>
+                    <?php elseif (in_array(($me['role'] ?? ''), ['admin', 'manager_toko'], true) && (int)$u['id'] !== (int)($me['id'] ?? 0) && in_array($roleValueNormalized, $manageableRoles, true)): ?>
+                      <form method="post" style="display:inline">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="update_role">
+                        <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
+                        <select name="role">
+                          <?php foreach ($manageableRoles as $r): ?>
+                            <?php if (($me['role'] ?? '') === 'admin' && in_array($r, ['owner', 'admin'], true)) continue; ?>
+                            <option value="<?php echo e($r); ?>" <?php echo ($roleValueNormalized === $r) ? 'selected' : ''; ?>><?php echo e($r); ?></option>
+                          <?php endforeach; ?>
+                        </select>
+                        <button class="btn" type="submit">Simpan</button>
+                      </form>
                       <form method="post" data-confirm="Hapus user ini?" style="display:inline">
                         <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="hidden" name="action" value="delete">

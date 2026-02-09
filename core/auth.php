@@ -28,7 +28,7 @@ function require_admin(): void {
   $role = (string)($u['role'] ?? '');
   if (is_employee_role($role)) {
     if ($role === 'manager_toko') {
-      $allowedPages = ['schedule.php', 'attendance.php'];
+      $allowedPages = ['schedule.php', 'attendance.php', 'users.php'];
       $currentPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
       if (!in_array($currentPage, $allowedPages, true)) {
         $_SESSION['flash_error'] = 'Akses dibatasi untuk manager_toko.';

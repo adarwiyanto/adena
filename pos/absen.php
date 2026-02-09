@@ -10,6 +10,7 @@ start_secure_session();
 require_login();
 ensure_employee_roles();
 ensure_employee_attendance_tables();
+ensure_work_locations_table();
 
 $me = current_user();
 $role = (string)($me['role'] ?? '');
@@ -40,6 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $attendTime = trim((string)($_POST['attend_time'] ?? ''));
   $earlyCheckoutReason = substr(trim((string)($_POST['early_checkout_reason'] ?? '')), 0, 255);
   $deviceInfo = substr(trim((string)($_POST['device_info'] ?? '')), 0, 255);
+  $geoLat = trim((string)($_POST['geo_latitude'] ?? ''));
+  $geoLng = trim((string)($_POST['geo_longitude'] ?? ''));
 
   try {
     if ($attendDate !== $today) {
@@ -51,6 +54,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($attendDate !== $todayDate) {
       throw new Exception('Absensi hanya bisa untuk tanggal hari ini.');
     }
+    if (!is_numeric($geoLat) || !is_numeric($geoLng)) {
+      throw new Exception('Lokasi GPS wajib diambil dari browser sebelum absen.');
+    }
+
+    $matchedLocation = find_matching_work_location((float)$geoLat, (float)$geoLng);
+    if (!$matchedLocation) {
+      throw new Exception('Lokasi absensi tidak sah. Anda harus berada di toko atau dapur yang terdaftar.');
+    }
+
     if (empty($_FILES['attendance_photo']['name'] ?? '')) {
       throw new Exception('Foto wajib dari kamera.');
     }
@@ -195,11 +207,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stored = 'attendance/' . substr($today, 0, 4) . '/' . substr($today, 5, 2) . '/' . $fileName;
 
     if ($type === 'in') {
-      $upd = $db->prepare("UPDATE employee_attendance SET checkin_time=?, checkin_photo_path=?, checkin_device_info=?, checkin_status=?, late_minutes=?, overtime_before_minutes=?, updated_at=NOW() WHERE id=?");
-      $upd->execute([$timeFull, $stored, $deviceInfo, $checkinStatus, $lateMinutes, $overtimeBefore, (int)$row['id']]);
+      $upd = $db->prepare("UPDATE employee_attendance SET checkin_time=?, checkin_photo_path=?, checkin_device_info=?, checkin_latitude=?, checkin_longitude=?, checkin_location_name=?, checkin_status=?, late_minutes=?, overtime_before_minutes=?, updated_at=NOW() WHERE id=?");
+      $upd->execute([$timeFull, $stored, $deviceInfo, (float)$geoLat, (float)$geoLng, (string)$matchedLocation['name'], $checkinStatus, $lateMinutes, $overtimeBefore, (int)$row['id']]);
     } else {
-      $upd = $db->prepare("UPDATE employee_attendance SET checkout_time=?, checkout_photo_path=?, checkout_device_info=?, checkin_status=COALESCE(checkin_status, ?), checkout_status=?, early_minutes=?, overtime_after_minutes=?, work_minutes=?, early_checkout_reason=?, updated_at=NOW() WHERE id=?");
-      $upd->execute([$timeFull, $stored, $deviceInfo, $checkinStatus, $checkoutStatus, $earlyMinutes, $overtimeAfter, $workMinutes, $earlyCheckoutReason !== '' ? $earlyCheckoutReason : null, (int)$row['id']]);
+      $upd = $db->prepare("UPDATE employee_attendance SET checkout_time=?, checkout_photo_path=?, checkout_device_info=?, checkout_latitude=?, checkout_longitude=?, checkout_location_name=?, checkin_status=COALESCE(checkin_status, ?), checkout_status=?, early_minutes=?, overtime_after_minutes=?, work_minutes=?, early_checkout_reason=?, updated_at=NOW() WHERE id=?");
+      $upd->execute([$timeFull, $stored, $deviceInfo, (float)$geoLat, (float)$geoLng, (string)$matchedLocation['name'], $checkinStatus, $checkoutStatus, $earlyMinutes, $overtimeAfter, $workMinutes, $earlyCheckoutReason !== '' ? $earlyCheckoutReason : null, (int)$row['id']]);
     }
 
     $db->commit();
@@ -237,6 +249,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
       <input type="hidden" name="type" value="<?php echo e($type); ?>">
       <input type="hidden" name="device_info" id="device_info">
+      <input type="hidden" name="geo_latitude" id="geo_latitude">
+      <input type="hidden" name="geo_longitude" id="geo_longitude">
       <div class="row"><label>Tanggal</label><input name="attend_date" value="<?php echo e($today); ?>" readonly></div>
       <div class="row"><label>Waktu</label><input type="time" name="attend_time" value="<?php echo e(app_now_jakarta('H:i')); ?>" required></div>
       <?php if ($type === 'out'): ?>
@@ -245,6 +259,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <textarea name="early_checkout_reason" rows="3" maxlength="255"></textarea>
       </div>
       <?php endif; ?>
+      <div class="row">
+        <label>Geotagging Lokasi</label>
+        <button class="btn" type="button" id="btn-geo">Ambil Lokasi Saya</button>
+        <small id="geo_status">Belum ada lokasi GPS.</small>
+      </div>
       <div class="row">
         <label>Foto Absensi</label>
         <input type="file" name="attendance_photo" id="attendance_photo" accept="image/jpeg,image/png" capture="user" required>
@@ -266,6 +285,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   const fileInput = document.getElementById('attendance_photo');
   const previewWrap = document.getElementById('photo_preview_wrap');
   const previewImg = document.getElementById('photo_preview');
+
+
+  const geoLat = document.getElementById('geo_latitude');
+  const geoLng = document.getElementById('geo_longitude');
+  const geoStatus = document.getElementById('geo_status');
+  const geoBtn = document.getElementById('btn-geo');
+
+  geoBtn.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+      geoStatus.textContent = 'Browser tidak mendukung geolocation.';
+      return;
+    }
+    geoStatus.textContent = 'Mengambil lokasi...';
+    navigator.geolocation.getCurrentPosition((position) => {
+      geoLat.value = position.coords.latitude.toFixed(7);
+      geoLng.value = position.coords.longitude.toFixed(7);
+      geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value}`;
+    }, (error) => {
+      geoStatus.textContent = 'Gagal mengambil lokasi: ' + error.message;
+    }, { enableHighAccuracy: true, timeout: 15000 });
+  });
+
+  document.getElementById('absen-form').addEventListener('submit', (e) => {
+    if (!geoLat.value || !geoLng.value) {
+      e.preventDefault();
+      alert('Silakan ambil lokasi GPS terlebih dahulu.');
+    }
+  });
 
   fileInput.addEventListener('change', () => {
     const file = fileInput.files && fileInput.files[0];
