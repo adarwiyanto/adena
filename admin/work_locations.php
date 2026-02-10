@@ -29,8 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $radius = max(20, min(1000, (int)($_POST['radius_meters'] ?? 150)));
       if ($name === '') throw new Exception('Nama lokasi kerja wajib diisi.');
       if (!is_numeric($lat) || !is_numeric($lng)) throw new Exception('Koordinat geotagging tidak valid.');
+      $latFloat = (float)$lat;
+      $lngFloat = (float)$lng;
+      if ($latFloat < -90 || $latFloat > 90 || $lngFloat < -180 || $lngFloat > 180) {
+        throw new Exception('Koordinat di luar rentang yang valid.');
+      }
       $stmt = db()->prepare('INSERT INTO work_locations (name, latitude, longitude, radius_meters) VALUES (?,?,?,?)');
-      $stmt->execute([$name, (float)$lat, (float)$lng, $radius]);
+      $stmt->execute([$name, $latFloat, $lngFloat, $radius]);
       $ok = 'Lokasi kerja berhasil ditambahkan.';
     }
 
@@ -80,11 +85,11 @@ $customCss = setting('custom_css', '');
             <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
             <input type="hidden" name="action" value="save">
             <div class="row"><label>Nama Lokasi Kerja</label><input name="name" required></div>
-            <div class="row"><label>Latitude</label><input name="latitude" id="latitude" readonly required></div>
-            <div class="row"><label>Longitude</label><input name="longitude" id="longitude" readonly required></div>
+            <div class="row"><label>Latitude</label><input name="latitude" id="latitude" inputmode="decimal" placeholder="Contoh: -6.2000000" required></div>
+            <div class="row"><label>Longitude</label><input name="longitude" id="longitude" inputmode="decimal" placeholder="Contoh: 106.8166667" required></div>
             <div class="row"><label>Radius Valid (meter)</label><input type="number" name="radius_meters" value="150" min="20" max="1000"></div>
             <button class="btn" type="button" id="btn-geotag">Ambil Lokasi dari Browser</button>
-            <p><small id="geo_status">Belum ada lokasi GPS.</small></p>
+            <p><small id="geo_status">Belum ada lokasi GPS. Anda juga bisa isi koordinat manual.</small></p>
             <button class="btn" type="submit">Simpan Lokasi</button>
             <p><small>Absensi di luar radius lokasi kerja akan dianggap tidak sah.</small></p>
           </form>
@@ -123,6 +128,20 @@ $customCss = setting('custom_css', '');
   const geoStatus = document.getElementById('geo_status');
   const latInput = document.getElementById('latitude');
   const lngInput = document.getElementById('longitude');
+
+  function validateCoordinateInput() {
+    const lat = Number(latInput.value);
+    const lng = Number(lngInput.value);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      geoStatus.textContent = 'Latitude/Longitude harus berupa angka.';
+      return false;
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      geoStatus.textContent = 'Rentang koordinat tidak valid (lat -90..90, long -180..180).';
+      return false;
+    }
+    return true;
+  }
 
   function getLocation(options) {
     return new Promise((resolve, reject) => {
@@ -200,6 +219,14 @@ $customCss = setting('custom_css', '');
     } finally {
       geoBtn.disabled = false;
     }
+  });
+
+  document.getElementById('work-location-form').addEventListener('submit', (event) => {
+    if (!validateCoordinateInput()) {
+      event.preventDefault();
+      return;
+    }
+    geoStatus.textContent = 'Koordinat siap disimpan.';
   });
 </script>
 </body>
