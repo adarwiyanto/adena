@@ -75,7 +75,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
           <a href="<?php echo e(base_url('admin/work_locations.php')); ?>">Lokasi Kerja</a>
           <a href="<?php echo e(base_url('admin/pengumuman.php')); ?>">Pengumuman Perusahaan</a>
           <a href="<?php echo e(base_url('admin/kinerja_dapur.php')); ?>">Kinerja Dapur</a>
-          <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>" style="padding-left:28px">↳ Rekapan KPI pegawai dapur</a>
+          <a href="<?php echo e(base_url('admin/kpi_dapur_rekap.php')); ?>">Rekapan KPI pegawai dapur</a>
           <?php if (($u['role'] ?? '') === 'owner'): ?><a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a><?php endif; ?>
         </div>
       </div>

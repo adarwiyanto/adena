@@ -665,7 +665,7 @@ function ensure_kitchen_kpi_tables(): void {
       ) ENGINE=InnoDB
     ");
 
-    db()->exec("
+    db()->exec(" 
       CREATE TABLE IF NOT EXISTS kitchen_kpi_realizations (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
@@ -682,8 +682,56 @@ function ensure_kitchen_kpi_tables(): void {
         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
       ) ENGINE=InnoDB
     ");
+
+    db()->exec(" 
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_realization_approvals (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        realization_id INT NOT NULL,
+        approver_user_id INT NOT NULL,
+        approved_at TIMESTAMP NULL DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_approval (realization_id, approver_user_id),
+        KEY idx_approver (approver_user_id),
+        FOREIGN KEY (realization_id) REFERENCES kitchen_kpi_realizations(id) ON DELETE CASCADE,
+        FOREIGN KEY (approver_user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB
+    ");
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+
+function kitchen_kpi_required_approver_ids(int $submitterUserId): array {
+  ensure_kitchen_kpi_tables();
+  $submitterUserId = max(0, $submitterUserId);
+  if ($submitterUserId <= 0) return [];
+
+  $stmt = db()->prepare("SELECT id FROM users WHERE (role='pegawai_dapur' AND id<>?) OR role='manager_dapur' ORDER BY id ASC");
+  $stmt->execute([$submitterUserId]);
+  $ids = array_map(static fn($v): int => (int)$v, $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+  return array_values(array_unique(array_filter($ids, static fn($id): bool => $id > 0)));
+}
+
+function kitchen_kpi_sync_realization_approvals(int $realizationId, int $submitterUserId): void {
+  ensure_kitchen_kpi_tables();
+  $realizationId = max(0, $realizationId);
+  if ($realizationId <= 0) return;
+
+  $requiredIds = kitchen_kpi_required_approver_ids($submitterUserId);
+  if (!$requiredIds) {
+    $del = db()->prepare('DELETE FROM kitchen_kpi_realization_approvals WHERE realization_id=?');
+    $del->execute([$realizationId]);
+    return;
+  }
+
+  $ph = implode(',', array_fill(0, count($requiredIds), '?'));
+  $params = array_merge([$realizationId], $requiredIds);
+  $del = db()->prepare("DELETE FROM kitchen_kpi_realization_approvals WHERE realization_id=? AND approver_user_id NOT IN ($ph)");
+  $del->execute($params);
+
+  $ins = db()->prepare('INSERT IGNORE INTO kitchen_kpi_realization_approvals (realization_id,approver_user_id) VALUES (?,?)');
+  foreach ($requiredIds as $approverId) {
+    $ins->execute([$realizationId, $approverId]);
   }
 }
 
