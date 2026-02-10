@@ -2,6 +2,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/attendance.php';
 
 function start_session(): void {
   start_secure_session();
@@ -21,6 +22,13 @@ function require_login(): void {
   }
 }
 
+function kitchen_job_home_by_role(string $role): string {
+  if ($role === 'manager_dapur') {
+    return base_url('admin/kinerja_dapur.php');
+  }
+  return base_url('pos/dapur_hari_ini.php');
+}
+
 function require_admin(): void {
   require_login();
   ensure_owner_role();
@@ -28,7 +36,7 @@ function require_admin(): void {
   $role = (string)($u['role'] ?? '');
   if (is_employee_role($role)) {
     if ($role === 'manager_toko') {
-      $allowedPages = ['schedule.php', 'attendance.php'];
+      $allowedPages = ['schedule.php', 'attendance.php', 'users.php'];
       $currentPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
       if (!in_array($currentPage, $allowedPages, true)) {
         $_SESSION['flash_error'] = 'Akses dibatasi untuk manager_toko.';
@@ -36,7 +44,26 @@ function require_admin(): void {
       }
       return;
     }
-    redirect(base_url('pos/index.php'));
+    if ($role === 'manager_dapur') {
+      $allowedPages = ['kinerja_dapur.php', 'kpi_dapur_rekap.php', 'users.php', 'schedule.php', 'attendance.php'];
+      $currentPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
+      if (!in_array($currentPage, $allowedPages, true)) {
+        $_SESSION['flash_error'] = 'Akses dibatasi untuk manager_dapur.';
+        redirect(base_url('admin/kinerja_dapur.php'));
+      }
+
+      if (!in_array($currentPage, ['users.php'], true)) {
+        ensure_employee_attendance_tables();
+        $attendanceToday = attendance_today_for_user((int)($u['id'] ?? 0));
+        $attendanceConfirmed = !empty($_SESSION['kitchen_attendance_confirmed']);
+        if (empty($attendanceToday['checkin_time']) && !$attendanceConfirmed) {
+          $_SESSION['flash_error'] = 'Silakan absen masuk terlebih dahulu.';
+          redirect(base_url('pos/attendance_confirm.php'));
+        }
+      }
+      return;
+    }
+    redirect(base_url($role === 'pegawai_dapur' ? 'pos/dapur_hari_ini.php' : 'pos/index.php'));
   }
   if (!in_array($role, ['admin', 'owner', 'superadmin'], true)) {
     http_response_code(403);
@@ -49,9 +76,19 @@ function require_schedule_or_attendance_admin(): void {
   ensure_owner_role();
   $u = current_user();
   $role = (string)($u['role'] ?? '');
-  if (!in_array($role, ['admin', 'owner', 'superadmin', 'manager_toko'], true)) {
+  if (!in_array($role, ['admin', 'owner', 'superadmin', 'manager_toko', 'manager_dapur'], true)) {
     http_response_code(403);
     exit('Forbidden');
+  }
+
+  if ($role === 'manager_dapur') {
+    ensure_employee_attendance_tables();
+    $attendanceToday = attendance_today_for_user((int)($u['id'] ?? 0));
+    $attendanceConfirmed = !empty($_SESSION['kitchen_attendance_confirmed']);
+    if (empty($attendanceToday['checkin_time']) && !$attendanceConfirmed) {
+      $_SESSION['flash_error'] = 'Silakan absen masuk terlebih dahulu.';
+      redirect(base_url('pos/attendance_confirm.php'));
+    }
   }
 }
 
@@ -102,6 +139,10 @@ function login_attempt(string $username, string $password): bool {
   }
   $_SESSION['user'] = $u;
   $_SESSION['login_date'] = app_today_jakarta();
+  if (in_array((string)($u['role'] ?? ''), ['pegawai_dapur', 'manager_dapur'], true)) {
+    $_SESSION['kitchen_attendance_gate_pending'] = true;
+    unset($_SESSION['kitchen_attendance_confirmed']);
+  }
   login_clear_failed_attempts();
   return true;
 }

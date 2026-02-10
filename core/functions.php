@@ -27,11 +27,11 @@ function asset_url(string $path = ''): string {
 
 
 function is_employee_role(?string $role): bool {
-  return in_array((string)$role, ['pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko'], true);
+  return in_array((string)$role, ['pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'], true);
 }
 
 function employee_can_process_payment(?string $role): bool {
-  return in_array((string)$role, ['pegawai', 'pegawai_pos', 'manager_toko', 'admin', 'owner', 'superadmin'], true);
+  return in_array((string)$role, ['pegawai_pos', 'manager_toko', 'admin', 'owner', 'superadmin'], true);
 }
 
 function app_now_jakarta(string $format = 'Y-m-d H:i:s'): string {
@@ -425,8 +425,8 @@ function ensure_owner_role(): void {
     $type = (string)($column['Type'] ?? '');
     if (strpos($type, "'owner'") === false || strpos($type, "'superadmin'") !== false) {
       db()->exec("UPDATE users SET role='owner' WHERE role='superadmin'");
-      db()->exec("UPDATE users SET role='pegawai' WHERE role='user'");
-      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai','pegawai_pos','pegawai_non_pos','manager_toko') NOT NULL DEFAULT 'admin'");
+      db()->exec("UPDATE users SET role='pegawai_pos' WHERE role='user'");
+      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur','manager_dapur') NOT NULL DEFAULT 'admin'");
     }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
@@ -531,11 +531,273 @@ function ensure_employee_roles(): void {
   $ensured = true;
 
   try {
-    db()->exec("UPDATE users SET role='pegawai' WHERE role='user'");
-    db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai','pegawai_pos','pegawai_non_pos','manager_toko') NOT NULL DEFAULT 'admin'");
+    db()->exec("UPDATE users SET role='pegawai_pos' WHERE role='user'");
+    db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur','manager_dapur') NOT NULL DEFAULT 'admin'");
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
+}
+
+
+
+
+function ensure_company_announcements_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS company_announcements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(190) NOT NULL,
+        message TEXT NOT NULL,
+        audience ENUM('toko','dapur') NOT NULL DEFAULT 'toko',
+        posted_by INT NULL,
+        starts_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_audience_expires (audience, expires_at),
+        KEY idx_posted_by (posted_by),
+        FOREIGN KEY (posted_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+
+function latest_active_announcement(string $audience): ?array {
+  ensure_company_announcements_table();
+  try {
+    $stmt = db()->prepare("
+      SELECT a.id, a.title, a.message, a.audience, a.starts_at, a.expires_at, a.created_at, u.name AS posted_by_name
+      FROM company_announcements a
+      LEFT JOIN users u ON u.id = a.posted_by
+      WHERE a.audience = ?
+        AND a.starts_at <= NOW()
+        AND a.expires_at >= NOW()
+      ORDER BY a.id DESC
+      LIMIT 1
+    ");
+    $stmt->execute([$audience]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+  } catch (Throwable $e) {
+    return null;
+  }
+}
+
+function clean_old_attendance_photos(int $olderThanDays = 90): void {
+  static $cleaned = false;
+  if ($cleaned) return;
+  $cleaned = true;
+
+  $olderThanDays = max(30, $olderThanDays);
+  $cutoff = app_now_jakarta('Y-m-d H:i:s');
+  try {
+    $dt = new DateTimeImmutable($cutoff, new DateTimeZone('Asia/Jakarta'));
+    $cutoff = $dt->modify('-' . $olderThanDays . ' days')->format('Y-m-d H:i:s');
+
+    $stmt = db()->prepare("SELECT checkin_photo_path, checkout_photo_path FROM employee_attendance WHERE attend_date < DATE(?)");
+    $stmt->execute([$cutoff]);
+    $rows = $stmt->fetchAll();
+    foreach ($rows as $row) {
+      foreach (['checkin_photo_path', 'checkout_photo_path'] as $key) {
+        $path = (string)($row[$key] ?? '');
+        if ($path === '' || strpos($path, 'attendance/') !== 0) {
+          continue;
+        }
+        $full = rtrim(UPLOAD_BASE, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $path);
+        if (is_file($full)) {
+          @unlink($full);
+        }
+      }
+    }
+
+    $purge = db()->prepare("
+      UPDATE employee_attendance
+      SET checkin_photo_path = CASE WHEN attend_date < DATE(?) THEN NULL ELSE checkin_photo_path END,
+          checkout_photo_path = CASE WHEN attend_date < DATE(?) THEN NULL ELSE checkout_photo_path END
+      WHERE attend_date < DATE(?)
+    ");
+    $purge->execute([$cutoff, $cutoff, $cutoff]);
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+function ensure_kitchen_kpi_tables(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_activities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        activity_name VARCHAR(160) NOT NULL,
+        point_value INT NOT NULL DEFAULT 0,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_activity_name (activity_name),
+        KEY idx_created_by (created_by),
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_targets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        activity_id INT NOT NULL,
+        target_date DATE NOT NULL,
+        target_qty INT NOT NULL DEFAULT 0,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_target (user_id, activity_id, target_date),
+        KEY idx_target_date (target_date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (activity_id) REFERENCES kitchen_kpi_activities(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+
+    db()->exec(" 
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_realizations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        activity_id INT NOT NULL,
+        realization_date DATE NOT NULL,
+        qty INT NOT NULL DEFAULT 0,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_realization (user_id, activity_id, realization_date),
+        KEY idx_realization_date (realization_date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (activity_id) REFERENCES kitchen_kpi_activities(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+
+    db()->exec(" 
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_realization_approvals (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        realization_id INT NOT NULL,
+        approver_user_id INT NOT NULL,
+        approved_at TIMESTAMP NULL DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_approval (realization_id, approver_user_id),
+        KEY idx_approver (approver_user_id),
+        FOREIGN KEY (realization_id) REFERENCES kitchen_kpi_realizations(id) ON DELETE CASCADE,
+        FOREIGN KEY (approver_user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB
+    ");
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+
+function kitchen_kpi_required_approver_ids(int $submitterUserId): array {
+  ensure_kitchen_kpi_tables();
+  $submitterUserId = max(0, $submitterUserId);
+  if ($submitterUserId <= 0) return [];
+
+  $stmt = db()->prepare("SELECT id FROM users WHERE (role='pegawai_dapur' AND id<>?) OR role='manager_dapur' ORDER BY id ASC");
+  $stmt->execute([$submitterUserId]);
+  $ids = array_map(static fn($v): int => (int)$v, $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+  return array_values(array_unique(array_filter($ids, static fn($id): bool => $id > 0)));
+}
+
+function kitchen_kpi_sync_realization_approvals(int $realizationId, int $submitterUserId): void {
+  ensure_kitchen_kpi_tables();
+  $realizationId = max(0, $realizationId);
+  if ($realizationId <= 0) return;
+
+  $requiredIds = kitchen_kpi_required_approver_ids($submitterUserId);
+  if (!$requiredIds) {
+    $del = db()->prepare('DELETE FROM kitchen_kpi_realization_approvals WHERE realization_id=?');
+    $del->execute([$realizationId]);
+    return;
+  }
+
+  $ph = implode(',', array_fill(0, count($requiredIds), '?'));
+  $params = array_merge([$realizationId], $requiredIds);
+  $del = db()->prepare("DELETE FROM kitchen_kpi_realization_approvals WHERE realization_id=? AND approver_user_id NOT IN ($ph)");
+  $del->execute($params);
+
+  $ins = db()->prepare('INSERT IGNORE INTO kitchen_kpi_realization_approvals (realization_id,approver_user_id) VALUES (?,?)');
+  foreach ($requiredIds as $approverId) {
+    $ins->execute([$realizationId, $approverId]);
+  }
+}
+
+function ensure_work_locations_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    $db = db();
+    $db->exec("
+      CREATE TABLE IF NOT EXISTS work_locations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(120) NOT NULL,
+        latitude DECIMAL(10,7) NOT NULL,
+        longitude DECIMAL(10,7) NOT NULL,
+        radius_meters INT NOT NULL DEFAULT 150,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_name (name)
+      ) ENGINE=InnoDB
+    ");
+
+    $addColumnIfMissing = static function (PDO $db, string $table, string $column, string $definition): void {
+      $stmt = $db->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?');
+      $stmt->execute([$table, $column]);
+      if ((int) $stmt->fetchColumn() === 0) {
+        $db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+      }
+    };
+
+    $addColumnIfMissing($db, 'employee_attendance', 'checkin_latitude', 'DECIMAL(10,7) NULL AFTER checkin_device_info');
+    $addColumnIfMissing($db, 'employee_attendance', 'checkin_longitude', 'DECIMAL(10,7) NULL AFTER checkin_latitude');
+    $addColumnIfMissing($db, 'employee_attendance', 'checkout_latitude', 'DECIMAL(10,7) NULL AFTER checkout_device_info');
+    $addColumnIfMissing($db, 'employee_attendance', 'checkout_longitude', 'DECIMAL(10,7) NULL AFTER checkout_latitude');
+    $addColumnIfMissing($db, 'employee_attendance', 'checkin_location_name', 'VARCHAR(120) NULL AFTER checkin_longitude');
+    $addColumnIfMissing($db, 'employee_attendance', 'checkout_location_name', 'VARCHAR(120) NULL AFTER checkout_longitude');
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+
+function geo_distance_meters(float $lat1, float $lon1, float $lat2, float $lon2): float {
+  $earthRadius = 6371000.0;
+  $dLat = deg2rad($lat2 - $lat1);
+  $dLon = deg2rad($lon2 - $lon1);
+  $a = sin($dLat / 2) * sin($dLat / 2) + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) * sin($dLon / 2);
+  $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+  return $earthRadius * $c;
+}
+
+function find_matching_work_location(float $lat, float $lng): ?array {
+  ensure_work_locations_table();
+  try {
+    $rows = db()->query("SELECT id, name, latitude, longitude, radius_meters FROM work_locations ORDER BY id DESC")->fetchAll();
+    foreach ($rows as $row) {
+      $distance = geo_distance_meters($lat, $lng, (float)$row['latitude'], (float)$row['longitude']);
+      if ($distance <= (float)$row['radius_meters']) {
+        $row['distance_meters'] = $distance;
+        return $row;
+      }
+    }
+  } catch (Throwable $e) {
+    return null;
+  }
+  return null;
 }
 
 function attendance_photo_url(?string $path): string {

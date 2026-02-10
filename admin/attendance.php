@@ -18,7 +18,26 @@ $month = max(1, min(12, (int)($_GET['month'] ?? date('n'))));
 $year = max(2000, min(2100, (int)($_GET['year'] ?? date('Y'))));
 $isExport = (($_GET['export'] ?? '') === 'csv');
 
-$employees = db()->query("SELECT id,name,role FROM users WHERE role IN ('pegawai','pegawai_pos','pegawai_non_pos','manager_toko') ORDER BY name")->fetchAll();
+
+$me = current_user();
+$currentRole = (string)($me['role'] ?? '');
+$employeeRoleFilter = [
+  'pegawai_pos',
+  'pegawai_non_pos',
+  'manager_toko',
+  'pegawai_dapur',
+  'manager_dapur',
+];
+if ($currentRole === 'manager_toko') {
+  $employeeRoleFilter = ['pegawai_pos', 'pegawai_non_pos'];
+} elseif ($currentRole === 'manager_dapur') {
+  $employeeRoleFilter = ['pegawai_dapur'];
+}
+
+$placeholders = implode(',', array_fill(0, count($employeeRoleFilter), '?'));
+$stmtEmployees = db()->prepare("SELECT id,name,role FROM users WHERE role IN ($placeholders) ORDER BY name");
+$stmtEmployees->execute($employeeRoleFilter);
+$employees = $stmtEmployees->fetchAll();
 $employeeIds = array_map(static fn($r) => (int) $r['id'], $employees);
 $rows = [];
 $summaryRows = [];
@@ -174,6 +193,8 @@ if ($mode === 'detail' && $employeeIds && preg_match('/^\d{4}-\d{2}-\d{2}$/', $f
           'overtime_before_minutes' => $otBefore,
           'overtime_after_minutes' => $otAfter,
           'work_minutes' => $workMinutes,
+          'checkin_time' => $checkinTime,
+          'checkout_time' => $checkoutTime,
           'checkin_photo_path' => $att['checkin_photo_path'] ?? null,
           'checkout_photo_path' => $att['checkout_photo_path'] ?? null,
         ];
@@ -376,7 +397,7 @@ $sidebarHtml = ob_get_clean();
             <div class="row">
               <label>Status Masuk</label>
               <select name="status">
-                <option value="">Semua</option><option value="tepat" <?php echo $statusFilter === 'tepat' ? 'selected' : ''; ?>>Tepat</option><option value="telat" <?php echo $statusFilter === 'telat' ? 'selected' : ''; ?>>Telat</option><option value="early lembur" <?php echo strtolower($statusFilter) === 'early lembur' ? 'selected' : ''; ?>>Early Lembur</option><option value="invalid window" <?php echo strtolower($statusFilter) === 'invalid window' ? 'selected' : ''; ?>>Invalid Window</option><option value="tidak absen" <?php echo strtolower($statusFilter) === 'tidak absen' ? 'selected' : ''; ?>>Tidak absen</option><option value="libur" <?php echo strtolower($statusFilter) === 'libur' ? 'selected' : ''; ?>>Libur</option>
+                <option value="">Semua</option><option value="tepat" <?php echo strtolower($statusFilter) === 'tepat' ? 'selected' : ''; ?>>Tepat Waktu</option><option value="telat" <?php echo strtolower($statusFilter) === 'telat' ? 'selected' : ''; ?>>Telat</option><option value="tidak absen" <?php echo strtolower($statusFilter) === 'tidak absen' ? 'selected' : ''; ?>>Tidak Absen</option><option value="libur" <?php echo strtolower($statusFilter) === 'libur' ? 'selected' : ''; ?>>Libur</option><option value="jadwal belum diatur" <?php echo strtolower($statusFilter) === 'jadwal belum diatur' ? 'selected' : ''; ?>>Jadwal Belum Diatur</option>
               </select>
             </div>
           <?php endif; ?>
@@ -390,13 +411,32 @@ $sidebarHtml = ob_get_clean();
 
         <?php if ($mode === 'detail'): ?>
           <table class="table">
-            <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Jadwal Masuk</th><th>Jadwal Pulang</th><th>Grace</th><th>Window Absen Datang</th><th>Status Masuk</th><th>Telat (mnt)</th><th>Early (mnt)</th><th>Lembur Sebelum</th><th>Status Pulang</th><th>Pulang cepat(mnt)</th><th>Alasan pulang cepat</th><th>Lembur Sesudah</th><th>Work Minutes</th><th>Foto Masuk</th><th>Foto Pulang</th></tr></thead>
+            <thead><tr><th>Tanggal</th><th>Pegawai</th><th>Absen Masuk</th><th>Status Masuk</th><th>Absen Pulang</th><th>Foto Masuk</th><th>Foto Pulang</th></tr></thead>
             <tbody>
             <?php foreach ($rows as $r): ?>
+              <?php
+                $statusInLower = strtolower((string)$r['status_in']);
+                $statusInStyle = 'background:rgba(148,163,184,.18);color:#cbd5e1;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block';
+                if ($statusInLower === 'tepat') {
+                  $statusInStyle = 'background:rgba(34,197,94,.18);color:#86efac;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block';
+                } elseif ($statusInLower === 'telat') {
+                  $statusInStyle = 'background:rgba(239,68,68,.18);color:#fca5a5;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;display:inline-block';
+                }
+                $checkinDisplay = '-';
+                if (!empty($r['checkin_time'])) {
+                  $checkinDisplay = date('H:i', strtotime((string)$r['checkin_time']));
+                }
+                $checkoutDisplay = '-';
+                if (!empty($r['checkout_time'])) {
+                  $checkoutDisplay = date('H:i', strtotime((string)$r['checkout_time']));
+                }
+              ?>
               <tr>
-                <td><?php echo e($r['date']); ?></td><td><?php echo e($r['name']); ?></td><td><?php echo e((string) $r['start_time']); ?></td><td><?php echo e((string) $r['end_time']); ?></td><td><?php echo e((string) $r['grace_minutes']); ?></td><td><?php echo e((string) $r['window_minutes']); ?></td><td><?php echo e($r['status_in']); ?></td><td><?php echo e((string) $r['late_minutes']); ?></td><td><?php echo e((string) $r['early_in_minutes']); ?></td><td><?php echo e((string) $r['overtime_before_minutes']); ?></td><td><?php echo e((string) $r['status_out']); ?></td><td><?php echo e((string) $r['early_minutes']); ?></td>
-                <td><?php echo e($r['early_checkout_reason']); ?><?php if ($r['invalid_reason_flag'] !== ''): ?><div style="color:#ef4444;font-size:12px"><?php echo e($r['invalid_reason_flag']); ?></div><?php endif; ?></td>
-                <td><?php echo e((string) $r['overtime_after_minutes']); ?></td><td><?php echo e((string) $r['work_minutes']); ?></td>
+                <td><?php echo e($r['date']); ?></td>
+                <td><?php echo e($r['name']); ?></td>
+                <td><?php echo e($checkinDisplay); ?></td>
+                <td><span style="<?php echo e($statusInStyle); ?>"><?php echo e((string)$r['status_in']); ?></span></td>
+                <td><?php echo e($checkoutDisplay); ?></td>
                 <td><?php if ($r['checkin_photo_path']): ?><a href="<?php echo e(attendance_photo_url($r['checkin_photo_path'])); ?>" target="_blank">Lihat</a><?php endif; ?></td>
                 <td><?php if ($r['checkout_photo_path']): ?><a href="<?php echo e(attendance_photo_url($r['checkout_photo_path'])); ?>" target="_blank">Lihat</a><?php endif; ?></td>
               </tr>
