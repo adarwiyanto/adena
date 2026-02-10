@@ -22,6 +22,13 @@ function require_login(): void {
   }
 }
 
+function kitchen_job_home_by_role(string $role): string {
+  if ($role === 'manager_dapur') {
+    return base_url('admin/kinerja_dapur.php');
+  }
+  return base_url('pos/dapur_hari_ini.php');
+}
+
 function require_admin(): void {
   require_login();
   ensure_owner_role();
@@ -48,7 +55,8 @@ function require_admin(): void {
       if (!in_array($currentPage, ['users.php'], true)) {
         ensure_employee_attendance_tables();
         $attendanceToday = attendance_today_for_user((int)($u['id'] ?? 0));
-        if (empty($attendanceToday['checkin_time'])) {
+        $attendanceConfirmed = !empty($_SESSION['kitchen_attendance_confirmed']);
+        if (empty($attendanceToday['checkin_time']) && !$attendanceConfirmed) {
           $_SESSION['flash_error'] = 'Silakan absen masuk terlebih dahulu.';
           redirect(base_url('pos/attendance_confirm.php'));
         }
@@ -76,7 +84,8 @@ function require_schedule_or_attendance_admin(): void {
   if ($role === 'manager_dapur') {
     ensure_employee_attendance_tables();
     $attendanceToday = attendance_today_for_user((int)($u['id'] ?? 0));
-    if (empty($attendanceToday['checkin_time'])) {
+    $attendanceConfirmed = !empty($_SESSION['kitchen_attendance_confirmed']);
+    if (empty($attendanceToday['checkin_time']) && !$attendanceConfirmed) {
       $_SESSION['flash_error'] = 'Silakan absen masuk terlebih dahulu.';
       redirect(base_url('pos/attendance_confirm.php'));
     }
@@ -130,6 +139,10 @@ function login_attempt(string $username, string $password): bool {
   }
   $_SESSION['user'] = $u;
   $_SESSION['login_date'] = app_today_jakarta();
+  if (in_array((string)($u['role'] ?? ''), ['pegawai_dapur', 'manager_dapur'], true)) {
+    $_SESSION['kitchen_attendance_gate_pending'] = true;
+    unset($_SESSION['kitchen_attendance_confirmed']);
+  }
   login_clear_failed_attempts();
   return true;
 }
