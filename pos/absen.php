@@ -29,6 +29,14 @@ $now = attendance_now();
 $todayDate = $now->format('Y-m-d');
 $currentTime = $now->format('H:i');
 
+
+$backUrl = base_url('pos/index.php');
+$backLabel = 'Kembali ke POS';
+if (in_array($role, ['pegawai_dapur', 'manager_dapur'], true)) {
+  $backUrl = base_url('pos/dapur_hari_ini.php');
+  $backLabel = 'Kembali ke JOB Hari Ini';
+}
+
 $timeToMinutes = static function (string $time): int {
   [$h, $m] = array_map('intval', explode(':', substr($time, 0, 5)));
   return ($h * 60) + $m;
@@ -275,7 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </div>
       <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn" type="submit">Simpan</button>
-        <a class="btn" href="<?php echo e(base_url('pos/index.php')); ?>">Kembali ke POS</a>
+        <a class="btn" href="<?php echo e($backUrl); ?>"><?php echo e($backLabel); ?></a>
       </div>
     </form>
   </div>

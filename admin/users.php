@@ -23,6 +23,9 @@ function user_manageable_roles_for(string $role): array {
   if ($role === 'manager_toko') {
     return ['pegawai_pos', 'pegawai_non_pos'];
   }
+  if ($role === 'manager_dapur') {
+    return ['pegawai_dapur'];
+  }
   return [];
 }
 
@@ -78,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'invite') {
-      if (!in_array(($me['role'] ?? ''), ['owner', 'admin', 'manager_toko'], true)) {
+      if (!in_array(($me['role'] ?? ''), ['owner', 'admin', 'manager_toko', 'manager_dapur'], true)) {
         throw new Exception('Anda tidak punya akses mengundang user.');
       }
       $email = trim($_POST['email'] ?? '');
