@@ -20,6 +20,13 @@ $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
 $storeSubtitle = setting('store_subtitle', '');
 $me = current_user();
+$role = (string)($me['role'] ?? '');
+if ($role === 'pegawai_dapur') {
+  redirect(base_url('pos/dapur_hari_ini.php'));
+}
+if ($role === 'manager_dapur') {
+  redirect(base_url('admin/kinerja_dapur.php'));
+}
 $products = db()->query("SELECT id, name, price, image_path FROM products ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -31,7 +38,6 @@ $cart = $_SESSION['pos_cart'] ?? [];
 $rewardCart = $_SESSION['pos_reward_cart'] ?? [];
 $activeOrderId = $_SESSION['pos_order_id'] ?? null;
 
-$role = (string)($me['role'] ?? '');
 $isEmployee = is_employee_role($role);
 $isManagerToko = $role === 'manager_toko';
 $canProcessPayment = employee_can_process_payment($role);

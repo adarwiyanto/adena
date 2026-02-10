@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$employees = db()->query("SELECT id,name,role FROM users WHERE role IN ('pegawai','pegawai_pos','pegawai_non_pos','manager_toko') ORDER BY name")->fetchAll();
+$employees = db()->query("SELECT id,name,role FROM users WHERE role IN ('pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur','manager_dapur') ORDER BY name")->fetchAll();
 $weekly = [];
 $overrides = [];
 if ($employeeId > 0) {

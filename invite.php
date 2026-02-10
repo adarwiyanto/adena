@@ -58,8 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute([$username]);
     if ($stmt->fetch()) throw new Exception('Username sudah dipakai.');
 
-    $role = (string)($invite['role'] ?? 'pegawai');
-    if (!in_array($role, ['admin', 'owner', 'pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur'], true)) $role = 'pegawai';
+    $role = (string)($invite['role'] ?? 'pegawai_pos');
+    if (!in_array($role, ['admin', 'owner', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'], true)) $role = 'pegawai_pos';
     $hash = password_hash($p1, PASSWORD_DEFAULT);
     $email = (string)($invite['email'] ?? '');
     $stmt = db()->prepare("INSERT INTO users (username,email,name,role,password_hash) VALUES (?,?,?,?,?)");

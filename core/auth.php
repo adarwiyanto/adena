@@ -36,7 +36,16 @@ function require_admin(): void {
       }
       return;
     }
-    redirect(base_url('pos/index.php'));
+    if ($role === 'manager_dapur') {
+      $allowedPages = ['kinerja_dapur.php', 'kpi_dapur_rekap.php', 'users.php'];
+      $currentPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
+      if (!in_array($currentPage, $allowedPages, true)) {
+        $_SESSION['flash_error'] = 'Akses dibatasi untuk manager_dapur.';
+        redirect(base_url('admin/kinerja_dapur.php'));
+      }
+      return;
+    }
+    redirect(base_url($role === 'pegawai_dapur' ? 'pos/dapur_hari_ini.php' : 'pos/index.php'));
   }
   if (!in_array($role, ['admin', 'owner', 'superadmin'], true)) {
     http_response_code(403);
