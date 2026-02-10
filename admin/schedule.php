@@ -11,6 +11,22 @@ require_schedule_or_attendance_admin();
 ensure_employee_roles();
 ensure_employee_attendance_tables();
 
+
+$me = current_user();
+$currentRole = (string)($me['role'] ?? '');
+$employeeRoleFilter = [
+  'pegawai_pos',
+  'pegawai_non_pos',
+  'manager_toko',
+  'pegawai_dapur',
+  'manager_dapur',
+];
+if ($currentRole === 'manager_toko') {
+  $employeeRoleFilter = ['pegawai_pos', 'pegawai_non_pos'];
+} elseif ($currentRole === 'manager_dapur') {
+  $employeeRoleFilter = ['pegawai_dapur'];
+}
+
 $err = '';
 $ok = '';
 $employeeId = (int) ($_GET['user_id'] ?? $_POST['user_id'] ?? 0);
@@ -63,7 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$employees = db()->query("SELECT id,name,role FROM users WHERE role IN ('pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur','manager_dapur') ORDER BY name")->fetchAll();
+$placeholders = implode(',', array_fill(0, count($employeeRoleFilter), '?'));
+$stmtEmployees = db()->prepare("SELECT id,name,role FROM users WHERE role IN ($placeholders) ORDER BY name");
+$stmtEmployees->execute($employeeRoleFilter);
+$employees = $stmtEmployees->fetchAll();
 $weekly = [];
 $overrides = [];
 if ($employeeId > 0) {

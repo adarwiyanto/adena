@@ -19,7 +19,7 @@ if (!is_employee_role($role)) {
 
 $attendanceToday = attendance_today_for_user((int)($me['id'] ?? 0));
 $hasCheckinToday = !empty($attendanceToday['checkin_time']);
-$audience = $role === 'pegawai_dapur' ? 'dapur' : 'toko';
+$audience = in_array($role, ['pegawai_dapur', 'manager_dapur'], true) ? 'dapur' : 'toko';
 $announcement = latest_active_announcement($audience);
 
 if ($hasCheckinToday) {
