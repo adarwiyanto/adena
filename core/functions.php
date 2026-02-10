@@ -27,11 +27,11 @@ function asset_url(string $path = ''): string {
 
 
 function is_employee_role(?string $role): bool {
-  return in_array((string)$role, ['pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur'], true);
+  return in_array((string)$role, ['pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'], true);
 }
 
 function employee_can_process_payment(?string $role): bool {
-  return in_array((string)$role, ['pegawai', 'pegawai_pos', 'manager_toko', 'admin', 'owner', 'superadmin'], true);
+  return in_array((string)$role, ['pegawai_pos', 'manager_toko', 'admin', 'owner', 'superadmin'], true);
 }
 
 function app_now_jakarta(string $format = 'Y-m-d H:i:s'): string {
@@ -425,8 +425,8 @@ function ensure_owner_role(): void {
     $type = (string)($column['Type'] ?? '');
     if (strpos($type, "'owner'") === false || strpos($type, "'superadmin'") !== false) {
       db()->exec("UPDATE users SET role='owner' WHERE role='superadmin'");
-      db()->exec("UPDATE users SET role='pegawai' WHERE role='user'");
-      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur') NOT NULL DEFAULT 'admin'");
+      db()->exec("UPDATE users SET role='pegawai_pos' WHERE role='user'");
+      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur','manager_dapur') NOT NULL DEFAULT 'admin'");
     }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
@@ -531,14 +531,102 @@ function ensure_employee_roles(): void {
   $ensured = true;
 
   try {
-    db()->exec("UPDATE users SET role='pegawai' WHERE role='user'");
-    db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur') NOT NULL DEFAULT 'admin'");
+    db()->exec("UPDATE users SET role='pegawai_pos' WHERE role='user'");
+    db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','pegawai_pos','pegawai_non_pos','manager_toko','pegawai_dapur','manager_dapur') NOT NULL DEFAULT 'admin'");
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
 }
 
 
+
+
+function ensure_company_announcements_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS company_announcements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(190) NOT NULL,
+        message TEXT NOT NULL,
+        audience ENUM('toko','dapur') NOT NULL DEFAULT 'toko',
+        posted_by INT NULL,
+        starts_at DATETIME NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_audience_expires (audience, expires_at),
+        KEY idx_posted_by (posted_by),
+        FOREIGN KEY (posted_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+
+function latest_active_announcement(string $audience): ?array {
+  ensure_company_announcements_table();
+  try {
+    $stmt = db()->prepare("
+      SELECT a.id, a.title, a.message, a.audience, a.starts_at, a.expires_at, a.created_at, u.name AS posted_by_name
+      FROM company_announcements a
+      LEFT JOIN users u ON u.id = a.posted_by
+      WHERE a.audience = ?
+        AND a.starts_at <= NOW()
+        AND a.expires_at >= NOW()
+      ORDER BY a.id DESC
+      LIMIT 1
+    ");
+    $stmt->execute([$audience]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+  } catch (Throwable $e) {
+    return null;
+  }
+}
+
+function clean_old_attendance_photos(int $olderThanDays = 90): void {
+  static $cleaned = false;
+  if ($cleaned) return;
+  $cleaned = true;
+
+  $olderThanDays = max(30, $olderThanDays);
+  $cutoff = app_now_jakarta('Y-m-d H:i:s');
+  try {
+    $dt = new DateTimeImmutable($cutoff, new DateTimeZone('Asia/Jakarta'));
+    $cutoff = $dt->modify('-' . $olderThanDays . ' days')->format('Y-m-d H:i:s');
+
+    $stmt = db()->prepare("SELECT checkin_photo_path, checkout_photo_path FROM employee_attendance WHERE attend_date < DATE(?)");
+    $stmt->execute([$cutoff]);
+    $rows = $stmt->fetchAll();
+    foreach ($rows as $row) {
+      foreach (['checkin_photo_path', 'checkout_photo_path'] as $key) {
+        $path = (string)($row[$key] ?? '');
+        if ($path === '' || strpos($path, 'attendance/') !== 0) {
+          continue;
+        }
+        $full = rtrim(UPLOAD_BASE, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $path);
+        if (is_file($full)) {
+          @unlink($full);
+        }
+      }
+    }
+
+    $purge = db()->prepare("
+      UPDATE employee_attendance
+      SET checkin_photo_path = CASE WHEN attend_date < DATE(?) THEN NULL ELSE checkin_photo_path END,
+          checkout_photo_path = CASE WHEN attend_date < DATE(?) THEN NULL ELSE checkout_photo_path END
+      WHERE attend_date < DATE(?)
+    ");
+    $purge->execute([$cutoff, $cutoff, $cutoff]);
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
 function ensure_kitchen_kpi_tables(): void {
   static $ensured = false;
   if ($ensured) return;
@@ -555,6 +643,42 @@ function ensure_kitchen_kpi_tables(): void {
         updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
         KEY idx_activity_name (activity_name),
         KEY idx_created_by (created_by),
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_targets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        activity_id INT NOT NULL,
+        target_date DATE NOT NULL,
+        target_qty INT NOT NULL DEFAULT 0,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_target (user_id, activity_id, target_date),
+        KEY idx_target_date (target_date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (activity_id) REFERENCES kitchen_kpi_activities(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    ");
+
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS kitchen_kpi_realizations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        activity_id INT NOT NULL,
+        realization_date DATE NOT NULL,
+        qty INT NOT NULL DEFAULT 0,
+        created_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_realization (user_id, activity_id, realization_date),
+        KEY idx_realization_date (realization_date),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (activity_id) REFERENCES kitchen_kpi_activities(id) ON DELETE CASCADE,
         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
       ) ENGINE=InnoDB
     ");

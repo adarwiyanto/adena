@@ -9,7 +9,7 @@ start_secure_session();
 require_admin();
 
 $me = current_user();
-if (!in_array((string)($me['role'] ?? ''), ['admin', 'owner', 'superadmin'], true)) {
+if (!in_array((string)($me['role'] ?? ''), ['admin', 'owner', 'superadmin', 'manager_dapur'], true)) {
   http_response_code(403);
   exit('Forbidden');
 }

@@ -11,6 +11,7 @@ require_login();
 ensure_employee_roles();
 ensure_employee_attendance_tables();
 ensure_work_locations_table();
+clean_old_attendance_photos(90);
 
 $me = current_user();
 $role = (string)($me['role'] ?? '');
@@ -377,15 +378,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   });
 
-  fileInput.addEventListener('change', () => {
-    const file = fileInput.files && fileInput.files[0];
-    if (!file) {
+  async function compressImageToMax2MB(file) {
+    if (!file || file.size <= 2 * 1024 * 1024) {
+      return file;
+    }
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    const maxWidth = 1600;
+    const scale = Math.min(1, maxWidth / bitmap.width);
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    let quality = 0.9;
+    let blob = null;
+    while (quality >= 0.45) {
+      blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (blob && blob.size <= 2 * 1024 * 1024) {
+        break;
+      }
+      quality -= 0.1;
+    }
+    if (!blob || blob.size > 2 * 1024 * 1024) {
+      throw new Error('Foto tidak bisa dikompres <= 2MB. Ambil ulang foto dengan resolusi lebih rendah.');
+    }
+
+    const compressed = new File([blob], (file.name || 'attendance') + '.jpg', { type: 'image/jpeg' });
+    const dt = new DataTransfer();
+    dt.items.add(compressed);
+    fileInput.files = dt.files;
+    return compressed;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    try {
+      let file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        previewImg.src = '';
+        previewWrap.style.display = 'none';
+        return;
+      }
+
+      file = await compressImageToMax2MB(file);
+      previewImg.src = URL.createObjectURL(file);
+      previewWrap.style.display = 'block';
+    } catch (error) {
+      alert(error.message || 'Gagal kompres foto.');
+      fileInput.value = '';
       previewImg.src = '';
       previewWrap.style.display = 'none';
-      return;
     }
-    previewImg.src = URL.createObjectURL(file);
-    previewWrap.style.display = 'block';
   });
 </script>
 </body>

@@ -41,7 +41,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       redirect(base_url('admin/dashboard.php'));
     }
     rate_limit_clear('admin_login', $rateId);
-    redirect(base_url('pos/index.php'));
+    if (($me['role'] ?? '') === 'pegawai_dapur') {
+      redirect(base_url('pos/dapur_hari_ini.php'));
+    }
+    redirect(base_url('pos/index.php')); 
   } else {
     $failedAttempts = login_record_failed_attempt();
     rate_limit_record('admin_login', $rateId);

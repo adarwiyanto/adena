@@ -15,10 +15,10 @@ $me = current_user();
 
 function user_manageable_roles_for(string $role): array {
   if ($role === 'owner') {
-    return ['owner', 'admin', 'pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur'];
+    return ['owner', 'admin', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'];
   }
   if ($role === 'admin') {
-    return ['pegawai', 'pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur'];
+    return ['pegawai_pos', 'pegawai_non_pos', 'manager_toko', 'pegawai_dapur', 'manager_dapur'];
   }
   if ($role === 'manager_toko') {
     return ['pegawai_pos', 'pegawai_non_pos'];
@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Anda tidak punya akses mengubah role user.');
       }
       $id = (int)($_POST['id'] ?? 0);
-      $role = $_POST['role'] ?? 'pegawai';
+      $role = $_POST['role'] ?? 'pegawai_pos';
       if (!in_array($role, $manageableRoles, true)) {
         throw new Exception('Role tujuan tidak diizinkan.');
       }
@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Anda tidak punya akses mengundang user.');
       }
       $email = trim($_POST['email'] ?? '');
-      $role = $_POST['role'] ?? 'pegawai';
+      $role = $_POST['role'] ?? 'pegawai_pos';
       if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new Exception('Email tidak valid.');
       }
@@ -182,7 +182,7 @@ $mailCfg = mail_settings();
                 <label>Role</label>
                 <select name="role">
                   <?php foreach ($manageableRoles as $r): ?>
-                    <option value="<?php echo e($r); ?>" <?php echo $r === 'pegawai' ? 'selected' : ''; ?>><?php echo e($r); ?></option>
+                    <option value="<?php echo e($r); ?>" <?php echo $r === 'pegawai_pos' ? 'selected' : ''; ?>><?php echo e($r); ?></option>
                   <?php endforeach; ?>
                 </select>
               </div>
@@ -205,15 +205,15 @@ $mailCfg = mail_settings();
                     'owner' => 'owner',
                     'superadmin' => 'owner',
                     'admin' => 'admin',
-                    'pegawai' => 'pegawai',
                     'pegawai_pos' => 'pegawai_pos',
                     'pegawai_non_pos' => 'pegawai_non_pos',
                     'manager_toko' => 'manager_toko',
                     'pegawai_dapur' => 'pegawai_dapur',
+                    'manager_dapur' => 'manager_dapur',
                   ];
                   $roleValue = (string)($u['role'] ?? '');
                   $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : $roleValue;
-                  $roleLabel = $roleLabels[$roleValue] ?? ($roleValue !== '' ? $roleValue : 'pegawai');
+                  $roleLabel = $roleLabels[$roleValue] ?? ($roleValue !== '' ? $roleValue : 'pegawai_pos');
                 ?>
                 <tr>
                   <td><?php echo e($u['username']); ?></td>
@@ -229,11 +229,11 @@ $mailCfg = mail_settings();
                         <select name="role">
                           <option value="owner" <?php echo ($roleValueNormalized === 'owner') ? 'selected' : ''; ?>>owner</option>
                           <option value="admin" <?php echo ($roleValueNormalized === 'admin') ? 'selected' : ''; ?>>admin</option>
-                          <option value="pegawai" <?php echo ($roleValueNormalized === 'pegawai') ? 'selected' : ''; ?>>pegawai</option>
-                          <option value="pegawai_pos" <?php echo ($roleValueNormalized === 'pegawai_pos') ? 'selected' : ''; ?>>pegawai_pos</option>
+                                                    <option value="pegawai_pos" <?php echo ($roleValueNormalized === 'pegawai_pos') ? 'selected' : ''; ?>>pegawai_pos</option>
                           <option value="pegawai_non_pos" <?php echo ($roleValueNormalized === 'pegawai_non_pos') ? 'selected' : ''; ?>>pegawai_non_pos</option>
                           <option value="manager_toko" <?php echo ($roleValueNormalized === 'manager_toko') ? 'selected' : ''; ?>>manager_toko</option>
                           <option value="pegawai_dapur" <?php echo ($roleValueNormalized === 'pegawai_dapur') ? 'selected' : ''; ?>>pegawai_dapur</option>
+                          <option value="manager_dapur" <?php echo ($roleValueNormalized === 'manager_dapur') ? 'selected' : ''; ?>>manager_dapur</option>
                         </select>
                         <button class="btn" type="submit">Simpan</button>
                       </form>
@@ -243,7 +243,7 @@ $mailCfg = mail_settings();
                         <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
                         <button class="btn" type="submit">Hapus</button>
                       </form>
-                    <?php elseif (in_array(($me['role'] ?? ''), ['admin', 'manager_toko'], true) && (int)$u['id'] !== (int)($me['id'] ?? 0) && in_array($roleValueNormalized, $manageableRoles, true)): ?>
+                    <?php elseif (in_array(($me['role'] ?? ''), ['admin', 'manager_toko', 'manager_dapur'], true) && (int)$u['id'] !== (int)($me['id'] ?? 0) && in_array($roleValueNormalized, $manageableRoles, true)): ?>
                       <form method="post" style="display:inline">
                         <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="hidden" name="action" value="update_role">
