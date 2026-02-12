@@ -211,32 +211,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $_SESSION['pos_notice'] = 'Reward dihapus dari keranjang dan poin dikembalikan.';
     } elseif ($action === 'checkout') {
       if (empty($cart) && empty($rewardCart)) throw new Exception('Keranjang masih kosong.');
-      $paymentMethod = $_POST['payment_method'] ?? '';
-      if ($canProcessPayment) {
+      if (!$canProcessPayment) {
+        if (!empty($rewardCart)) {
+          throw new Exception('Klaim reward hanya bisa diproses oleh kasir POS.');
+        }
+        if (!empty($activeOrderId)) {
+          throw new Exception('Pesanan online aktif hanya bisa diproses oleh kasir POS.');
+        }
+        $db = db();
+        $db->beginTransaction();
+        $customerId = ensure_pos_walkin_customer($db);
+        $orderCode = 'ORD-POS-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
+        $stmt = $db->prepare("INSERT INTO orders (order_code, customer_id, status) VALUES (?,?, 'pending')");
+        $stmt->execute([$orderCode, $customerId]);
+        $orderId = (int)$db->lastInsertId();
+
+        $stmt = $db->prepare("INSERT INTO order_items (order_id, product_id, qty, price_each, subtotal) VALUES (?,?,?,?,?)");
+        foreach ($cart as $pid => $qty) {
+          if (empty($productsById[$pid])) {
+            throw new Exception('Produk tidak ditemukan saat kirim pesanan.');
+          }
+          $qty = (int)$qty;
+          if ($qty <= 0) {
+            throw new Exception('Jumlah produk tidak valid.');
+          }
+          $price = (float)$productsById[$pid]['price'];
+          $subtotal = $price * $qty;
+          $stmt->execute([$orderId, (int)$pid, $qty, $price, $subtotal]);
+        }
+
+        $db->commit();
+        $cart = [];
+        $rewardCart = [];
+        $_SESSION['pos_notice'] = 'Pesanan berhasil dikirim ke antrean online. Kode pesanan: ' . $orderCode;
+        unset($_SESSION['pos_receipt']);
+      } else {
+        $paymentMethod = $_POST['payment_method'] ?? '';
         if (!in_array($paymentMethod, ['cash', 'qris'], true)) {
           throw new Exception('Pilih metode pembayaran.');
         }
-      } else {
-        $paymentMethod = 'unpaid';
-      }
-      $paymentProofPath = null;
-      if ($canProcessPayment && $paymentMethod === 'qris') {
-        if (empty($_FILES['payment_proof']['name'] ?? '')) {
-          throw new Exception('Bukti pembayaran QRIS wajib diunggah.');
+        $paymentProofPath = null;
+        if ($paymentMethod === 'qris') {
+          if (empty($_FILES['payment_proof']['name'] ?? '')) {
+            throw new Exception('Bukti pembayaran QRIS wajib diunggah.');
+          }
+          $upload = upload_secure($_FILES['payment_proof'], 'image');
+          if (empty($upload['ok'])) {
+            throw new Exception($upload['error'] ?? 'Gagal mengunggah bukti pembayaran.');
+          }
+          $paymentProofPath = $upload['name'];
         }
-        $upload = upload_secure($_FILES['payment_proof'], 'image');
-        if (empty($upload['ok'])) {
-          throw new Exception($upload['error'] ?? 'Gagal mengunggah bukti pembayaran.');
-        }
-        $paymentProofPath = $upload['name'];
-      }
-      $db = db();
-      $db->beginTransaction();
-      $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-      $stmt = $db->prepare("INSERT INTO sales (transaction_code, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by) VALUES (?,?,?,?,?,?,?,?)");
-      $receiptItems = [];
-      $receiptTotal = 0.0;
-      foreach ($cart as $pid => $qty) {
+        $db = db();
+        $db->beginTransaction();
+        $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
+        $stmt = $db->prepare("INSERT INTO sales (transaction_code, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by) VALUES (?,?,?,?,?,?,?,?)");
+        $receiptItems = [];
+        $receiptTotal = 0.0;
+        foreach ($cart as $pid => $qty) {
         if (empty($productsById[$pid])) {
           throw new Exception('Produk tidak ditemukan saat checkout.');
         }
@@ -324,17 +355,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         unset($_SESSION['pos_order_id']);
       }
-      $_SESSION['pos_receipt'] = [
-        'id' => $transactionCode,
-        'time' => date('d/m/Y H:i'),
-        'cashier' => $me['name'] ?? 'Kasir',
-        'payment' => $paymentMethod,
-        'items' => $receiptItems,
-        'total' => $receiptTotal,
-      ];
-      $cart = [];
-      $rewardCart = [];
-      $_SESSION['pos_notice'] = 'Transaksi berhasil disimpan.';
+        $_SESSION['pos_receipt'] = [
+          'id' => $transactionCode,
+          'time' => date('d/m/Y H:i'),
+          'cashier' => $me['name'] ?? 'Kasir',
+          'payment' => $paymentMethod,
+          'items' => $receiptItems,
+          'total' => $receiptTotal,
+        ];
+        $cart = [];
+        $rewardCart = [];
+        $_SESSION['pos_notice'] = 'Transaksi berhasil disimpan.';
+      }
     }
   } catch (Throwable $e) {
     if (isset($db) && $db->inTransaction()) {
@@ -415,6 +447,22 @@ if (!empty($pendingOrders)) {
       'qty' => (int)$item['qty'],
     ];
   }
+}
+
+function ensure_pos_walkin_customer(PDO $db): int {
+  $customerName = 'Pelanggan POS';
+  $customerPhone = 'POS-WALKIN';
+  $stmt = $db->prepare("SELECT id FROM customers WHERE name = ? AND phone = ? ORDER BY id ASC LIMIT 1");
+  $stmt->execute([$customerName, $customerPhone]);
+  $row = $stmt->fetch();
+  if ($row) {
+    return (int)$row['id'];
+  }
+
+  $stmt = $db->prepare("INSERT INTO customers (name, phone) VALUES (?, ?)");
+  $stmt->execute([$customerName, $customerPhone]);
+
+  return (int)$db->lastInsertId();
 }
 
 $cartItems = [];
@@ -793,9 +841,9 @@ if (!empty($rewardCart)) {
                     <small>Pastikan foto bukti pembayaran jelas sebelum checkout.</small>
                   </div>
                   <?php else: ?>
-                    <div class="pos-alert" style="margin-bottom:10px">Role pegawai non-POS: pembayaran dinonaktifkan, transaksi disimpan sebagai unpaid.</div>
+                    <div class="pos-alert" style="margin-bottom:10px">Role pegawai non-POS: tombol di bawah akan mengirim pesanan ke antrean online (seperti order landing page).</div>
                   <?php endif; ?>
-                  <button class="btn pos-checkout" type="submit">Checkout</button>
+                  <button class="btn pos-checkout" type="submit"><?php echo $canProcessPayment ? 'Checkout' : 'Kirim Pesanan'; ?></button>
                 </form>
               </div>
             <?php endif; ?>
