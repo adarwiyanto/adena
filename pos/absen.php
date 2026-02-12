@@ -52,6 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $deviceInfo = substr(trim((string)($_POST['device_info'] ?? '')), 0, 255);
   $geoLat = trim((string)($_POST['geo_latitude'] ?? ''));
   $geoLng = trim((string)($_POST['geo_longitude'] ?? ''));
+  $geoAccuracy = trim((string)($_POST['geo_accuracy'] ?? ''));
 
   try {
     if ($attendDate !== $today) {
@@ -65,6 +66,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if (!is_numeric($geoLat) || !is_numeric($geoLng)) {
       throw new Exception('Lokasi GPS wajib diambil dari browser sebelum absen.');
+    }
+    if ($geoAccuracy !== '' && !is_numeric($geoAccuracy)) {
+      $geoAccuracy = '';
+    }
+    if ($geoAccuracy !== '') {
+      $deviceInfo = substr(trim($deviceInfo . ' | acc:' . number_format((float)$geoAccuracy, 2, '.', '') . 'm'), 0, 255);
     }
 
     $matchedLocation = find_matching_work_location((float)$geoLat, (float)$geoLng);
@@ -260,6 +267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <input type="hidden" name="device_info" id="device_info">
       <input type="hidden" name="geo_latitude" id="geo_latitude">
       <input type="hidden" name="geo_longitude" id="geo_longitude">
+      <input type="hidden" name="geo_accuracy" id="geo_accuracy">
       <div class="row"><label>Tanggal</label><input name="attend_date" value="<?php echo e($today); ?>" readonly></div>
       <div class="row"><label>Waktu</label><input type="time" name="attend_time" value="<?php echo e(app_now_jakarta('H:i')); ?>" required></div>
       <?php if ($type === 'out'): ?>
@@ -298,92 +306,190 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   const geoLat = document.getElementById('geo_latitude');
   const geoLng = document.getElementById('geo_longitude');
+  const geoAccuracy = document.getElementById('geo_accuracy');
   const geoStatus = document.getElementById('geo_status');
   const geoBtn = document.getElementById('btn-geo');
+  const form = document.getElementById('absen-form');
+  const submitBtn = form.querySelector('button[type="submit"]');
 
-  function getLocation(options) {
+  let isRequestingLocation = false;
+
+  function geolocationErrorMessage(error, insecureContext = false) {
+    if (insecureContext) {
+      return 'Geotag butuh HTTPS. Buka halaman lewat https:// agar browser dapat meminta izin lokasi.';
+    }
+    if (!error || typeof error.code === 'undefined') {
+      return 'Gagal mengambil lokasi.';
+    }
+    if (error.code === error.PERMISSION_DENIED) {
+      return 'Izin lokasi ditolak. Aktifkan izin lokasi untuk browser dan coba lagi.';
+    }
+    if (error.code === error.POSITION_UNAVAILABLE) {
+      return 'Lokasi tidak tersedia. Nyalakan GPS dan coba lagi.';
+    }
+    if (error.code === error.TIMEOUT) {
+      return 'Timeout mengambil lokasi. Coba ulang (pastikan sinyal GPS bagus).';
+    }
+    return 'Gagal mengambil lokasi.';
+  }
+
+  function getCurrentPosition(options) {
     return new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, options);
     });
   }
 
-  function geolocationErrorMessage(error) {
-    if (!error || typeof error.code === 'undefined') {
-      return 'Terjadi kesalahan tidak dikenal saat mengambil lokasi.';
-    }
-    if (error.code === error.PERMISSION_DENIED) {
-      return 'Izin lokasi ditolak. Aktifkan izin lokasi pada browser/perangkat Anda.';
-    }
-    if (error.code === error.POSITION_UNAVAILABLE) {
-      return 'Lokasi tidak tersedia. Pastikan GPS/lokasi perangkat aktif.';
-    }
-    if (error.code === error.TIMEOUT) {
-      return 'Waktu pengambilan lokasi habis. Coba lagi di area dengan sinyal GPS lebih baik.';
-    }
-    return 'Gagal mengambil lokasi: ' + (error.message || 'unknown error');
+  function getWatchPosition(timeoutMs = 10000) {
+    return new Promise((resolve, reject) => {
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          navigator.geolocation.clearWatch(watchId);
+          clearTimeout(timer);
+          resolve(position);
+        },
+        (error) => {
+          navigator.geolocation.clearWatch(watchId);
+          clearTimeout(timer);
+          reject(error);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs }
+      );
+
+      const timer = window.setTimeout(() => {
+        navigator.geolocation.clearWatch(watchId);
+        reject({
+          code: 3,
+          message: 'watchPosition timeout',
+          TIMEOUT: 3,
+          PERMISSION_DENIED: 1,
+          POSITION_UNAVAILABLE: 2,
+        });
+      }, timeoutMs);
+    });
   }
 
-  geoBtn.addEventListener('click', async () => {
-    console.debug('[geo] tombol ambil lokasi diklik');
-    geoBtn.disabled = true;
-    try {
-      if (!navigator.geolocation) {
-        geoStatus.textContent = 'Browser tidak mendukung geolocation.';
-        return;
-      }
+  function clearLocationFields() {
+    geoLat.value = '';
+    geoLng.value = '';
+    geoAccuracy.value = '';
+  }
 
-      if (!window.isSecureContext) {
-        geoStatus.textContent = 'Lokasi butuh HTTPS. Buka halaman lewat https:// agar browser dapat meminta izin lokasi.';
-      }
+  function fillLocationFields(position) {
+    geoLat.value = position.coords.latitude.toFixed(7);
+    geoLng.value = position.coords.longitude.toFixed(7);
+    geoAccuracy.value = Number(position.coords.accuracy || 0).toFixed(2);
+    geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value} (akurasi ±${Math.round(position.coords.accuracy || 0)}m)`;
+  }
 
-      if (navigator.permissions && navigator.permissions.query) {
-        try {
-          const permission = await navigator.permissions.query({ name: 'geolocation' });
-          if (permission.state === 'denied') {
-            geoStatus.textContent = 'Izin lokasi diblokir browser. Aktifkan kembali izin lokasi di pengaturan browser.';
-            return;
-          }
-          if (permission.state === 'prompt') {
-            geoStatus.textContent = 'Mengambil lokasi... izinkan akses lokasi saat diminta browser.';
-          }
-        } catch (permError) {
-          console.debug('[geo] permissions API tidak tersedia penuh:', permError);
-        }
-      } else {
-        geoStatus.textContent = 'Mengambil lokasi...';
-      }
+  async function requestLocation() {
+    clearLocationFields();
 
-      const primaryOptions = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
-      try {
-        const position = await getLocation(primaryOptions);
-        geoLat.value = position.coords.latitude.toFixed(7);
-        geoLng.value = position.coords.longitude.toFixed(7);
-        geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value} (akurasi ±${Math.round(position.coords.accuracy || 0)}m)`;
-      } catch (primaryError) {
-        if (primaryError && primaryError.code === primaryError.TIMEOUT) {
-          geoStatus.textContent = 'Lokasi timeout. Mencoba ulang dengan mode hemat GPS...';
-          const fallbackOptions = { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 };
-          const fallbackPosition = await getLocation(fallbackOptions);
-          geoLat.value = fallbackPosition.coords.latitude.toFixed(7);
-          geoLng.value = fallbackPosition.coords.longitude.toFixed(7);
-          geoStatus.textContent = `Lokasi didapat: ${geoLat.value}, ${geoLng.value} (akurasi ±${Math.round(fallbackPosition.coords.accuracy || 0)}m)`;
-        } else {
-          throw primaryError;
-        }
-      }
-    } catch (error) {
-      console.error('[geo] gagal mengambil lokasi', error);
-      geoStatus.textContent = geolocationErrorMessage(error);
-    } finally {
-      geoBtn.disabled = false;
+    if (!navigator.geolocation) {
+      throw new Error('Geolocation API not supported');
     }
+
+    if (!window.isSecureContext) {
+      const insecureError = new Error('Insecure context');
+      insecureError.code = -1;
+      insecureError.insecureContext = true;
+      throw insecureError;
+    }
+
+    if (navigator.permissions && navigator.permissions.query) {
+      let permission = null;
+      try {
+        permission = await navigator.permissions.query({ name: 'geolocation' });
+      } catch (permError) {
+        console.warn('[geo] permissions API check failed:', permError && permError.message ? permError.message : permError);
+      }
+      if (permission) {
+        console.warn('[geo] permissions state:', permission.state);
+        if (permission.state === 'denied') {
+          const deniedError = new Error('Permission denied by Permissions API');
+          deniedError.code = 1;
+          deniedError.PERMISSION_DENIED = 1;
+          throw deniedError;
+        }
+      }
+    }
+
+    try {
+      return await getCurrentPosition({ enableHighAccuracy: false, timeout: 12000, maximumAge: 0 });
+    } catch (firstError) {
+      console.warn('[geo] first getCurrentPosition failed:', firstError && firstError.code, firstError && firstError.message);
+      if (!firstError || (firstError.code !== firstError.TIMEOUT && firstError.code !== firstError.POSITION_UNAVAILABLE)) {
+        throw firstError;
+      }
+    }
+
+    try {
+      return await getCurrentPosition({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    } catch (secondError) {
+      console.warn('[geo] second getCurrentPosition failed:', secondError && secondError.code, secondError && secondError.message);
+      if (!secondError || (secondError.code !== secondError.TIMEOUT && secondError.code !== secondError.POSITION_UNAVAILABLE)) {
+        throw secondError;
+      }
+    }
+
+    console.warn('[geo] fallback to watchPosition (max 10s)');
+    return getWatchPosition(10000);
+  }
+
+  async function runRequestLocationFlow() {
+    if (isRequestingLocation) {
+      return false;
+    }
+
+    isRequestingLocation = true;
+    geoBtn.disabled = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+    }
+    geoStatus.textContent = 'Mengambil lokasi...';
+
+    try {
+      const position = await requestLocation();
+      fillLocationFields(position);
+      geoBtn.textContent = 'Ambil Ulang / Coba Lagi';
+      return true;
+    } catch (error) {
+      clearLocationFields();
+      const message = geolocationErrorMessage(error, !!(error && error.insecureContext));
+      geoStatus.textContent = message + ' Klik "Coba Lagi".';
+      geoBtn.textContent = 'Coba Lagi';
+      console.warn('[geo] gagal mengambil lokasi:', {
+        code: error && typeof error.code !== 'undefined' ? error.code : null,
+        message: error && error.message ? error.message : 'unknown',
+        userAgent: navigator.userAgent || '',
+      });
+      return false;
+    } finally {
+      isRequestingLocation = false;
+      geoBtn.disabled = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+      }
+    }
+  }
+
+  // Geolocation di Android (termasuk Vivo) harus dipicu oleh user gesture (klik tombol).
+  geoBtn.addEventListener('click', () => {
+    runRequestLocationFlow();
   });
 
-  document.getElementById('absen-form').addEventListener('submit', (e) => {
-    if (!geoLat.value || !geoLng.value) {
-      e.preventDefault();
-      alert('Silakan ambil lokasi GPS terlebih dahulu.');
+  form.addEventListener('submit', async (e) => {
+    if (geoLat.value && geoLng.value) {
+      return;
     }
+
+    e.preventDefault();
+    const success = await runRequestLocationFlow();
+    if (success) {
+      form.requestSubmit(submitBtn || undefined);
+      return;
+    }
+
+    alert('Lokasi GPS belum didapat. Klik tombol "Coba Lagi" untuk mengambil lokasi sebelum submit absen.');
   });
 
   async function compressImageToMax2MB(file) {
