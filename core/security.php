@@ -43,6 +43,7 @@ function send_csp_header(): void {
 
   header_remove('Content-Security-Policy-Report-Only');
   header('Content-Security-Policy: ' . $value);
+  header('Permissions-Policy: geolocation=(self)');
 
   $sent = true;
 }
