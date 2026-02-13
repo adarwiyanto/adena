@@ -4,7 +4,7 @@ require_once __DIR__ . '/core/functions.php';
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
-$iconUrl = favicon_url();
+$iconUrl = shortcut_icon_url();
 
 $manifest = [
   'name' => $storeName,

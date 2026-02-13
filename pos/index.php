@@ -513,7 +513,7 @@ if (!empty($rewardCart)) {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>POS</title>
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
-  <link rel="apple-touch-icon" href="<?php echo e(favicon_url()); ?>">
+  <link rel="apple-touch-icon" href="<?php echo e(shortcut_icon_url()); ?>">
   <link rel="manifest" href="<?php echo e(base_url('manifest.php')); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('pos/pos.css')); ?>">

@@ -189,7 +189,7 @@ $loginButton = '<div style="display:flex;gap:8px;flex-wrap:wrap">' . implode('',
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title><?php echo e($storeName); ?></title>
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
-  <link rel="apple-touch-icon" href="<?php echo e(favicon_url()); ?>">
+  <link rel="apple-touch-icon" href="<?php echo e(shortcut_icon_url()); ?>">
   <link rel="manifest" href="<?php echo e(base_url('manifest.php')); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?><?php echo $landingCss; ?></style>
