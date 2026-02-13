@@ -83,6 +83,42 @@ function favicon_url(): string {
   return base_url('assets/favicon.svg');
 }
 
+
+function shortcut_icon_url(): string {
+  $storeLogo = setting('store_logo', '');
+  if (!empty($storeLogo)) {
+    return upload_url($storeLogo, 'image');
+  }
+
+  require_once __DIR__ . '/../config/upload.php';
+  if (is_dir(UPLOAD_IMG)) {
+    $entries = scandir(UPLOAD_IMG);
+    if (is_array($entries)) {
+      $candidate = '';
+      $candidateTime = 0;
+      foreach ($entries as $entry) {
+        if (!preg_match('/^[a-f0-9]{32}\.(jpe?g|png)$/i', $entry)) {
+          continue;
+        }
+        $fullPath = UPLOAD_IMG . $entry;
+        if (!is_file($fullPath)) {
+          continue;
+        }
+        $mtime = (int)@filemtime($fullPath);
+        if ($candidate === '' || $mtime > $candidateTime) {
+          $candidate = $entry;
+          $candidateTime = $mtime;
+        }
+      }
+      if ($candidate !== '') {
+        return upload_url($candidate, 'image');
+      }
+    }
+  }
+
+  return base_url('assets/favicon.svg');
+}
+
 function set_setting(string $key, string $value): void {
   $stmt = db()->prepare("INSERT INTO settings (`key`,`value`) VALUES (?,?)
     ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)");
