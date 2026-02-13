@@ -10,6 +10,7 @@ start_secure_session();
 require_login();
 ensure_employee_roles();
 ensure_employee_attendance_tables();
+ensure_user_profile_columns();
 ensure_work_locations_table();
 clean_old_attendance_photos(90);
 
@@ -19,6 +20,11 @@ if (!is_employee_role($role)) {
   http_response_code(403);
   exit('Forbidden');
 }
+
+$geoSettingStmt = db()->prepare("SELECT attendance_geotagging_enabled FROM users WHERE id=? LIMIT 1");
+$geoSettingStmt->execute([(int)($me['id'] ?? 0)]);
+$geoSettingRow = $geoSettingStmt->fetch();
+$geotaggingEnabled = !isset($geoSettingRow['attendance_geotagging_enabled']) || (int)$geoSettingRow['attendance_geotagging_enabled'] === 1;
 
 $type = ($_GET['type'] ?? 'in') === 'out' ? 'out' : 'in';
 $today = app_today_jakarta();
@@ -50,9 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $attendTime = trim((string)($_POST['attend_time'] ?? ''));
   $earlyCheckoutReason = substr(trim((string)($_POST['early_checkout_reason'] ?? '')), 0, 255);
   $deviceInfo = substr(trim((string)($_POST['device_info'] ?? '')), 0, 255);
-  $geoLat = trim((string)($_POST['geo_latitude'] ?? ''));
-  $geoLng = trim((string)($_POST['geo_longitude'] ?? ''));
-  $geoAccuracy = trim((string)($_POST['geo_accuracy'] ?? ''));
+  $geoLat = $geotaggingEnabled ? trim((string)($_POST['geo_latitude'] ?? '')) : '';
+  $geoLng = $geotaggingEnabled ? trim((string)($_POST['geo_longitude'] ?? '')) : '';
+  $geoAccuracy = $geotaggingEnabled ? trim((string)($_POST['geo_accuracy'] ?? '')) : '';
 
   try {
     if ($attendDate !== $today) {
@@ -64,19 +70,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($attendDate !== $todayDate) {
       throw new Exception('Absensi hanya bisa untuk tanggal hari ini.');
     }
-    if (!is_numeric($geoLat) || !is_numeric($geoLng)) {
-      throw new Exception('Lokasi GPS wajib diambil dari browser sebelum absen.');
-    }
-    if ($geoAccuracy !== '' && !is_numeric($geoAccuracy)) {
-      $geoAccuracy = '';
-    }
-    if ($geoAccuracy !== '') {
-      $deviceInfo = substr(trim($deviceInfo . ' | acc:' . number_format((float)$geoAccuracy, 2, '.', '') . 'm'), 0, 255);
-    }
+    $matchedLocation = null;
+    if ($geotaggingEnabled) {
+      if (!is_numeric($geoLat) || !is_numeric($geoLng)) {
+        throw new Exception('Lokasi GPS wajib diambil dari browser sebelum absen.');
+      }
+      if ($geoAccuracy !== '' && !is_numeric($geoAccuracy)) {
+        $geoAccuracy = '';
+      }
+      if ($geoAccuracy !== '') {
+        $deviceInfo = substr(trim($deviceInfo . ' | acc:' . number_format((float)$geoAccuracy, 2, '.', '') . 'm'), 0, 255);
+      }
 
-    $matchedLocation = find_matching_work_location((float)$geoLat, (float)$geoLng);
-    if (!$matchedLocation) {
-      throw new Exception('Lokasi absensi tidak sah. Anda harus berada di toko atau dapur yang terdaftar.');
+      $matchedLocation = find_matching_work_location((float)$geoLat, (float)$geoLng);
+      if (!$matchedLocation) {
+        throw new Exception('Lokasi absensi tidak sah. Anda harus berada di toko atau dapur yang terdaftar.');
+      }
     }
 
     if (empty($_FILES['attendance_photo']['name'] ?? '')) {
@@ -224,10 +233,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($type === 'in') {
       $upd = $db->prepare("UPDATE employee_attendance SET checkin_time=?, checkin_photo_path=?, checkin_device_info=?, checkin_latitude=?, checkin_longitude=?, checkin_location_name=?, checkin_status=?, late_minutes=?, overtime_before_minutes=?, updated_at=NOW() WHERE id=?");
-      $upd->execute([$timeFull, $stored, $deviceInfo, (float)$geoLat, (float)$geoLng, (string)$matchedLocation['name'], $checkinStatus, $lateMinutes, $overtimeBefore, (int)$row['id']]);
+      $upd->execute([$timeFull, $stored, $deviceInfo, $geotaggingEnabled ? (float)$geoLat : null, $geotaggingEnabled ? (float)$geoLng : null, $geotaggingEnabled && $matchedLocation ? (string)$matchedLocation['name'] : null, $checkinStatus, $lateMinutes, $overtimeBefore, (int)$row['id']]);
     } else {
       $upd = $db->prepare("UPDATE employee_attendance SET checkout_time=?, checkout_photo_path=?, checkout_device_info=?, checkout_latitude=?, checkout_longitude=?, checkout_location_name=?, checkin_status=COALESCE(checkin_status, ?), checkout_status=?, early_minutes=?, overtime_after_minutes=?, work_minutes=?, early_checkout_reason=?, updated_at=NOW() WHERE id=?");
-      $upd->execute([$timeFull, $stored, $deviceInfo, (float)$geoLat, (float)$geoLng, (string)$matchedLocation['name'], $checkinStatus, $checkoutStatus, $earlyMinutes, $overtimeAfter, $workMinutes, $earlyCheckoutReason !== '' ? $earlyCheckoutReason : null, (int)$row['id']]);
+      $upd->execute([$timeFull, $stored, $deviceInfo, $geotaggingEnabled ? (float)$geoLat : null, $geotaggingEnabled ? (float)$geoLng : null, $geotaggingEnabled && $matchedLocation ? (string)$matchedLocation['name'] : null, $checkinStatus, $checkoutStatus, $earlyMinutes, $overtimeAfter, $workMinutes, $earlyCheckoutReason !== '' ? $earlyCheckoutReason : null, (int)$row['id']]);
     }
 
     $db->commit();
@@ -276,11 +285,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <textarea name="early_checkout_reason" rows="3" maxlength="255"></textarea>
       </div>
       <?php endif; ?>
+      <?php if ($geotaggingEnabled): ?>
       <div class="row">
         <label>Geotagging Lokasi</label>
         <button class="btn" type="button" id="btn-geo">Ambil Lokasi Saya</button>
         <small id="geo_status">Belum ada lokasi GPS.</small>
       </div>
+      <?php endif; ?>
       <div class="row">
         <label>Foto Absensi</label>
         <input type="file" name="attendance_photo" id="attendance_photo" accept="image/jpeg,image/png" capture="user" required>
@@ -304,6 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   const previewImg = document.getElementById('photo_preview');
 
 
+  const geoEnabled = <?php echo $geotaggingEnabled ? 'true' : 'false'; ?>;
   const geoLat = document.getElementById('geo_latitude');
   const geoLng = document.getElementById('geo_longitude');
   const geoAccuracy = document.getElementById('geo_accuracy');
@@ -472,25 +484,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 
-  // Geolocation di Android (termasuk Vivo) harus dipicu oleh user gesture (klik tombol).
-  geoBtn.addEventListener('click', () => {
-    runRequestLocationFlow();
-  });
+  if (geoEnabled && geoBtn) {
+    // Geolocation di Android (termasuk Vivo) harus dipicu oleh user gesture (klik tombol).
+    geoBtn.addEventListener('click', () => {
+      runRequestLocationFlow();
+    });
 
-  form.addEventListener('submit', async (e) => {
-    if (geoLat.value && geoLng.value) {
-      return;
-    }
+    form.addEventListener('submit', async (e) => {
+      if (geoLat.value && geoLng.value) {
+        return;
+      }
 
-    e.preventDefault();
-    const success = await runRequestLocationFlow();
-    if (success) {
-      form.requestSubmit(submitBtn || undefined);
-      return;
-    }
+      e.preventDefault();
+      const success = await runRequestLocationFlow();
+      if (success) {
+        form.requestSubmit(submitBtn || undefined);
+        return;
+      }
 
-    alert('Lokasi GPS belum didapat. Klik tombol "Coba Lagi" untuk mengambil lokasi sebelum submit absen.');
-  });
+      alert('Lokasi GPS belum didapat. Klik tombol "Coba Lagi" untuk mengambil lokasi sebelum submit absen.');
+    });
+  }
 
   async function compressImageToMax2MB(file) {
     if (!file || file.size <= 2 * 1024 * 1024) {

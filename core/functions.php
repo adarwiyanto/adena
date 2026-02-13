@@ -245,6 +245,16 @@ function ensure_user_profile_columns(): void {
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
+
+  try {
+    $stmt = db()->query("SHOW COLUMNS FROM users LIKE 'attendance_geotagging_enabled'");
+    $hasGeoFlag = (bool)$stmt->fetch();
+    if (!$hasGeoFlag) {
+      db()->exec("ALTER TABLE users ADD COLUMN attendance_geotagging_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER role");
+    }
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
 }
 
 function ensure_password_resets_table(): void {

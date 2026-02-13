@@ -9,6 +9,7 @@ require_once __DIR__ . '/../core/email.php';
 start_secure_session();
 require_admin();
 ensure_owner_role();
+ensure_user_profile_columns();
 ensure_user_invites_table();
 
 $me = current_user();
@@ -80,6 +81,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
     }
 
+    if ($action === 'toggle_attendance_geotagging') {
+      if (!in_array(($me['role'] ?? ''), ['owner', 'admin'], true)) {
+        throw new Exception('Anda tidak punya akses mengubah geotagging user.');
+      }
+      $id = (int)($_POST['id'] ?? 0);
+      $enabled = (int)($_POST['attendance_geotagging_enabled'] ?? 0) === 1 ? 1 : 0;
+      if ($id <= 0 || $id === (int)($me['id'] ?? 0)) {
+        throw new Exception('User tidak valid.');
+      }
+
+      $stmt = db()->prepare("SELECT id, role FROM users WHERE id=? LIMIT 1");
+      $stmt->execute([$id]);
+      $target = $stmt->fetch();
+      if (!$target) {
+        throw new Exception('User tidak ditemukan.');
+      }
+      $targetRole = (string)($target['role'] ?? '');
+      $targetRoleNorm = $targetRole === 'superadmin' ? 'owner' : $targetRole;
+      if (($me['role'] ?? '') === 'admin' && in_array($targetRoleNorm, ['owner', 'admin'], true)) {
+        throw new Exception('Admin tidak bisa mengubah geotagging owner/admin.');
+      }
+
+      $stmt = db()->prepare("UPDATE users SET attendance_geotagging_enabled=? WHERE id=?");
+      $stmt->execute([$enabled, $id]);
+      redirect(base_url('admin/users.php'));
+    }
+
     if ($action === 'invite') {
       if (!in_array(($me['role'] ?? ''), ['owner', 'admin', 'manager_toko', 'manager_dapur'], true)) {
         throw new Exception('Anda tidak punya akses mengundang user.');
@@ -143,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$users = db()->query("SELECT id, username, name, role, created_at FROM users ORDER BY id DESC")->fetchAll();
+$users = db()->query("SELECT id, username, name, role, attendance_geotagging_enabled, created_at FROM users ORDER BY id DESC")->fetchAll();
 $customCss = setting('custom_css','');
 $mailCfg = mail_settings();
 ?>
@@ -200,7 +228,7 @@ $mailCfg = mail_settings();
         <div class="card">
           <h3 style="margin-top:0">Daftar User</h3>
           <table class="table">
-            <thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Dibuat</th><th></th></tr></thead>
+            <thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Geotag Absen</th><th>Dibuat</th><th></th></tr></thead>
             <tbody>
               <?php foreach ($users as $u): ?>
                 <?php
@@ -222,6 +250,18 @@ $mailCfg = mail_settings();
                   <td><?php echo e($u['username']); ?></td>
                   <td><?php echo e($u['name']); ?></td>
                   <td><span class="badge"><?php echo e($roleLabel); ?></span></td>
+                  <td>
+                    <span class="badge"><?php echo !empty($u['attendance_geotagging_enabled']) ? 'ON' : 'OFF'; ?></span>
+                    <?php if (in_array(($me['role'] ?? ''), ['owner', 'admin'], true) && (int)$u['id'] !== (int)($me['id'] ?? 0)): ?>
+                      <form method="post" style="display:inline;margin-left:6px">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="toggle_attendance_geotagging">
+                        <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
+                        <input type="hidden" name="attendance_geotagging_enabled" value="<?php echo !empty($u['attendance_geotagging_enabled']) ? '0' : '1'; ?>">
+                        <button class="btn" type="submit"><?php echo !empty($u['attendance_geotagging_enabled']) ? 'Matikan' : 'Nyalakan'; ?></button>
+                      </form>
+                    <?php endif; ?>
+                  </td>
                   <td><?php echo e($u['created_at']); ?></td>
                   <td>
                     <?php if (($me['role'] ?? '') === 'owner' && (int)$u['id'] !== (int)($me['id'] ?? 0)): ?>
