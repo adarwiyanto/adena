@@ -4,17 +4,23 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/attendance.php';
 
 start_secure_session();
 require_login();
 ensure_kitchen_kpi_tables();
 ensure_company_announcements_table();
+ensure_employee_attendance_tables();
 
 $me = current_user();
 $role = (string)($me['role'] ?? '');
 if ($role !== 'pegawai_dapur') {
   redirect(base_url('pos/index.php'));
 }
+
+$attendanceToday = attendance_today_for_user((int)($me['id'] ?? 0));
+$hasCheckinToday = !empty($attendanceToday['checkin_time']);
+$hasCheckoutToday = !empty($attendanceToday['checkout_time']);
 
 $err = '';
 $ok = '';
@@ -102,6 +108,15 @@ $announcement = latest_active_announcement('dapur');
 <div class="container" style="max-width:980px;margin:20px auto">
   <div class="card">
     <h3>Pekerjaan Dapur Hari Ini</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <?php if (!$hasCheckinToday): ?>
+        <a class="btn" href="<?php echo e(base_url('pos/absen.php?type=in')); ?>">Absen Masuk</a>
+      <?php elseif (!$hasCheckoutToday): ?>
+        <a class="btn" href="<?php echo e(base_url('pos/absen.php?type=out')); ?>">Absen Pulang</a>
+      <?php else: ?>
+        <button class="btn" type="button" disabled>Absen Lengkap</button>
+      <?php endif; ?>
+    </div>
     <?php if ($err): ?><div class="card" style="background:rgba(251,113,133,.12)"><?php echo e($err); ?></div><?php endif; ?>
     <?php if ($ok): ?><div class="card" style="background:rgba(52,211,153,.12)"><?php echo e($ok); ?></div><?php endif; ?>
     <?php if ($announcement): ?>

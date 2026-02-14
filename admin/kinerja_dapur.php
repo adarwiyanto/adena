@@ -4,6 +4,7 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/attendance.php';
 
 start_secure_session();
 require_admin();
@@ -14,7 +15,12 @@ if (!in_array((string)($me['role'] ?? ''), ['admin', 'owner', 'superadmin', 'man
   exit('Forbidden');
 }
 
+$attendanceToday = attendance_today_for_user((int)($me['id'] ?? 0));
+$hasCheckinToday = !empty($attendanceToday['checkin_time']);
+$hasCheckoutToday = !empty($attendanceToday['checkout_time']);
+
 ensure_kitchen_kpi_tables();
+ensure_employee_attendance_tables();
 $err = '';
 $ok = '';
 
@@ -69,6 +75,13 @@ $customCss = setting('custom_css', '');
     <div class="topbar">
       <button class="btn" data-toggle-sidebar type="button">Menu</button>
       <div class="badge">Kinerja Dapur</div>
+      <?php if (!$hasCheckinToday): ?>
+        <a class="btn" href="<?php echo e(base_url('pos/absen.php?type=in')); ?>">Absen Masuk</a>
+      <?php elseif (!$hasCheckoutToday): ?>
+        <a class="btn" href="<?php echo e(base_url('pos/absen.php?type=out')); ?>">Absen Pulang</a>
+      <?php else: ?>
+        <button class="btn" type="button" disabled>Absen Lengkap</button>
+      <?php endif; ?>
     </div>
     <div class="content">
       <div class="grid cols-2">
