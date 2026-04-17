@@ -5,17 +5,32 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
+require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/inventory.php';
+require_once __DIR__ . '/../core/sales_revision.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
 ensure_sales_transaction_code_column();
 ensure_sales_user_column();
+ensure_inventory_module_schema();
+ensure_rbac_schema();
+ensure_sales_revision_schema();
 
 $err = '';
-$me = current_user();
+$me = require_menu_access('sales', 'view');
+$canCreateSales = has_menu_access($me, 'sales', 'create');
+$canEditSales = has_menu_access($me, 'sales', 'edit');
+$canDeleteSales = has_menu_access($me, 'sales', 'delete');
+$canApproveSales = has_menu_access($me, 'sales', 'approve');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? 'create';
+  $actionPermMap = ['delete'=>'delete','edit_save'=>'edit','return'=>'approve','create'=>'create'];
+  if (isset($actionPermMap[$action])) {
+    require_action_access('sales', $actionPermMap[$action]);
+  }
   $transactionCode = trim($_POST['transaction_code'] ?? '');
   $legacySaleId = (int)($_POST['sale_id'] ?? 0);
 
@@ -65,6 +80,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       redirect(base_url('admin/sales.php'));
     }
 
+    if ($action === 'edit_save') {
+      $role = strtolower((string)($me['role'] ?? ''));
+      if (!in_array($role, ['owner', 'admin'], true)) {
+        throw new Exception('Hanya owner/admin yang bisa edit transaksi.');
+      }
+      $itemsRaw = $_POST['items'] ?? [];
+      $items = [];
+      if (is_array($itemsRaw)) {
+        foreach ($itemsRaw as $row) {
+          $pid = (int)($row['product_id'] ?? 0);
+          $qty = (int)($row['qty'] ?? 0);
+          $price = (float)($row['price_each'] ?? 0);
+          if ($pid > 0 && $qty > 0) {
+            $items[] = ['product_id' => $pid, 'qty' => $qty, 'price_each' => $price];
+          }
+        }
+      }
+      if (!$items) throw new Exception('Item revisi wajib diisi.');
+      $payload = [
+        'sale_code' => $transactionCode,
+        'items' => $items,
+        'payment_method' => trim((string)($_POST['payment_method'] ?? 'cash')),
+        'sold_at' => trim((string)($_POST['sold_at'] ?? '')),
+        'reason_category' => trim((string)($_POST['reason_category'] ?? '')),
+        'reason_text' => trim((string)($_POST['reason_text'] ?? '')),
+      ];
+      revise_sale_transaction($payload, $me);
+      redirect(base_url('admin/sales.php'));
+    }
+
     if ($action === 'return') {
       if (!in_array($me['role'] ?? '', ['admin', 'owner'], true)) {
         throw new Exception('Anda tidak diizinkan meretur transaksi.');
@@ -97,8 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $total = $price * $qty;
 
     $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-    $stmt = db()->prepare("INSERT INTO sales (transaction_code, product_id, qty, price_each, total, created_by) VALUES (?,?,?,?,?,?)");
-    $stmt->execute([$transactionCode, $product_id, $qty, $price, $total, (int)($me['id'] ?? 0)]);
+    $stmt = db()->prepare("INSERT INTO sales (transaction_code, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, created_by) VALUES (?,?,NULL,0,1,'active',NULL,?,?,?,?,?)");
+    $stmt->execute([$transactionCode, $transactionCode, $product_id, $qty, $price, $total, (int)($me['id'] ?? 0)]);
+    $saleId = (int)db()->lastInsertId();
+    db()->prepare("UPDATE sales SET original_sale_id=? WHERE id=?")->execute([$saleId, $saleId]);
 
     redirect(base_url('admin/sales.php'));
   } catch (Throwable $e) {
@@ -147,10 +194,10 @@ if ($range === 'today') {
   }
 }
 
-$whereClause = '';
+$whereClause = 'WHERE s.is_active_revision=1';
 $params = [];
 if ($startDate && $endDate) {
-  $whereClause = "WHERE s.sold_at BETWEEN ? AND ?";
+  $whereClause .= " AND s.sold_at BETWEEN ? AND ?";
   $params[] = $startDate->format('Y-m-d H:i:s');
   $params[] = $endDate->format('Y-m-d H:i:s');
 }
@@ -163,7 +210,11 @@ $stmt = db()->prepare("
     MAX(s.payment_method) AS payment_method,
     MAX(s.payment_proof_path) AS payment_proof_path,
     MAX(s.return_reason) AS return_reason,
-    MAX(u.name) AS cashier_name
+    MAX(u.name) AS cashier_name,
+    MAX(s.base_sale_code) AS base_sale_code,
+    MAX(s.revision_suffix) AS revision_suffix,
+    MAX(s.revision_no) AS revision_no,
+    MAX(s.is_active_revision) AS is_active_revision
   FROM sales s
   LEFT JOIN users u ON u.id = s.created_by
   {$whereClause}
@@ -216,6 +267,36 @@ if ($legacyIds) {
   foreach ($stmt->fetchAll() as $row) {
     $itemsByTx[$row['tx_code']][] = $row;
   }
+}
+
+$detailTxCode = trim((string)($_GET['detail'] ?? ''));
+$revTxCode = trim((string)($_GET['revisions'] ?? ''));
+$editTxCode = trim((string)($_GET['edit'] ?? ''));
+$detailSale = null;
+$detailItems = [];
+$revisionRows = [];
+if ($detailTxCode !== '') {
+  $stmt = db()->prepare("SELECT s.*, p.name AS product_name, p.sale_unit, u.name AS cashier_name, u.role AS cashier_role, ru.name AS revised_by_name
+    FROM sales s
+    JOIN products p ON p.id=s.product_id
+    LEFT JOIN users u ON u.id=s.created_by
+    LEFT JOIN users ru ON ru.id=s.revised_by_user_id
+    WHERE s.transaction_code=?
+    ORDER BY s.id ASC");
+  $stmt->execute([$detailTxCode]);
+  $detailItems = $stmt->fetchAll();
+  $detailSale = $detailItems[0] ?? null;
+}
+if ($revTxCode !== '' && in_array(($me['role'] ?? ''), ['owner', 'admin'], true)) {
+  $stmt = db()->prepare("SELECT s.transaction_code, s.base_sale_code, s.revision_suffix, s.revision_no, s.revision_reason_category, s.revision_reason_text, s.revised_at, s.is_active_revision,
+      SUM(s.total) AS grand_total, MAX(u.name) AS revised_by_name
+    FROM sales s
+    LEFT JOIN users u ON u.id=s.revised_by_user_id
+    WHERE s.base_sale_code=(SELECT base_sale_code FROM sales WHERE transaction_code=? LIMIT 1)
+    GROUP BY s.transaction_code, s.base_sale_code, s.revision_suffix, s.revision_no, s.revision_reason_category, s.revision_reason_text, s.revised_at, s.is_active_revision
+    ORDER BY s.revision_no DESC, s.id DESC");
+  $stmt->execute([$revTxCode]);
+  $revisionRows = $stmt->fetchAll();
 }
 
 $customCss = setting('custom_css', '');
@@ -345,7 +426,7 @@ $customCss = setting('custom_css', '');
           <?php endif; ?>
           <form method="post">
             <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-            <input type="hidden" name="action" value="create">
+            <?php if ($canCreateSales): ?><input type="hidden" name="action" value="create">
             <div class="row">
               <label>Produk</label>
               <select name="product_id" required>
@@ -359,7 +440,7 @@ $customCss = setting('custom_css', '');
               <label>Qty</label>
               <input type="number" name="qty" value="1" min="1" required>
             </div>
-            <button class="btn" type="submit">Simpan Penjualan</button>
+            <button class="btn" type="submit">Simpan Penjualan</button><?php endif; ?>
           </form>
           <p><small>Ini versi sederhana: harga mengikuti harga produk saat transaksi dibuat.</small></p>
         </div>
@@ -404,6 +485,10 @@ $customCss = setting('custom_css', '');
                 <div class="transaction-header">
                   <div class="transaction-meta">
                     <strong><?php echo e($displayCode); ?></strong>
+                    <div>
+                      <?php if ((int)($tx['is_active_revision'] ?? 1) === 1): ?><span class="badge">Versi Aktif</span><?php else: ?><span class="badge">Versi Lama</span><?php endif; ?>
+                      <?php if ((int)($tx['revision_no'] ?? 0) > 0): ?><span class="badge">Sudah Direvisi</span><?php endif; ?>
+                    </div>
                     <span><?php echo e($tx['sold_at']); ?></span>
                   </div>
                   <div><strong>Rp <?php echo e(format_number_id((float)$tx['total_amount'])); ?></strong></div>
@@ -437,7 +522,14 @@ $customCss = setting('custom_css', '');
                   </ul>
                 <?php endif; ?>
                 <div class="transaction-actions">
-                  <?php if (empty($tx['return_reason']) && in_array($me['role'] ?? '', ['admin', 'owner'], true)): ?>
+                  <a class="btn" href="<?php echo e(base_url('admin/sales.php?detail=' . urlencode($txCode))); ?>">Detail</a>
+                  <?php if (in_array($me['role'] ?? '', ['owner', 'admin'], true)): ?>
+                    <a class="btn" href="<?php echo e(base_url('admin/sales.php?revisions=' . urlencode($txCode))); ?>">Revisi</a>
+                  <?php endif; ?>
+                  <?php if (in_array($me['role'] ?? '', ['owner', 'admin'], true)): ?>
+                    <?php if ($canEditSales): ?><a class="btn" href="<?php echo e(base_url('admin/sales.php?edit=' . urlencode($txCode))); ?>">Edit</a><?php endif; ?>
+                  <?php endif; ?>
+                  <?php if ($canApproveSales && empty($tx['return_reason']) && in_array($me['role'] ?? '', ['admin', 'owner'], true)): ?>
                     <form method="post" class="return-form" data-return-form>
                       <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                       <input type="hidden" name="action" value="return">
@@ -453,7 +545,7 @@ $customCss = setting('custom_css', '');
                     </form>
                   <?php endif; ?>
                   <?php if (($me['role'] ?? '') === 'owner'): ?>
-                    <form method="post" data-confirm="Hapus transaksi ini?">
+                    <?php if ($canDeleteSales): ?><form method="post" data-confirm="Hapus transaksi ini?">
                       <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                       <input type="hidden" name="action" value="delete">
                       <?php if ($legacyId > 0): ?>
@@ -464,10 +556,75 @@ $customCss = setting('custom_css', '');
                       <button class="btn" type="submit">Hapus</button>
                     </form>
                   <?php endif; ?>
+                  <?php endif; ?>
                 </div>
               </div>
             <?php endforeach; ?>
           </div>
+
+          <?php if ($detailSale): ?>
+            <div class="card" style="margin-top:12px">
+              <h4 style="margin-top:0">Detail Transaksi: <?php echo e($detailSale['transaction_code']); ?></h4>
+              <p>
+                <span class="badge"><?php echo ((int)$detailSale['is_active_revision'] === 1) ? 'Versi Aktif' : 'Versi Lama'; ?></span>
+                <?php if ((int)($detailSale['revision_no'] ?? 0) > 0): ?><span class="badge">Sudah Direvisi</span><?php endif; ?>
+                <?php if (!empty($detailSale['revised_by_name'])): ?><span class="badge">Direvisi oleh <?php echo e($detailSale['revised_by_name']); ?></span><?php endif; ?>
+              </p>
+              <p><strong>Tanggal:</strong> <?php echo e($detailSale['sold_at']); ?> · <strong>Kasir:</strong> <?php echo e($detailSale['cashier_name'] ?? '-'); ?> (<?php echo e($detailSale['cashier_role'] ?? '-'); ?>) · <strong>Pembayaran:</strong> <?php echo e($detailSale['payment_method'] ?? '-'); ?></p>
+              <p><strong>Kategori alasan:</strong> <?php echo e($detailSale['revision_reason_category'] ?? '-'); ?> · <strong>Alasan:</strong> <?php echo e($detailSale['revision_reason_text'] ?? '-'); ?></p>
+              <table class="table"><thead><tr><th>Produk</th><th>Qty</th><th>Satuan</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>
+                <?php $sum=0; foreach ($detailItems as $di): $sum += (float)$di['total']; ?>
+                  <tr><td><?php echo e($di['product_name']); ?></td><td><?php echo e((string)$di['qty']); ?></td><td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td><td>Rp <?php echo e(format_number_id((float)$di['price_each'])); ?></td><td>Rp <?php echo e(format_number_id((float)$di['total'])); ?></td></tr>
+                <?php endforeach; ?>
+              </tbody></table>
+              <p><strong>Subtotal:</strong> Rp <?php echo e(format_number_id($sum)); ?> · <strong>Grand Total:</strong> Rp <?php echo e(format_number_id($sum)); ?></p>
+            </div>
+          <?php endif; ?>
+
+          <?php if (!empty($revisionRows)): ?>
+            <div class="card" style="margin-top:12px">
+              <h4 style="margin-top:0">Riwayat Revisi</h4>
+              <table class="table"><thead><tr><th>Nomor</th><th>Versi</th><th>Revised By</th><th>Waktu</th><th>Kategori</th><th>Alasan</th><th>Total</th><th>Status</th></tr></thead><tbody>
+                <?php foreach ($revisionRows as $r): ?>
+                  <tr>
+                    <td><a href="<?php echo e(base_url('admin/sales.php?detail=' . urlencode((string)$r['transaction_code']))); ?>"><?php echo e($r['transaction_code']); ?></a></td>
+                    <td>#<?php echo e((string)$r['revision_no']); ?></td>
+                    <td><?php echo e($r['revised_by_name'] ?? '-'); ?></td>
+                    <td><?php echo e($r['revised_at'] ?? '-'); ?></td>
+                    <td><?php echo e($r['revision_reason_category'] ?? '-'); ?></td>
+                    <td><?php echo e($r['revision_reason_text'] ?? '-'); ?></td>
+                    <td>Rp <?php echo e(format_number_id((float)$r['grand_total'])); ?></td>
+                    <td><?php echo (int)$r['is_active_revision'] === 1 ? 'Aktif' : 'Arsip'; ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody></table>
+            </div>
+          <?php endif; ?>
+
+          <?php if ($editTxCode !== '' && in_array(($me['role'] ?? ''), ['owner','admin'], true)): ?>
+            <?php $editItems = $itemsByTx[$editTxCode] ?? []; ?>
+            <div class="card" style="margin-top:12px">
+              <h4 style="margin-top:0">Edit Transaksi <?php echo e($editTxCode); ?></h4>
+              <form method="post">
+                <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                <input type="hidden" name="action" value="edit_save">
+                <input type="hidden" name="transaction_code" value="<?php echo e($editTxCode); ?>">
+                <div class="row"><label>Tanggal transaksi</label><input type="datetime-local" name="sold_at" value="<?php echo e(isset($editItems[0]['sold_at']) ? date('Y-m-d\\TH:i', strtotime((string)$editItems[0]['sold_at'])) : ''); ?>"></div>
+                <div class="row"><label>Metode pembayaran</label><select name="payment_method"><option value="cash">cash</option><option value="qris" <?php echo (($editItems[0]['payment_method'] ?? '')==='qris') ? 'selected' : ''; ?>>qris</option></select></div>
+                <?php foreach ($editItems as $idx => $item): ?>
+                  <div class="row"><label>Item <?php echo e((string)($idx+1)); ?></label>
+                    <input type="hidden" name="items[<?php echo e((string)$idx); ?>][product_id]" value="<?php echo e((string)$item['product_id']); ?>">
+                    <div style="display:flex;gap:8px;align-items:center"><span><?php echo e($item['product_name'] ?? 'Produk'); ?></span><input style="max-width:90px" type="number" min="1" name="items[<?php echo e((string)$idx); ?>][qty]" value="<?php echo e((string)$item['qty']); ?>"><input style="max-width:140px" type="number" step="0.01" min="0" name="items[<?php echo e((string)$idx); ?>][price_each]" value="<?php echo e((string)$item['price_each']); ?>"></div>
+                  </div>
+                <?php endforeach; ?>
+                <?php if (($me['role'] ?? '') === 'admin'): ?>
+                  <div class="row"><label>Kategori Alasan</label><select name="reason_category" required><option value="">-- pilih --</option><option>Salah input item</option><option>Salah qty</option><option>Salah harga</option><option>Salah diskon</option><option>Salah customer</option><option>Koreksi pembayaran</option><option>Lainnya</option></select></div>
+                  <div class="row"><label>Alasan Revisi</label><textarea name="reason_text" rows="3" required minlength="5"></textarea></div>
+                <?php endif; ?>
+                <button class="btn" type="submit">Simpan Revisi</button>
+              </form>
+            </div>
+          <?php endif; ?>
         </div>
       </div>
     </div>

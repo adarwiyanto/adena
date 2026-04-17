@@ -4,9 +4,11 @@ require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/functions.php';
 require_once __DIR__ . '/core/security.php';
 require_once __DIR__ . '/core/csrf.php';
+require_once __DIR__ . '/core/rbac.php';
 start_secure_session();
 
 ensure_owner_role();
+ensure_rbac_schema();
 ensure_user_invites_table();
 ensure_user_profile_columns();
 
@@ -58,12 +60,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute([$username]);
     if ($stmt->fetch()) throw new Exception('Username sudah dipakai.');
 
-    $role = (string)($invite['role'] ?? 'user');
-    if (!in_array($role, ['admin', 'user', 'owner', 'pegawai'], true)) $role = 'user';
+    $role = strtolower(trim((string)($invite['role'] ?? 'kasir')));
+    if ($role === 'superadmin') $role = 'owner';
+    if ($role === 'pegawai' || $role === 'user' || $role === '') $role = 'kasir';
+    $roleId = role_id_by_key($role);
+    if ($roleId <= 0) {
+      throw new Exception('Role undangan tidak valid.');
+    }
     $hash = password_hash($p1, PASSWORD_DEFAULT);
     $email = (string)($invite['email'] ?? '');
-    $stmt = db()->prepare("INSERT INTO users (username,email,name,role,password_hash) VALUES (?,?,?,?,?)");
-    $stmt->execute([$username, $email, $name, $role, $hash]);
+    $stmt = db()->prepare("INSERT INTO users (username,email,name,role_id,role,password_hash) VALUES (?,?,?,?,?,?)");
+    $stmt->execute([$username, $email, $name, $roleId, $role, $hash]);
 
     $stmt = db()->prepare("UPDATE user_invites SET used_at=NOW() WHERE id=?");
     $stmt->execute([(int)$invite['id']]);

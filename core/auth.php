@@ -2,6 +2,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/rbac.php';
 
 function start_session(): void {
   start_secure_session();
@@ -17,14 +18,19 @@ function require_login(): void {
 function require_admin(): void {
   require_login();
   ensure_owner_role();
-  $u = current_user();
-  if (($u['role'] ?? '') === 'pegawai') {
-    redirect(base_url('pos/index.php'));
+  ensure_rbac_schema();
+
+  $u = current_user() ?? [];
+  $resolved = resolve_user_role($u);
+  if ((int)($resolved['role_id'] ?? 0) <= 0 || (string)($resolved['role_key'] ?? '') === '') {
+    logout();
+    redirect(base_url('adm.php'));
   }
-  if (!in_array($u['role'] ?? '', ['admin', 'owner', 'superadmin'], true)) {
-    http_response_code(403);
-    exit('Forbidden');
-  }
+
+  $_SESSION['user']['role_id'] = (int)$resolved['role_id'];
+  $_SESSION['user']['role'] = (string)$resolved['role_key'];
+  $_SESSION['user']['role_key'] = (string)$resolved['role_key'];
+  $_SESSION['user']['role_name'] = (string)$resolved['role_name'];
 }
 
 function current_user(): ?array {
@@ -34,7 +40,15 @@ function current_user(): ?array {
 
 function login_attempt(string $username, string $password): bool {
   ensure_user_profile_columns();
-  $stmt = db()->prepare("SELECT id, username, name, role, email, avatar_path, password_hash FROM users WHERE username=? LIMIT 1");
+  ensure_rbac_schema();
+  $stmt = db()->prepare("
+    SELECT u.id, u.username, u.name, u.role, u.role_id, u.email, u.avatar_path, u.password_hash,
+           r.role_key, r.role_name
+    FROM users u
+    LEFT JOIN roles r ON r.id = u.role_id
+    WHERE u.username=?
+    LIMIT 1
+  ");
   $stmt->execute([$username]);
   $u = $stmt->fetch();
   if (!$u) return false;
@@ -69,9 +83,18 @@ function login_attempt(string $username, string $password): bool {
     $stmt->execute([$newHash, (int)$u['id']]);
   }
   unset($u['password_hash']);
-  if (($u['role'] ?? '') === 'superadmin') {
-    $u['role'] = 'owner';
+  $resolved = resolve_user_role($u);
+  if ((int)$resolved['role_id'] <= 0) {
+    return false;
   }
+  $u['role_id'] = (int)$resolved['role_id'];
+  $u['role'] = (string)$resolved['role_key'];
+  $u['role_key'] = (string)$resolved['role_key'];
+  $u['role_name'] = (string)$resolved['role_name'];
+  try {
+    $stmt = db()->prepare("UPDATE users SET role_id=?, role=? WHERE id=?");
+    $stmt->execute([(int)$u['role_id'], (string)$u['role'], (int)$u['id']]);
+  } catch (Throwable $e) {}
   $_SESSION['user'] = $u;
   login_clear_failed_attempts();
   return true;

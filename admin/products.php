@@ -4,16 +4,20 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
+$u = require_menu_access('produk');
 ensure_products_category_column();
 ensure_products_best_seller_column();
 ensure_inventory_module_schema();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+  require_action_access('produk', 'delete');
   csrf_check();
   $id = (int)($_POST['id'] ?? 0);
 
@@ -37,6 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 }
 
 $products = db()->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
+$canCreateProduct = has_menu_access($u, 'produk', 'create');
+$canEditProduct = has_menu_access($u, 'produk', 'edit');
+$canDeleteProduct = has_menu_access($u, 'produk', 'delete');
 $customCss = setting('custom_css', '');
 ?>
 <!doctype html>
@@ -55,7 +62,7 @@ $customCss = setting('custom_css', '');
   <div class="main">
     <div class="topbar">
       <button class="btn" data-toggle-sidebar type="button">Menu</button>
-      <a class="btn" href="<?php echo e(base_url('admin/product_form.php')); ?>">Tambah Produk</a>
+      <?php if ($canCreateProduct): ?><a class="btn" href="<?php echo e(base_url('admin/product_form.php')); ?>">Tambah Produk</a><?php endif; ?>
     </div>
 
     <div class="content">
@@ -87,13 +94,13 @@ $customCss = setting('custom_css', '');
                 <td><?php echo !empty($p['show_on_landing'] ?? 1) ? 'Tampil' : '-'; ?></td>
                 <td><?php echo !empty($p['is_best_seller']) ? '⭐' : '-'; ?></td>
                 <td style="display:flex;gap:8px;align-items:center">
-                  <a class="btn" href="<?php echo e(base_url('admin/product_form.php?id=' . (int)$p['id'])); ?>">Edit</a>
-                  <form method="post" data-confirm="Hapus produk ini?">
+                  <?php if ($canEditProduct): ?><a class="btn" href="<?php echo e(base_url('admin/product_form.php?id=' . (int)$p['id'])); ?>">Edit</a><?php endif; ?>
+                  <?php if ($canDeleteProduct): ?><form method="post" data-confirm="Hapus produk ini?">
                     <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="id" value="<?php echo e((string)$p['id']); ?>">
                     <button class="btn danger" type="submit">Hapus</button>
-                  </form>
+                  </form><?php endif; ?>
                 </td>
               </tr>
             <?php endforeach; ?>

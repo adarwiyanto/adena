@@ -3,10 +3,11 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
-$u = inventory_require_stock_role();
+$u = require_menu_access('inventori');
 ensure_inventory_module_schema();
 
 $branchId = (int)($_GET['branch_id'] ?? active_branch_id());
@@ -66,7 +67,7 @@ function stock_status_badge_class(string $status): string {
           <div class="row"><label>Status Stok</label><select name="stock_status"><option value="">Semua</option><option value="menipis" <?php echo $stockStatus==='menipis'?'selected':''; ?>>Menipis</option><option value="habis" <?php echo $stockStatus==='habis'?'selected':''; ?>>Habis</option></select></div>
           <div class="row" style="align-self:end"><button class="btn" type="submit">Filter</button></div>
           <div class="row" style="align-self:end"><a class="btn btn-light" href="<?php echo e(base_url('admin/stocks.php')); ?>">Reset</a></div>
-          <div class="row" style="align-self:end"><a class="btn" href="<?php echo e(base_url('admin/stock_opname_form.php?branch_id=' . $branchId)); ?>">Buat Opname Baru</a></div>
+          <?php if (has_menu_access($u, 'stok_opname', 'create')): ?><div class="row" style="align-self:end"><a class="btn" href="<?php echo e(base_url('admin/stock_opname_form.php?branch_id=' . $branchId)); ?>">Buat Opname Baru</a></div><?php endif; ?>
         </form>
         <p style="margin-top:12px;color:#64748b">Total item: <strong><?php echo e((string)$totalItems); ?></strong></p>
       </div>

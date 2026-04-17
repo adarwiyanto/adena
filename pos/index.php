@@ -4,6 +4,7 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 
@@ -21,7 +22,9 @@ $storeName = setting('store_name', $appName);
 $storeSubtitle = setting('store_subtitle', '');
 $isAndroidApp = is_android_app_request();
 $me = current_user();
-$isOwner = (string)($me['role'] ?? '') === 'owner';
+ensure_rbac_schema();
+$me = require_menu_access('pos', 'view');
+$isOwner = ((string)(resolve_user_role($me)['role_key'] ?? '') === 'owner');
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -37,6 +40,25 @@ $activeOrderId = $_SESSION['pos_order_id'] ?? null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? '';
+
+  $actionPermissionMap = [
+    'add' => 'create',
+    'inc' => 'edit',
+    'dec' => 'edit',
+    'remove' => 'delete',
+    'toggle_bypass' => 'approve',
+    'load_order' => 'create',
+    'save_order' => 'create',
+    'clear_order' => 'delete',
+    'claim_reward' => 'create',
+    'remove_reward' => 'delete',
+    'checkout' => 'create',
+    'new_transaction' => 'create',
+    'print' => 'print',
+  ];
+  if (isset($actionPermissionMap[$action])) {
+    require_action_access('pos', $actionPermissionMap[$action]);
+  }
   $productId = (int)($_POST['product_id'] ?? 0);
   $rewardId = (int)($_POST['reward_id'] ?? 0);
 
@@ -231,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $db->beginTransaction();
       $branchId = active_branch_id();
       $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-      $stmt = $db->prepare("INSERT INTO sales (transaction_code, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by) VALUES (?,?,?,?,?,?,?,?)");
+      $stmt = $db->prepare("INSERT INTO sales (transaction_code, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by) VALUES (?,?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?)");
       $receiptItems = [];
       $receiptTotal = 0.0;
       $autoProductionIds = [];
@@ -298,10 +320,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $price = (float)$productsById[$pid]['price'];
         $total = $price * $qty;
-        $stmt->execute([$transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0)]);
+        $stmt->execute([$transactionCode, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0)]);
         $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
         $saleId = (int)$db->lastInsertId();
         $stmtUpdateBranch->execute([$branchId, $saleId]);
+        $db->prepare("UPDATE sales SET original_sale_id=? WHERE id=?")->execute([$saleId, $saleId]);
 
         if ((string)($productsById[$pid]['product_type'] ?? 'finished_good') !== 'service' && (int)($productsById[$pid]['track_stock'] ?? 1) === 1) {
           $stockNow = branch_stock($branchId, (int)$pid);
@@ -354,10 +377,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($qty <= 0) {
             continue;
           }
-          $stmt->execute([$transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0)]);
+          $stmt->execute([$transactionCode, $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0)]);
           $saleId = (int)$db->lastInsertId();
           $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
           $stmtUpdateBranch->execute([$branchId, $saleId]);
+          $db->prepare("UPDATE sales SET original_sale_id=? WHERE id=?")->execute([$saleId, $saleId]);
           add_stock_ledger([
             'branch_id' => $branchId,
             'product_id' => $pid,
@@ -384,6 +408,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($autoProductionIds as $productionId) {
           $stmtLink->execute([$transactionCode, (int)$productionId, $branchId]);
         }
+      }
+      $stmtFirst = $db->prepare("SELECT MIN(id) AS first_id FROM sales WHERE transaction_code=?");
+      $stmtFirst->execute([$transactionCode]);
+      $firstId = (int)($stmtFirst->fetch()['first_id'] ?? 0);
+      if ($firstId > 0) {
+        $db->prepare("UPDATE sales SET original_sale_id=? WHERE transaction_code=?")->execute([$firstId, $transactionCode]);
       }
       $db->commit();
       if (!empty($_SESSION['pos_order_id'])) {

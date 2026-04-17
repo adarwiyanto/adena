@@ -4,10 +4,11 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
-$u = inventory_require_stock_role();
+$u = require_menu_access('stok_opname', 'approve');
 ensure_inventory_module_schema();
 $isOwner = inventory_is_owner($u);
 $err = '';
@@ -15,6 +16,9 @@ $err = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = (string)($_POST['action'] ?? '');
+  if (in_array($action, ['approve', 'reject'], true)) {
+    require_action_access('stok_opname', 'approve');
+  }
   $id = (int)($_POST['id'] ?? 0);
   $approvalNote = trim((string)($_POST['approval_note'] ?? ''));
   try {

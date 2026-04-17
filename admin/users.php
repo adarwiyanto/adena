@@ -5,28 +5,40 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/email.php';
+require_once __DIR__ . '/../core/rbac.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
 ensure_owner_role();
 ensure_user_invites_table();
-$me = current_user();
+ensure_rbac_schema();
+$me = require_menu_access('users', 'view');
 
 $err = '';
 $ok = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? '';
+  $actionPermMap = ['delete'=>'delete','update_role'=>'edit','invite'=>'create','save_email_settings'=>'edit'];
+  if (isset($actionPermMap[$action])) {
+    require_action_access('users', $actionPermMap[$action]);
+  }
 
   try {
     if ($action === 'delete') {
       $id = (int)($_POST['id'] ?? 0);
       if ($id > 0) {
-        $stmt = db()->prepare("SELECT id, role FROM users WHERE id=? LIMIT 1");
+        $stmt = db()->prepare("
+          SELECT u.id, u.role_id, COALESCE(r.role_key,'') AS role_key
+          FROM users u
+          LEFT JOIN roles r ON r.id=u.role_id
+          WHERE u.id=? LIMIT 1
+        ");
         $stmt->execute([$id]);
         $target = $stmt->fetch();
         if ($target && (int)$target['id'] !== (int)($me['id'] ?? 0)) {
-          if (($me['role'] ?? '') === 'admin' && in_array(($target['role'] ?? ''), ['owner', 'superadmin'], true)) {
+          if (($me['role'] ?? '') === 'admin' && (($target['role_key'] ?? '') === 'owner')) {
             throw new Exception('Admin tidak bisa menghapus owner.');
           }
           $del = db()->prepare("DELETE FROM users WHERE id=?");
@@ -41,11 +53,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Hanya owner yang bisa mengubah role user.');
       }
       $id = (int)($_POST['id'] ?? 0);
-      $role = $_POST['role'] ?? 'user';
-      if (!in_array($role, ['admin', 'user', 'owner', 'pegawai'], true)) $role = 'user';
+      $roleId = (int)($_POST['role_id'] ?? 0);
+      $role = role_by_id($roleId);
+      if (!$role || (int)($role['is_active'] ?? 0) !== 1) {
+        throw new Exception('Role tidak valid.');
+      }
+      $roleKey = (string)($role['role_key'] ?? '');
+      if ($roleKey === 'owner' && ($me['role'] ?? '') !== 'owner') throw new Exception('Role owner hanya bisa diset owner.');
       if ($id > 0 && $id !== (int)($me['id'] ?? 0)) {
-        $stmt = db()->prepare("UPDATE users SET role=? WHERE id=?");
-        $stmt->execute([$role, $id]);
+        $stmt = db()->prepare("UPDATE users SET role=?, role_id=? WHERE id=?");
+        $stmt->execute([$roleKey, $roleId, $id]);
         redirect(base_url('admin/users.php'));
       }
     }
@@ -55,11 +72,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Hanya owner yang bisa mengundang user.');
       }
       $email = trim($_POST['email'] ?? '');
-      $role = $_POST['role'] ?? 'user';
+      $role = strtolower(trim((string)($_POST['role'] ?? 'kasir')));
       if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new Exception('Email tidak valid.');
       }
-      if (!in_array($role, ['admin', 'user', 'owner', 'pegawai'], true)) $role = 'user';
+      $allowedRoles = array_column(db()->query("SELECT role_key FROM roles WHERE is_active=1")->fetchAll(), 'role_key');
+      if (!in_array($role, $allowedRoles, true)) $role = 'kasir';
+      if ($role === 'owner') throw new Exception('Undangan owner tidak diizinkan dari halaman ini.');
 
       $token = bin2hex(random_bytes(16));
       $tokenHash = hash('sha256', $token);
@@ -111,7 +130,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$users = db()->query("SELECT id, username, name, role, created_at FROM users ORDER BY id DESC")->fetchAll();
+$rolesActive = db()->query("SELECT id, role_key, role_name FROM roles WHERE is_active=1 ORDER BY role_name ASC")->fetchAll();
+$users = db()->query("
+  SELECT u.id, u.username, u.name, u.role_id, u.created_at, r.role_key, r.role_name
+  FROM users u
+  LEFT JOIN roles r ON r.id = u.role_id
+  ORDER BY u.id DESC
+")->fetchAll();
 $customCss = setting('custom_css','');
 $mailCfg = mail_settings();
 ?>
@@ -152,10 +177,9 @@ $mailCfg = mail_settings();
               <div class="row">
                 <label>Role</label>
                 <select name="role">
-                  <option value="admin">admin</option>
-                  <option value="user" selected>user</option>
-                  <option value="owner">owner</option>
-                  <option value="pegawai">pegawai</option>
+                  <?php foreach ($rolesActive as $r): if (($r['role_key'] ?? '') === 'owner') continue; ?>
+                    <option value="<?php echo e($r['role_key']); ?>"><?php echo e($r['role_name']); ?></option>
+                  <?php endforeach; ?>
                 </select>
               </div>
               <button class="btn" type="submit">Kirim Undangan</button>
@@ -173,21 +197,20 @@ $mailCfg = mail_settings();
             <tbody>
               <?php foreach ($users as $u): ?>
                 <?php
-                  $roleLabels = [
-                    'owner' => 'owner',
-                    'superadmin' => 'owner',
-                    'admin' => 'admin',
-                    'user' => 'user',
-                    'pegawai' => 'pegawai',
-                  ];
-                  $roleValue = (string)($u['role'] ?? '');
-                  $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : $roleValue;
-                  $roleLabel = $roleLabels[$roleValue] ?? ($roleValue !== '' ? $roleValue : 'pegawai');
+                  $roleValue = (string)($u['role_key'] ?? '');
+                  $roleLabel = (string)($u['role_name'] ?? '');
+                  $roleMissing = ((int)($u['role_id'] ?? 0) <= 0 || $roleValue === '' || $roleLabel === '');
                 ?>
                 <tr>
                   <td><?php echo e($u['username']); ?></td>
                   <td><?php echo e($u['name']); ?></td>
-                  <td><span class="badge"><?php echo e($roleLabel); ?></span></td>
+                  <td>
+                    <?php if ($roleMissing): ?>
+                      <span class="badge" style="background:#fee2e2;color:#991b1b">role_id invalid</span>
+                    <?php else: ?>
+                      <span class="badge"><?php echo e(strtolower($roleLabel)); ?></span>
+                    <?php endif; ?>
+                  </td>
                   <td><?php echo e($u['created_at']); ?></td>
                   <td>
                     <?php if (($me['role'] ?? '') === 'owner' && (int)$u['id'] !== (int)($me['id'] ?? 0)): ?>
@@ -195,11 +218,12 @@ $mailCfg = mail_settings();
                         <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="hidden" name="action" value="update_role">
                         <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
-                        <select name="role">
-                          <option value="owner" <?php echo ($roleValueNormalized === 'owner') ? 'selected' : ''; ?>>owner</option>
-                          <option value="admin" <?php echo ($roleValueNormalized === 'admin') ? 'selected' : ''; ?>>admin</option>
-                          <option value="user" <?php echo ($roleValueNormalized === 'user') ? 'selected' : ''; ?>>user</option>
-                          <option value="pegawai" <?php echo ($roleValueNormalized === 'pegawai') ? 'selected' : ''; ?>>pegawai</option>
+                        <select name="role_id">
+                          <?php foreach ($rolesActive as $roleOption): ?>
+                            <option value="<?php echo e((string)$roleOption['id']); ?>" <?php echo ((int)$u['role_id'] === (int)$roleOption['id']) ? 'selected' : ''; ?>>
+                              <?php echo e($roleOption['role_name']); ?>
+                            </option>
+                          <?php endforeach; ?>
                         </select>
                         <button class="btn" type="submit">Simpan</button>
                       </form>
@@ -209,7 +233,7 @@ $mailCfg = mail_settings();
                         <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
                         <button class="btn" type="submit">Hapus</button>
                       </form>
-                    <?php elseif (($me['role'] ?? '') === 'admin' && (int)$u['id'] !== (int)($me['id'] ?? 0) && !in_array(($u['role'] ?? ''), ['owner', 'superadmin'], true)): ?>
+                    <?php elseif (($me['role'] ?? '') === 'admin' && (int)$u['id'] !== (int)($me['id'] ?? 0) && ($u['role_key'] ?? '') !== 'owner'): ?>
                       <form method="post" data-confirm="Hapus user ini?" style="display:inline">
                         <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="hidden" name="action" value="delete">
