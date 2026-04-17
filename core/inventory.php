@@ -516,12 +516,7 @@ function inventory_is_owner(array $user): bool {
 }
 
 function inventory_require_stock_role(): array {
-  $u = require_menu_access('stok_opname');
-  if (!has_menu_access($u, 'stok_opname')) {
-    http_response_code(403);
-    exit('Forbidden');
-  }
-  return $u;
+  return require_menu_access('stok_opname', 'view');
 }
 
 function stock_opname_warning_threshold(): float {

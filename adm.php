@@ -3,6 +3,7 @@ require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/functions.php';
 require_once __DIR__ . '/core/security.php';
 require_once __DIR__ . '/core/auth.php';
+require_once __DIR__ . '/core/rbac.php';
 
 start_secure_session();
 
@@ -13,14 +14,12 @@ if ((file_exists(__DIR__ . '/install/install.lock') === false && file_exists(__D
 
 $isAndroidApp = is_android_app_request();
 $me = current_user();
+ensure_rbac_schema();
 if ($me && $isAndroidApp) {
   redirect(base_url('pos/index.php'));
 }
-if ($me && in_array($me['role'] ?? '', ['admin', 'owner'], true)) {
-  redirect(base_url('admin/dashboard.php'));
-}
-if ($me && !in_array($me['role'] ?? '', ['admin', 'owner'], true)) {
-  redirect(base_url('pos/index.php'));
+if ($me) {
+  redirect(resolve_default_landing_page_for_user($me));
 }
 
 $err = '';
@@ -41,10 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($isAndroidApp) {
       redirect(base_url('pos/index.php'));
     }
-    if (in_array($me['role'] ?? '', ['admin', 'owner'], true)) {
-      redirect(base_url('admin/dashboard.php'));
-    }
-    redirect(base_url('pos/index.php'));
+    redirect(resolve_default_landing_page_for_user($me));
   } else {
     $failedAttempts = login_record_failed_attempt();
     rate_limit_record('admin_login', $rateId);

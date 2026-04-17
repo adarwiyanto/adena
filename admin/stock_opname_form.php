@@ -8,7 +8,7 @@ require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
-$u = require_menu_access('stok_opname');
+$u = require_menu_access('stok_opname', 'view');
 ensure_inventory_module_schema();
 
 $err = '';
@@ -17,6 +17,10 @@ $id = (int)($_GET['id'] ?? 0);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = (string)($_POST['action'] ?? '');
+  $actionPermMap = ['create_draft' => 'create', 'save_items' => 'edit', 'submit' => 'edit'];
+  if (isset($actionPermMap[$action])) {
+    require_action_access('stok_opname', $actionPermMap[$action]);
+  }
   try {
     $db = db();
     $db->beginTransaction();
@@ -141,10 +145,10 @@ function variance_badge(float $variance): string {
 </tr>
 <?php endforeach; ?>
 </tbody></table>
-<?php if($isDraft): ?><button class="btn" type="submit">Simpan Draft</button><?php endif; ?>
+<?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?><button class="btn" type="submit">Simpan Draft</button><?php endif; ?>
 <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Kembali</a>
 </form>
-<?php if($isDraft): ?>
+<?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?>
 <form method="post" style="margin-top:10px"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="id" value="<?php echo e((string)$id); ?>"><button class="btn" type="submit">Submit Menunggu Approval</button></form>
 <?php endif; ?>
 </div>

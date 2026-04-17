@@ -19,10 +19,18 @@ ensure_rbac_schema();
 ensure_sales_revision_schema();
 
 $err = '';
-$me = require_menu_access('admin');
+$me = require_menu_access('sales', 'view');
+$canCreateSales = has_menu_access($me, 'sales', 'create');
+$canEditSales = has_menu_access($me, 'sales', 'edit');
+$canDeleteSales = has_menu_access($me, 'sales', 'delete');
+$canApproveSales = has_menu_access($me, 'sales', 'approve');
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? 'create';
+  $actionPermMap = ['delete'=>'delete','edit_save'=>'edit','return'=>'approve','create'=>'create'];
+  if (isset($actionPermMap[$action])) {
+    require_action_access('sales', $actionPermMap[$action]);
+  }
   $transactionCode = trim($_POST['transaction_code'] ?? '');
   $legacySaleId = (int)($_POST['sale_id'] ?? 0);
 
@@ -418,7 +426,7 @@ $customCss = setting('custom_css', '');
           <?php endif; ?>
           <form method="post">
             <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-            <input type="hidden" name="action" value="create">
+            <?php if ($canCreateSales): ?><input type="hidden" name="action" value="create">
             <div class="row">
               <label>Produk</label>
               <select name="product_id" required>
@@ -432,7 +440,7 @@ $customCss = setting('custom_css', '');
               <label>Qty</label>
               <input type="number" name="qty" value="1" min="1" required>
             </div>
-            <button class="btn" type="submit">Simpan Penjualan</button>
+            <button class="btn" type="submit">Simpan Penjualan</button><?php endif; ?>
           </form>
           <p><small>Ini versi sederhana: harga mengikuti harga produk saat transaksi dibuat.</small></p>
         </div>
@@ -519,9 +527,9 @@ $customCss = setting('custom_css', '');
                     <a class="btn" href="<?php echo e(base_url('admin/sales.php?revisions=' . urlencode($txCode))); ?>">Revisi</a>
                   <?php endif; ?>
                   <?php if (in_array($me['role'] ?? '', ['owner', 'admin'], true)): ?>
-                    <a class="btn" href="<?php echo e(base_url('admin/sales.php?edit=' . urlencode($txCode))); ?>">Edit</a>
+                    <?php if ($canEditSales): ?><a class="btn" href="<?php echo e(base_url('admin/sales.php?edit=' . urlencode($txCode))); ?>">Edit</a><?php endif; ?>
                   <?php endif; ?>
-                  <?php if (empty($tx['return_reason']) && in_array($me['role'] ?? '', ['admin', 'owner'], true)): ?>
+                  <?php if ($canApproveSales && empty($tx['return_reason']) && in_array($me['role'] ?? '', ['admin', 'owner'], true)): ?>
                     <form method="post" class="return-form" data-return-form>
                       <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                       <input type="hidden" name="action" value="return">
@@ -537,7 +545,7 @@ $customCss = setting('custom_css', '');
                     </form>
                   <?php endif; ?>
                   <?php if (($me['role'] ?? '') === 'owner'): ?>
-                    <form method="post" data-confirm="Hapus transaksi ini?">
+                    <?php if ($canDeleteSales): ?><form method="post" data-confirm="Hapus transaksi ini?">
                       <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                       <input type="hidden" name="action" value="delete">
                       <?php if ($legacyId > 0): ?>
@@ -547,6 +555,7 @@ $customCss = setting('custom_css', '');
                       <?php endif; ?>
                       <button class="btn" type="submit">Hapus</button>
                     </form>
+                  <?php endif; ?>
                   <?php endif; ?>
                 </div>
               </div>

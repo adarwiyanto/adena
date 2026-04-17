@@ -19,13 +19,23 @@ function require_admin(): void {
   require_login();
   ensure_owner_role();
   ensure_rbac_schema();
-  $u = current_user();
-  if (($u['role'] ?? '') === 'pegawai') {
-    redirect(base_url('pos/index.php'));
+
+  $u = current_user() ?? [];
+  $role = strtolower(trim((string)($u['role'] ?? '')));
+  if ($role === 'superadmin') {
+    $u['role'] = 'owner';
+    $_SESSION['user'] = $u;
+    $role = 'owner';
   }
-  if (!in_array($u['role'] ?? '', ['admin', 'owner', 'superadmin', 'manager', 'kasir', 'gudang'], true)) {
-    http_response_code(403);
-    exit('Forbidden');
+  if ($role === 'pegawai' || $role === 'user') {
+    $u['role'] = 'kasir';
+    $_SESSION['user'] = $u;
+    $role = 'kasir';
+  }
+
+  if ($role === '') {
+    logout();
+    redirect(base_url('adm.php'));
   }
 }
 

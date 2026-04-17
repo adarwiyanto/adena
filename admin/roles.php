@@ -9,7 +9,7 @@ require_once __DIR__ . '/../core/rbac.php';
 start_secure_session();
 require_admin();
 ensure_rbac_schema();
-$me = current_user() ?? [];
+$me = require_menu_access('roles', 'view');
 if (!current_user_is_owner()) {
   http_response_code(403);
   exit('Forbidden');
@@ -45,23 +45,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'save_permissions') {
+      require_action_access('roles', 'edit');
       $roleId = (int)($_POST['role_id'] ?? 0);
       $role = role_by_id($roleId);
       if (!$role) throw new Exception('Role tidak ditemukan.');
       if (($role['role_key'] ?? '') === 'owner') throw new Exception('Permission owner terkunci penuh.');
+
+      $submittedPerms = $_POST['permissions'] ?? ($_POST['perm'] ?? []);
+      if (!is_array($submittedPerms)) $submittedPerms = [];
+
       $tree = role_menu_tree();
+      $db = db();
+      $db->beginTransaction();
       foreach ($tree as $menuKey => $meta) {
         $flags = [];
         foreach (['view','create','edit','delete','print','export','approve'] as $actionKey) {
-          $flags[$actionKey] = isset($_POST['perm'][$menuKey][$actionKey]) ? 1 : 0;
+          $flags[$actionKey] = isset($submittedPerms[$menuKey][$actionKey]) ? 1 : 0;
         }
-        $stmt = db()->prepare("INSERT INTO role_permissions
+        $stmt = $db->prepare("INSERT INTO role_permissions
           (role_id, menu_key, can_view, can_create, can_edit, can_delete, can_print, can_export, can_approve)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE can_view=VALUES(can_view), can_create=VALUES(can_create), can_edit=VALUES(can_edit),
           can_delete=VALUES(can_delete), can_print=VALUES(can_print), can_export=VALUES(can_export), can_approve=VALUES(can_approve)");
         $stmt->execute([$roleId, $menuKey, $flags['view'], $flags['create'], $flags['edit'], $flags['delete'], $flags['print'], $flags['export'], $flags['approve']]);
       }
+      $cleanup = $db->prepare("DELETE FROM role_permissions WHERE role_id=? AND menu_key NOT IN (" . implode(',', array_fill(0, count($tree), '?')) . ")");
+      $cleanup->execute(array_merge([$roleId], array_keys($tree)));
+      $db->commit();
       redirect(base_url('admin/roles.php?role_id=' . $roleId));
     }
   } catch (Throwable $e) {
@@ -139,7 +149,7 @@ $customCss = setting('custom_css', '');
               <tr>
                 <td>└ <?php echo e($meta['label']); ?></td>
                 <?php foreach (['view','create','edit','delete','print','export','approve'] as $action): ?>
-                  <td><input type="checkbox" name="perm[<?php echo e($menuKey); ?>][<?php echo e($action); ?>]" <?php echo ((int)($perm['can_' . $action] ?? 0) === 1 || $isOwnerRole) ? 'checked' : ''; ?> <?php echo $isOwnerRole ? 'disabled' : ''; ?>></td>
+                  <td><input type="checkbox" name="permissions[<?php echo e($menuKey); ?>][<?php echo e($action); ?>]" <?php echo ((int)($perm['can_' . $action] ?? 0) === 1 || $isOwnerRole) ? 'checked' : ''; ?> <?php echo $isOwnerRole ? 'disabled' : ''; ?>></td>
                 <?php endforeach; ?>
               </tr>
             <?php endforeach; ?>

@@ -4,10 +4,13 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
+$me = require_menu_access('purchase', 'view');
 ensure_inventory_module_schema();
 
 $err = '';

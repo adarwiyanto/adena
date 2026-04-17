@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../core/db.php'; require_once __DIR__ . '/../core/functions.php'; require_once __DIR__ . '/../core/security.php'; require_once __DIR__ . '/../core/auth.php'; require_once __DIR__ . '/../core/csrf.php'; require_once __DIR__ . '/../core/inventory.php';
-start_secure_session(); require_admin(); ensure_inventory_module_schema();
+start_secure_session(); require_admin();
+ensure_rbac_schema();
+$me = require_menu_access('produk', 'view'); ensure_inventory_module_schema();
 $err=''; $u=current_user();
 function fmt_qty_id($v, $unit=null){ return format_qty((float)$v, $unit); }
 $branches=inventory_branches();
