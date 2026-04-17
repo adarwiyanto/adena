@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">HOPe POS</string>
+    <string name="printer_status_not_selected">Printer: belum dipilih</string>
+</resources>
