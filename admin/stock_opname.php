@@ -15,6 +15,10 @@ $err = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = (string)($_POST['action'] ?? '');
+  $actionPermMap = ['submit' => 'edit', 'cancel' => 'delete'];
+  if (isset($actionPermMap[$action])) {
+    require_action_access('stok_opname', $actionPermMap[$action]);
+  }
   $id = (int)($_POST['id'] ?? 0);
   try {
     $db = db();
@@ -81,7 +85,7 @@ function opname_status_badge(string $status): string {
   <div class="row"><label>Cabang</label><select name="branch_id"><?php foreach($branches as $b): ?><option value="<?php echo e((string)$b['id']); ?>" <?php echo (int)$b['id']===$branchId?'selected':''; ?>><?php echo e($b['branch_name']); ?></option><?php endforeach; ?></select></div>
   <div class="row"><label>Status</label><select name="status"><option value="">Semua</option><option value="draft" <?php echo $status==='draft'?'selected':''; ?>>Draft</option><option value="waiting_approval" <?php echo $status==='waiting_approval'?'selected':''; ?>>Menunggu Approval</option><option value="approved" <?php echo $status==='approved'?'selected':''; ?>>Approved</option><option value="rejected" <?php echo $status==='rejected'?'selected':''; ?>>Rejected</option><option value="cancelled" <?php echo $status==='cancelled'?'selected':''; ?>>Cancelled</option></select></div>
   <div class="row" style="align-self:end"><button class="btn" type="submit">Filter</button></div>
-  <div class="row" style="align-self:end"><a class="btn" href="<?php echo e(base_url('admin/stock_opname_form.php?branch_id=' . $branchId)); ?>">Buat Draft Opname</a></div>
+  <?php if (has_menu_access($u, 'stok_opname', 'create')): ?><div class="row" style="align-self:end"><a class="btn" href="<?php echo e(base_url('admin/stock_opname_form.php?branch_id=' . $branchId)); ?>">Buat Draft Opname</a></div><?php endif; ?>
 </form>
 </div>
 <div class="card"><table class="table"><thead><tr><th>No Opname</th><th>Tanggal</th><th>Cabang</th><th>Petugas</th><th>Ringkasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
@@ -95,10 +99,10 @@ function opname_status_badge(string $status): string {
   <td><span class="badge" style="<?php echo opname_status_badge((string)$r['status']); ?>"><?php echo e((string)$r['status']); ?></span></td>
   <td style="display:flex;gap:6px;flex-wrap:wrap">
     <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_form.php?id=' . (int)$r['id'])); ?>">Detail</a>
-    <?php if(($r['status'] ?? '') === 'draft'): ?>
+    <?php if(($r['status'] ?? '') === 'draft' && has_menu_access($u, 'stok_opname', 'edit')): ?>
       <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn" type="submit">Submit</button></form>
     <?php endif; ?>
-    <?php if(in_array(($r['status'] ?? ''), ['draft','waiting_approval'], true)): ?>
+    <?php if(in_array(($r['status'] ?? ''), ['draft','waiting_approval'], true) && has_menu_access($u, 'stok_opname', 'delete')): ?>
       <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="cancel"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn danger" type="submit">Cancel</button></form>
     <?php endif; ?>
   </td>

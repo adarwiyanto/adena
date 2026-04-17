@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../core/db.php'; require_once __DIR__ . '/../core/functions.php'; require_once __DIR__ . '/../core/security.php'; require_once __DIR__ . '/../core/auth.php'; require_once __DIR__ . '/../core/csrf.php'; require_once __DIR__ . '/../core/inventory.php';
-start_secure_session(); require_admin(); ensure_inventory_module_schema();
+start_secure_session(); require_admin();
+ensure_rbac_schema();
+$me = require_menu_access('inventori', 'view'); ensure_inventory_module_schema();
 $err=''; $u=current_user(); $branches=inventory_branches();
 $boms=db()->query("SELECT bh.id,bh.bom_code,p.name finished_name,p.base_unit,p.purchase_unit,p.purchase_to_base_factor,p.sale_unit,p.sale_to_base_factor,bh.branch_id FROM bom_headers bh JOIN products p ON p.id=bh.finished_product_id WHERE bh.is_active=1 ORDER BY bh.id DESC")->fetchAll();
 if($_SERVER['REQUEST_METHOD']==='POST'){ csrf_check(); $action=(string)($_POST['action']??'create'); try {

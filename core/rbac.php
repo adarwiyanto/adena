@@ -41,6 +41,13 @@ function ensure_rbac_schema(): void {
   }
 
   try {
+    db()->exec("DELETE rp1 FROM role_permissions rp1
+      INNER JOIN role_permissions rp2
+      ON rp1.role_id = rp2.role_id AND rp1.menu_key = rp2.menu_key AND rp1.id > rp2.id");
+  } catch (Throwable $e) {
+  }
+
+  try {
     $hasRoleId = (bool)db()->query("SHOW COLUMNS FROM users LIKE 'role_id'")->fetch();
     if (!$hasRoleId) {
       db()->exec("ALTER TABLE users ADD COLUMN role_id INT NULL AFTER role");
@@ -72,6 +79,8 @@ function ensure_rbac_schema(): void {
   $roleMap = [
     'owner' => 'owner',
     'admin' => 'admin',
+    'manager' => 'manager',
+    'gudang' => 'gudang',
     'pegawai' => 'kasir',
     'user' => 'kasir',
     '' => 'kasir',
@@ -80,8 +89,13 @@ function ensure_rbac_schema(): void {
     $users = db()->query("SELECT id, role, role_id FROM users")->fetchAll();
     foreach ($users as $u) {
       $existingRole = strtolower(trim((string)($u['role'] ?? '')));
-      $targetRoleKey = $roleMap[$existingRole] ?? 'kasir';
+      $targetRoleKey = $roleMap[$existingRole] ?? $existingRole;
+      if ($targetRoleKey === '') $targetRoleKey = 'kasir';
       $roleId = role_id_by_key($targetRoleKey);
+      if ($roleId <= 0) {
+        $roleId = role_id_by_key('kasir');
+        $targetRoleKey = 'kasir';
+      }
       if ($roleId <= 0) continue;
       $stmt = db()->prepare("UPDATE users SET role_id=?, role=? WHERE id=?");
       $stmt->execute([$roleId, $targetRoleKey, (int)$u['id']]);
@@ -116,33 +130,45 @@ function role_by_id(int $roleId): ?array {
 
 function role_menu_tree(): array {
   return [
+    'dashboard' => ['label' => 'Dashboard', 'actions' => ['view', 'export']],
     'pos' => ['label' => 'POS', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
-    'admin' => ['label' => 'Admin', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
+    'sales' => ['label' => 'Penjualan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'produk' => ['label' => 'Produk', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export']],
     'inventori' => ['label' => 'Inventori', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'stok_opname' => ['label' => 'Stok Opname', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'customers' => ['label' => 'Pelanggan', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
+    'suppliers' => ['label' => 'Supplier', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
+    'purchase' => ['label' => 'Pembelian Bahan Baku', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'users' => ['label' => 'Manajemen User', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
+    'roles' => ['label' => 'Role & Permission', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
+    'settings' => ['label' => 'Pengaturan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
   ];
 }
 
 function seed_default_role_permissions(): void {
   $menuDefaults = [
-    'owner' => ['pos', 'admin', 'produk', 'inventori', 'stok_opname'],
-    'admin' => ['pos', 'produk', 'inventori', 'stok_opname'],
-    'manager' => ['stok_opname'],
+    'owner' => array_keys(role_menu_tree()),
+    'admin' => ['dashboard', 'pos', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings'],
+    'manager' => ['dashboard', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase'],
     'kasir' => ['pos'],
-    'gudang' => ['inventori', 'stok_opname'],
+    'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
   foreach ($menuDefaults as $roleKey => $menus) {
     $roleId = role_id_by_key($roleKey);
     if ($roleId <= 0) continue;
     foreach (role_menu_tree() as $menuKey => $meta) {
-      $allow = in_array($menuKey, $menus, true);
       try {
-        $stmt = db()->prepare("INSERT INTO role_permissions (role_id, menu_key, can_view, can_create, can_edit, can_delete, can_print, can_export, can_approve)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE can_view=VALUES(can_view), can_create=VALUES(can_create), can_edit=VALUES(can_edit),
-          can_delete=VALUES(can_delete), can_print=VALUES(can_print), can_export=VALUES(can_export), can_approve=VALUES(can_approve)");
-        $stmt->execute([
+        $stmt = db()->prepare("SELECT id FROM role_permissions WHERE role_id=? AND menu_key=? LIMIT 1");
+        $stmt->execute([$roleId, $menuKey]);
+        $exists = $stmt->fetch();
+        if ($exists) {
+          continue;
+        }
+
+        $allow = in_array($menuKey, $menus, true);
+        $insert = db()->prepare("INSERT INTO role_permissions (role_id, menu_key, can_view, can_create, can_edit, can_delete, can_print, can_export, can_approve)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $insert->execute([
           $roleId,
           $menuKey,
           $allow ? 1 : 0,
@@ -163,8 +189,7 @@ function current_user_role_key(): string {
   $u = $_SESSION['user'] ?? [];
   $role = strtolower(trim((string)($u['role'] ?? '')));
   if ($role === 'superadmin') return 'owner';
-  if ($role === 'pegawai') return 'kasir';
-  if ($role === 'user') return 'kasir';
+  if ($role === 'pegawai' || $role === 'user') return 'kasir';
   return $role;
 }
 
@@ -177,7 +202,7 @@ function has_role_permission(int $roleId, string $menuKey, string $action = 'vie
   if (!in_array($action, $allowedActions, true)) $action = 'view';
   $col = 'can_' . $action;
   try {
-    $stmt = db()->prepare("SELECT {$col} AS allowed FROM role_permissions WHERE role_id=? AND menu_key=? LIMIT 1");
+    $stmt = db()->prepare("SELECT MAX({$col}) AS allowed FROM role_permissions WHERE role_id=? AND menu_key=?");
     $stmt->execute([$roleId, $menuKey]);
     $row = $stmt->fetch();
     return (int)($row['allowed'] ?? 0) === 1;
@@ -190,12 +215,75 @@ function has_menu_access(array $user, string $menuKey, string $action = 'view'):
   ensure_rbac_schema();
   $role = strtolower(trim((string)($user['role'] ?? '')));
   if ($role === 'superadmin' || $role === 'owner') return true;
+
+  $aliasMap = [
+    'admin' => 'dashboard',
+  ];
+  $menuKey = $aliasMap[$menuKey] ?? $menuKey;
+
   $roleId = (int)($user['role_id'] ?? 0);
   if ($roleId <= 0 && $role !== '') {
     $roleId = role_id_by_key($role);
   }
   if ($roleId <= 0) return false;
-  return has_role_permission($roleId, $menuKey, $action);
+
+  if (has_role_permission($roleId, $menuKey, $action)) {
+    return true;
+  }
+
+  $fallbackMenu = [
+    'dashboard' => ['sales', 'produk', 'inventori', 'stok_opname', 'users', 'settings'],
+    'settings' => ['users', 'roles'],
+    'sales' => ['dashboard'],
+  ];
+  foreach ($fallbackMenu[$menuKey] ?? [] as $candidate) {
+    if (has_role_permission($roleId, $candidate, $action)) return true;
+  }
+  return false;
+}
+
+function get_menu_landing_order(): array {
+  return [
+    ['menu' => 'dashboard', 'url' => base_url('admin/dashboard.php')],
+    ['menu' => 'pos', 'url' => base_url('pos/index.php')],
+    ['menu' => 'sales', 'url' => base_url('admin/sales.php')],
+    ['menu' => 'produk', 'url' => base_url('admin/products.php')],
+    ['menu' => 'inventori', 'url' => base_url('admin/stocks.php')],
+    ['menu' => 'stok_opname', 'url' => base_url('admin/stock_opname.php')],
+    ['menu' => 'users', 'url' => base_url('admin/users.php')],
+    ['menu' => 'roles', 'url' => base_url('admin/roles.php')],
+    ['menu' => 'settings', 'url' => base_url('admin/store.php')],
+  ];
+}
+
+function resolve_default_landing_page_for_user(array $user): string {
+  if (has_menu_access($user, 'dashboard')) {
+    return base_url('admin/dashboard.php');
+  }
+
+  $roleKey = strtolower(trim((string)($user['role'] ?? '')));
+  if (in_array($roleKey, ['kasir', 'pegawai', 'user'], true) && has_menu_access($user, 'pos')) {
+    return base_url('pos/index.php');
+  }
+
+  foreach (get_menu_landing_order() as $item) {
+    if (has_menu_access($user, $item['menu'])) {
+      return $item['url'];
+    }
+  }
+
+  if (in_array($roleKey, ['kasir', 'pegawai', 'user'], true)) {
+    return base_url('pos/index.php');
+  }
+  return base_url('admin/access_unconfigured.php');
+}
+
+function redirect_to_best_allowed_page(array $user, string $reason = 'forbidden'): void {
+  $target = resolve_default_landing_page_for_user($user);
+  if (strpos($target, 'access_unconfigured.php') !== false) {
+    redirect(base_url('admin/access_unconfigured.php?reason=' . urlencode($reason)));
+  }
+  redirect($target);
 }
 
 function require_menu_access(string $menuKey, string $action = 'view'): array {
@@ -203,8 +291,11 @@ function require_menu_access(string $menuKey, string $action = 'view'): array {
   require_admin();
   $u = current_user() ?? [];
   if (!has_menu_access($u, $menuKey, $action)) {
-    http_response_code(403);
-    exit('Forbidden');
+    redirect_to_best_allowed_page($u, 'menu:' . $menuKey . ':' . $action);
   }
   return $u;
+}
+
+function require_action_access(string $menuKey, string $action): array {
+  return require_menu_access($menuKey, $action);
 }

@@ -23,7 +23,7 @@ $storeSubtitle = setting('store_subtitle', '');
 $isAndroidApp = is_android_app_request();
 $me = current_user();
 ensure_rbac_schema();
-if (!has_menu_access($me ?? [], 'pos')) { http_response_code(403); exit('Forbidden'); }
+$me = require_menu_access('pos', 'view');
 $isOwner = (string)($me['role'] ?? '') === 'owner';
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
@@ -40,6 +40,25 @@ $activeOrderId = $_SESSION['pos_order_id'] ?? null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? '';
+
+  $actionPermissionMap = [
+    'add' => 'create',
+    'inc' => 'edit',
+    'dec' => 'edit',
+    'remove' => 'delete',
+    'toggle_bypass' => 'approve',
+    'load_order' => 'create',
+    'save_order' => 'create',
+    'clear_order' => 'delete',
+    'claim_reward' => 'create',
+    'remove_reward' => 'delete',
+    'checkout' => 'create',
+    'new_transaction' => 'create',
+    'print' => 'print',
+  ];
+  if (isset($actionPermissionMap[$action])) {
+    require_action_access('pos', $actionPermissionMap[$action]);
+  }
   $productId = (int)($_POST['product_id'] ?? 0);
   $rewardId = (int)($_POST['reward_id'] ?? 0);
 

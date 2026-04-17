@@ -4,9 +4,12 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
+$me = require_menu_access('customers', 'view');
 ensure_landing_order_tables();
 
 $me = current_user();

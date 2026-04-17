@@ -3,6 +3,7 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/rbac.php';
 
 date_default_timezone_set('Asia/Jakarta');
 
@@ -13,18 +14,9 @@ $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
 $storeLogo = setting('store_logo', '');
 $customCss = setting('custom_css', '');
-$u = current_user();
+ensure_rbac_schema();
+$u = require_menu_access('dashboard', 'view');
 $role = $u['role'] ?? '';
-
-if ($role === 'user' || $role === 'pegawai' || $role === '' || $role === null) {
-  redirect(base_url('pos/index.php'));
-  exit;
-}
-
-if ($role !== 'admin' && $role !== 'owner') {
-  http_response_code(403);
-  exit('Forbidden');
-}
 
 $range = $_GET['range'] ?? 'today';
 $rangeStart = null;

@@ -13,13 +13,17 @@ ensure_rbac_schema();
 ensure_owner_role();
 ensure_user_invites_table();
 ensure_rbac_schema();
-$me = require_menu_access('admin');
+$me = require_menu_access('users', 'view');
 
 $err = '';
 $ok = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? '';
+  $actionPermMap = ['delete'=>'delete','update_role'=>'edit','invite'=>'create','save_email_settings'=>'edit'];
+  if (isset($actionPermMap[$action])) {
+    require_action_access('users', $actionPermMap[$action]);
+  }
 
   try {
     if ($action === 'delete') {
