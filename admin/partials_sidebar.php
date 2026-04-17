@@ -1,9 +1,11 @@
 <?php
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/rbac.php';
 
 $appName = app_config()['app']['name'];
 $u = current_user();
+ensure_rbac_schema();
 $avatarUrl = '';
 if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
@@ -37,12 +39,15 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
   </div>
 
   <div class="nav">
+    <?php if (has_menu_access($u, 'produk')): ?>
     <div class="item">
       <a href="<?php echo e(base_url('index.php')); ?>" target="_blank" rel="noopener">
         <div class="mi">🌐</div><div class="label">Landing Page</div>
       </a>
     </div>
+    <?php endif; ?>
 
+    <?php if (has_menu_access($u, 'admin') || has_menu_access($u, 'pos') || has_menu_access($u, 'produk')): ?>
     <div class="item">
       <a class="<?php echo (basename($_SERVER['PHP_SELF'])==='dashboard.php')?'active':''; ?>"
          href="<?php echo e(base_url('admin/dashboard.php')); ?>">
@@ -76,29 +81,32 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <a href="<?php echo e(base_url('admin/suppliers.php')); ?>">Master Supplier</a>
       </div>
     </div>
+    <?php endif; ?>
 
-    <?php if (in_array($u['role'] ?? '', ['admin', 'owner'], true)): ?>
+    <?php if (has_menu_access($u, 'inventori') || has_menu_access($u, 'stok_opname')): ?>
       <div class="item">
         <button type="button" data-toggle-submenu="#m-stok">
           <div class="mi">📊</div><div class="label">Stok</div>
           <div class="chev">▾</div>
         </button>
         <div class="submenu" id="m-stok">
-          <a href="<?php echo e(base_url('admin/stocks.php')); ?>">Daftar Stok</a>
-          <a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a>
-          <a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a>
-          <a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a>
+          <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stocks.php')); ?>">Daftar Stok</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'stok_opname')): ?><a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'stok_opname', 'approve')): ?><a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a><?php endif; ?>
         </div>
       </div>
     <?php endif; ?>
 
+    <?php if (has_menu_access($u, 'pos')): ?>
     <div class="item">
       <a href="<?php echo e(base_url('pos/index.php')); ?>" target="_blank" rel="noopener">
         <div class="mi">🧾</div><div class="label">POS Kasir</div>
       </a>
     </div>
+    <?php endif; ?>
 
-    <?php if (in_array($u['role'] ?? '', ['admin', 'owner'], true)): ?>
+    <?php if (has_menu_access($u, 'admin')): ?>
       <div class="item">
         <button type="button" data-toggle-submenu="#m-admin">
           <div class="mi">⚙️</div><div class="label">Admin</div>
@@ -106,6 +114,9 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </button>
         <div class="submenu" id="m-admin">
           <a href="<?php echo e(base_url('admin/users.php')); ?>">User</a>
+          <?php if (current_user_is_owner()): ?>
+            <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
+          <?php endif; ?>
           <a href="<?php echo e(base_url('admin/store.php')); ?>">Profil Toko</a>
           <a href="<?php echo e(base_url('admin/theme.php')); ?>">Tema / CSS</a>
           <a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a>

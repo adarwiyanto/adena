@@ -90,7 +90,7 @@ $stats = [
 $stmt = db()->prepare("
   SELECT COUNT(*) c, COALESCE(SUM(total),0) s
   FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
 ");
 $stmt->execute([$rangeStartStr, $rangeEndStr]);
 $statsRange = $stmt->fetch();
@@ -101,7 +101,7 @@ $stmt = db()->prepare("
   SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c,
          COALESCE(SUM(total),0) s
   FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
 ");
 $stmt->execute([$rangeStartStr, $rangeEndStr]);
 $avgRow = $stmt->fetch();
@@ -121,7 +121,7 @@ $stats['returns'] = (int)($stmt->fetch()['c'] ?? 0);
 $stmt = db()->prepare("
   SELECT payment_method, COUNT(*) c, COALESCE(SUM(total),0) s
   FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
   GROUP BY payment_method
   ORDER BY s DESC
 ");
@@ -197,7 +197,7 @@ $peakDays = 1;
 $peakParams = [];
 $peakWhere = '';
 if ($peakRange === 'all_time') {
-  $row = db()->query("SELECT MIN(sold_at) AS min_date, MAX(sold_at) AS max_date FROM sales WHERE return_reason IS NULL")->fetch();
+  $row = db()->query("SELECT MIN(sold_at) AS min_date, MAX(sold_at) AS max_date FROM sales WHERE is_active_revision=1 AND return_reason IS NULL AND is_active_revision=1")->fetch();
   if (!empty($row['min_date']) && !empty($row['max_date'])) {
     $peakStart = new DateTimeImmutable($row['min_date']);
     $peakEnd = (new DateTimeImmutable($row['max_date']))->modify('+1 day');
@@ -217,7 +217,7 @@ $stmt = db()->prepare("
     SELECT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id)) AS tx_code,
            MIN(sold_at) AS tx_time
     FROM sales
-    WHERE return_reason IS NULL
+    WHERE return_reason IS NULL AND is_active_revision=1
     {$peakWhere}
     GROUP BY COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))
   ) t
@@ -246,7 +246,7 @@ if ($role === 'admin') {
   $stmt = db()->prepare("
     SELECT COUNT(*) c, COALESCE(SUM(total),0) s
     FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
   ");
   $stmt->execute([$todayStartStr, $todayEndStr]);
   $row = $stmt->fetch();
@@ -266,7 +266,7 @@ if ($role === 'admin') {
     FROM sales
     WHERE sold_at >= ?
       AND sold_at < ?
-      AND return_reason IS NULL
+      AND return_reason IS NULL AND is_active_revision=1
       AND payment_method != 'cash'
       AND payment_proof_path IS NULL
   ");
@@ -306,7 +306,7 @@ if ($role === 'owner') {
   $stmt = db()->prepare("
     SELECT COUNT(*) c, COALESCE(SUM(total),0) s
     FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
   ");
   $stmt->execute([$todayStartStr, $todayEndStr]);
   $todayRow = $stmt->fetch();
@@ -330,7 +330,7 @@ if ($role === 'owner') {
   $stmt = db()->prepare("
     SELECT payment_method, COUNT(*) c, COALESCE(SUM(total),0) s
     FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
     GROUP BY payment_method
     ORDER BY s DESC
   ");
@@ -353,7 +353,7 @@ if ($role === 'owner') {
   $stmt = db()->prepare("
     SELECT DATE(sold_at) d, COALESCE(SUM(total),0) s
     FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL
+    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
     GROUP BY DATE(sold_at)
     ORDER BY d ASC
   ");
@@ -377,7 +377,7 @@ if ($role === 'owner') {
     SELECT p.name, SUM(s.qty) qty, COALESCE(SUM(s.total),0) omzet
     FROM sales s
     JOIN products p ON p.id = s.product_id
-    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL
+    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL AND is_active_revision=1
     GROUP BY s.product_id
     ORDER BY qty DESC
     LIMIT 5
@@ -394,7 +394,7 @@ if ($role === 'owner') {
     FROM products p
     LEFT JOIN sales s
       ON s.product_id = p.id
-      AND s.return_reason IS NULL
+      AND s.return_reason IS NULL AND is_active_revision=1
       AND s.sold_at >= ?
       AND s.sold_at < ?
     WHERE s.id IS NULL
@@ -410,7 +410,7 @@ if ($role === 'owner') {
       FROM products p
       LEFT JOIN sales s
         ON s.product_id = p.id
-        AND s.return_reason IS NULL
+        AND s.return_reason IS NULL AND is_active_revision=1
         AND s.sold_at >= ?
         AND s.sold_at < ?
       GROUP BY p.id

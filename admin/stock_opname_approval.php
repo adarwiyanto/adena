@@ -4,10 +4,11 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
-$u = inventory_require_stock_role();
+$u = require_menu_access('stok_opname');
 ensure_inventory_module_schema();
 $isOwner = inventory_is_owner($u);
 $err = '';
