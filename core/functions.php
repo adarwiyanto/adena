@@ -523,7 +523,7 @@ function ensure_owner_role(): void {
     $type = (string)($column['Type'] ?? '');
     if (strpos($type, "'owner'") === false || strpos($type, "'superadmin'") !== false) {
       db()->exec("UPDATE users SET role='owner' WHERE role='superadmin'");
-      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','user','pegawai') NOT NULL DEFAULT 'admin'");
+      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','manager','kasir','gudang','user','pegawai') NOT NULL DEFAULT 'admin'");
     }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.

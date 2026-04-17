@@ -4,11 +4,14 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
+$u = require_menu_access('produk');
 ensure_products_category_column();
 ensure_products_best_seller_column();
 ensure_inventory_module_schema();

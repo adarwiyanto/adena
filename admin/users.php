@@ -5,12 +5,15 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/email.php';
+require_once __DIR__ . '/../core/rbac.php';
 
 start_secure_session();
 require_admin();
+ensure_rbac_schema();
 ensure_owner_role();
 ensure_user_invites_table();
-$me = current_user();
+ensure_rbac_schema();
+$me = require_menu_access('admin');
 
 $err = '';
 $ok = '';
@@ -41,11 +44,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Hanya owner yang bisa mengubah role user.');
       }
       $id = (int)($_POST['id'] ?? 0);
-      $role = $_POST['role'] ?? 'user';
-      if (!in_array($role, ['admin', 'user', 'owner', 'pegawai'], true)) $role = 'user';
+      $role = strtolower(trim((string)($_POST['role'] ?? 'kasir')));
+      $allowedRoles = array_column(db()->query("SELECT role_key FROM roles WHERE is_active=1")->fetchAll(), 'role_key');
+      if (!in_array($role, $allowedRoles, true)) $role = 'kasir';
+      if ($role === 'owner' && ($me['role'] ?? '') !== 'owner') throw new Exception('Role owner hanya bisa diset owner.');
+      $roleId = role_id_by_key($role);
       if ($id > 0 && $id !== (int)($me['id'] ?? 0)) {
-        $stmt = db()->prepare("UPDATE users SET role=? WHERE id=?");
-        $stmt->execute([$role, $id]);
+        $stmt = db()->prepare("UPDATE users SET role=?, role_id=? WHERE id=?");
+        $stmt->execute([$role, $roleId, $id]);
         redirect(base_url('admin/users.php'));
       }
     }
@@ -55,11 +61,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Hanya owner yang bisa mengundang user.');
       }
       $email = trim($_POST['email'] ?? '');
-      $role = $_POST['role'] ?? 'user';
+      $role = strtolower(trim((string)($_POST['role'] ?? 'kasir')));
       if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new Exception('Email tidak valid.');
       }
-      if (!in_array($role, ['admin', 'user', 'owner', 'pegawai'], true)) $role = 'user';
+      $allowedRoles = array_column(db()->query("SELECT role_key FROM roles WHERE is_active=1")->fetchAll(), 'role_key');
+      if (!in_array($role, $allowedRoles, true)) $role = 'kasir';
+      if ($role === 'owner') throw new Exception('Undangan owner tidak diizinkan dari halaman ini.');
 
       $token = bin2hex(random_bytes(16));
       $tokenHash = hash('sha256', $token);
@@ -111,7 +119,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$users = db()->query("SELECT id, username, name, role, created_at FROM users ORDER BY id DESC")->fetchAll();
+$rolesActive = db()->query("SELECT role_key, role_name FROM roles WHERE is_active=1 ORDER BY role_name ASC")->fetchAll();
+$users = db()->query("SELECT id, username, name, role, role_id, created_at FROM users ORDER BY id DESC")->fetchAll();
 $customCss = setting('custom_css','');
 $mailCfg = mail_settings();
 ?>
@@ -152,10 +161,9 @@ $mailCfg = mail_settings();
               <div class="row">
                 <label>Role</label>
                 <select name="role">
-                  <option value="admin">admin</option>
-                  <option value="user" selected>user</option>
-                  <option value="owner">owner</option>
-                  <option value="pegawai">pegawai</option>
+                  <?php foreach ($rolesActive as $r): if (($r['role_key'] ?? '') === 'owner') continue; ?>
+                    <option value="<?php echo e($r['role_key']); ?>"><?php echo e($r['role_name']); ?></option>
+                  <?php endforeach; ?>
                 </select>
               </div>
               <button class="btn" type="submit">Kirim Undangan</button>
@@ -177,8 +185,9 @@ $mailCfg = mail_settings();
                     'owner' => 'owner',
                     'superadmin' => 'owner',
                     'admin' => 'admin',
-                    'user' => 'user',
-                    'pegawai' => 'pegawai',
+                    'manager' => 'manager',
+                    'kasir' => 'kasir',
+                    'gudang' => 'gudang',
                   ];
                   $roleValue = (string)($u['role'] ?? '');
                   $roleValueNormalized = $roleValue === 'superadmin' ? 'owner' : $roleValue;
@@ -198,8 +207,9 @@ $mailCfg = mail_settings();
                         <select name="role">
                           <option value="owner" <?php echo ($roleValueNormalized === 'owner') ? 'selected' : ''; ?>>owner</option>
                           <option value="admin" <?php echo ($roleValueNormalized === 'admin') ? 'selected' : ''; ?>>admin</option>
-                          <option value="user" <?php echo ($roleValueNormalized === 'user') ? 'selected' : ''; ?>>user</option>
-                          <option value="pegawai" <?php echo ($roleValueNormalized === 'pegawai') ? 'selected' : ''; ?>>pegawai</option>
+                          <option value="manager" <?php echo ($roleValueNormalized === 'manager') ? 'selected' : ''; ?>>manager</option>
+                          <option value="kasir" <?php echo ($roleValueNormalized === 'kasir' || $roleValueNormalized === 'pegawai' || $roleValueNormalized === 'user') ? 'selected' : ''; ?>>kasir</option>
+                          <option value="gudang" <?php echo ($roleValueNormalized === 'gudang') ? 'selected' : ''; ?>>gudang</option>
                         </select>
                         <button class="btn" type="submit">Simpan</button>
                       </form>

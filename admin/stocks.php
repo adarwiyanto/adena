@@ -3,10 +3,11 @@ require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
+require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
-$u = inventory_require_stock_role();
+$u = require_menu_access('inventori');
 ensure_inventory_module_schema();
 
 $branchId = (int)($_GET['branch_id'] ?? active_branch_id());

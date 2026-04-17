@@ -2,6 +2,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/rbac.php';
 
 function start_session(): void {
   start_secure_session();
@@ -17,11 +18,12 @@ function require_login(): void {
 function require_admin(): void {
   require_login();
   ensure_owner_role();
+  ensure_rbac_schema();
   $u = current_user();
   if (($u['role'] ?? '') === 'pegawai') {
     redirect(base_url('pos/index.php'));
   }
-  if (!in_array($u['role'] ?? '', ['admin', 'owner', 'superadmin'], true)) {
+  if (!in_array($u['role'] ?? '', ['admin', 'owner', 'superadmin', 'manager', 'kasir', 'gudang'], true)) {
     http_response_code(403);
     exit('Forbidden');
   }
@@ -71,6 +73,19 @@ function login_attempt(string $username, string $password): bool {
   unset($u['password_hash']);
   if (($u['role'] ?? '') === 'superadmin') {
     $u['role'] = 'owner';
+  }
+  if (($u['role'] ?? '') === 'pegawai') {
+    $u['role'] = 'kasir';
+  }
+  if (($u['role'] ?? '') === 'user') {
+    $u['role'] = 'kasir';
+  }
+  if (!isset($u['role_id']) || (int)$u['role_id'] <= 0) {
+    $u['role_id'] = role_id_by_key((string)$u['role']);
+    try {
+      $stmt = db()->prepare("UPDATE users SET role_id=?, role=? WHERE id=?");
+      $stmt->execute([(int)$u['role_id'], (string)$u['role'], (int)$u['id']]);
+    } catch (Throwable $e) {}
   }
   $_SESSION['user'] = $u;
   login_clear_failed_attempts();

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/rbac.php';
 
 function ensure_inventory_module_schema(): void {
   static $ensured = false;
@@ -515,9 +516,8 @@ function inventory_is_owner(array $user): bool {
 }
 
 function inventory_require_stock_role(): array {
-  require_admin();
-  $u = current_user() ?? [];
-  if (!in_array(($u['role'] ?? ''), ['owner', 'admin'], true)) {
+  $u = require_menu_access('stok_opname');
+  if (!has_menu_access($u, 'stok_opname')) {
     http_response_code(403);
     exit('Forbidden');
   }
