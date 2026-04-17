@@ -12,7 +12,12 @@ ensure_user_profile_columns();
 
 $me = current_user();
 $userId = (int)($me['id'] ?? 0);
-$stmt = db()->prepare("SELECT id, username, name, role, avatar_path FROM users WHERE id=? LIMIT 1");
+$stmt = db()->prepare("
+  SELECT u.id, u.username, u.name, u.role_id, u.avatar_path, r.role_key
+  FROM users u
+  LEFT JOIN roles r ON r.id=u.role_id
+  WHERE u.id=? LIMIT 1
+");
 $stmt->execute([$userId]);
 $user = $stmt->fetch();
 if (!$user) {
@@ -74,7 +79,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $customCss = setting('custom_css', '');
-$isPegawai = ($user['role'] ?? '') === 'pegawai';
+$resolvedRole = resolve_user_role($user ?: []);
+$isKasir = (($resolvedRole['role_key'] ?? '') === 'kasir');
 $avatarUrl = !empty($user['avatar_path']) ? upload_url($user['avatar_path'], 'image') : '';
 $initial = strtoupper(substr((string)($user['name'] ?? 'U'), 0, 1));
 ?>
@@ -106,17 +112,17 @@ $initial = strtoupper(substr((string)($user['name'] ?? 'U'), 0, 1));
 </head>
 <body>
   <div class="container">
-    <?php if (!$isPegawai): ?>
+    <?php if (!$isKasir): ?>
       <?php include __DIR__ . '/admin/partials_sidebar.php'; ?>
     <?php endif; ?>
     <div class="main">
       <div class="topbar">
-        <?php if (!$isPegawai): ?>
+        <?php if (!$isKasir): ?>
           <button class="btn" data-toggle-sidebar type="button">Menu</button>
         <?php endif; ?>
         <div class="title">Edit Profil</div>
         <div class="spacer"></div>
-        <?php if ($isPegawai): ?>
+        <?php if ($isKasir): ?>
           <a class="btn" href="<?php echo e(base_url('pos/index.php')); ?>">Kembali ke POS</a>
         <?php endif; ?>
       </div>

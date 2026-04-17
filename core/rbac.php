@@ -53,6 +53,9 @@ function ensure_rbac_schema(): void {
       db()->exec("ALTER TABLE users ADD COLUMN role_id INT NULL AFTER role");
       try { db()->exec("ALTER TABLE users ADD KEY idx_role_id (role_id)"); } catch (Throwable $e) {}
     }
+    try {
+      db()->exec("ALTER TABLE users ADD KEY idx_role_id (role_id)");
+    } catch (Throwable $e) {}
   } catch (Throwable $e) {
   }
 
@@ -80,6 +83,7 @@ function ensure_rbac_schema(): void {
     'owner' => 'owner',
     'admin' => 'admin',
     'manager' => 'manager',
+    'kasir' => 'kasir',
     'gudang' => 'gudang',
     'pegawai' => 'kasir',
     'user' => 'kasir',
@@ -88,18 +92,27 @@ function ensure_rbac_schema(): void {
   try {
     $users = db()->query("SELECT id, role, role_id FROM users")->fetchAll();
     foreach ($users as $u) {
-      $existingRole = strtolower(trim((string)($u['role'] ?? '')));
-      $targetRoleKey = $roleMap[$existingRole] ?? $existingRole;
-      if ($targetRoleKey === '') $targetRoleKey = 'kasir';
-      $roleId = role_id_by_key($targetRoleKey);
-      if ($roleId <= 0) {
-        $roleId = role_id_by_key('kasir');
-        $targetRoleKey = 'kasir';
+      $roleId = (int)($u['role_id'] ?? 0);
+      $role = role_by_id($roleId);
+      if ($role) {
+        $targetRoleKey = strtolower(trim((string)($role['role_key'] ?? '')));
+      } else {
+        $existingRole = strtolower(trim((string)($u['role'] ?? '')));
+        $targetRoleKey = $roleMap[$existingRole] ?? $existingRole;
+        if ($targetRoleKey === '' || $targetRoleKey === 'pegawai' || $targetRoleKey === 'user') {
+          $targetRoleKey = 'kasir';
+        }
+        $roleId = role_id_by_key($targetRoleKey);
       }
       if ($roleId <= 0) continue;
       $stmt = db()->prepare("UPDATE users SET role_id=?, role=? WHERE id=?");
       $stmt->execute([$roleId, $targetRoleKey, (int)$u['id']]);
     }
+  } catch (Throwable $e) {
+  }
+
+  try {
+    db()->exec("ALTER TABLE users ADD CONSTRAINT fk_users_role_id FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE");
   } catch (Throwable $e) {
   }
 
@@ -126,6 +139,42 @@ function role_by_id(int $roleId): ?array {
   } catch (Throwable $e) {
     return null;
   }
+}
+
+function role_by_key(string $roleKey): ?array {
+  try {
+    $stmt = db()->prepare("SELECT * FROM roles WHERE role_key=? LIMIT 1");
+    $stmt->execute([$roleKey]);
+    $row = $stmt->fetch();
+    return $row ?: null;
+  } catch (Throwable $e) {
+    return null;
+  }
+}
+
+function resolve_user_role(array $user): array {
+  ensure_rbac_schema();
+
+  $roleId = (int)($user['role_id'] ?? 0);
+  $role = $roleId > 0 ? role_by_id($roleId) : null;
+
+  if (!$role) {
+    $legacyRole = strtolower(trim((string)($user['role'] ?? '')));
+    if ($legacyRole === 'superadmin') $legacyRole = 'owner';
+    if ($legacyRole === 'pegawai' || $legacyRole === 'user') $legacyRole = 'kasir';
+    if ($legacyRole !== '') {
+      $role = role_by_key($legacyRole);
+      if ($role) {
+        $roleId = (int)($role['id'] ?? 0);
+      }
+    }
+  }
+
+  return [
+    'role_id' => $roleId,
+    'role_key' => strtolower(trim((string)($role['role_key'] ?? ''))),
+    'role_name' => (string)($role['role_name'] ?? ''),
+  ];
 }
 
 function role_menu_tree(): array {
@@ -187,10 +236,8 @@ function seed_default_role_permissions(): void {
 function current_user_role_key(): string {
   start_secure_session();
   $u = $_SESSION['user'] ?? [];
-  $role = strtolower(trim((string)($u['role'] ?? '')));
-  if ($role === 'superadmin') return 'owner';
-  if ($role === 'pegawai' || $role === 'user') return 'kasir';
-  return $role;
+  $resolved = resolve_user_role(is_array($u) ? $u : []);
+  return (string)($resolved['role_key'] ?? '');
 }
 
 function current_user_is_owner(): bool {
@@ -213,18 +260,16 @@ function has_role_permission(int $roleId, string $menuKey, string $action = 'vie
 
 function has_menu_access(array $user, string $menuKey, string $action = 'view'): bool {
   ensure_rbac_schema();
-  $role = strtolower(trim((string)($user['role'] ?? '')));
-  if ($role === 'superadmin' || $role === 'owner') return true;
+  $resolved = resolve_user_role($user);
+  $roleKey = (string)($resolved['role_key'] ?? '');
+  if ($roleKey === 'owner') return true;
 
   $aliasMap = [
     'admin' => 'dashboard',
   ];
   $menuKey = $aliasMap[$menuKey] ?? $menuKey;
 
-  $roleId = (int)($user['role_id'] ?? 0);
-  if ($roleId <= 0 && $role !== '') {
-    $roleId = role_id_by_key($role);
-  }
+  $roleId = (int)($resolved['role_id'] ?? 0);
   if ($roleId <= 0) return false;
 
   if (has_role_permission($roleId, $menuKey, $action)) {
@@ -261,8 +306,9 @@ function resolve_default_landing_page_for_user(array $user): string {
     return base_url('admin/dashboard.php');
   }
 
-  $roleKey = strtolower(trim((string)($user['role'] ?? '')));
-  if (in_array($roleKey, ['kasir', 'pegawai', 'user'], true) && has_menu_access($user, 'pos')) {
+  $resolved = resolve_user_role($user);
+  $roleKey = (string)($resolved['role_key'] ?? '');
+  if ($roleKey === 'kasir' && has_menu_access($user, 'pos')) {
     return base_url('pos/index.php');
   }
 
@@ -272,7 +318,7 @@ function resolve_default_landing_page_for_user(array $user): string {
     }
   }
 
-  if (in_array($roleKey, ['kasir', 'pegawai', 'user'], true)) {
+  if ($roleKey === 'kasir') {
     return base_url('pos/index.php');
   }
   return base_url('admin/access_unconfigured.php');

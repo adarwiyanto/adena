@@ -24,7 +24,7 @@ $isAndroidApp = is_android_app_request();
 $me = current_user();
 ensure_rbac_schema();
 $me = require_menu_access('pos', 'view');
-$isOwner = (string)($me['role'] ?? '') === 'owner';
+$isOwner = ((string)(resolve_user_role($me)['role_key'] ?? '') === 'owner');
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];

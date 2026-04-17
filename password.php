@@ -11,7 +11,12 @@ ensure_user_profile_columns();
 
 $me = current_user();
 $userId = (int)($me['id'] ?? 0);
-$stmt = db()->prepare("SELECT id, name, role, password_hash FROM users WHERE id=? LIMIT 1");
+$stmt = db()->prepare("
+  SELECT u.id, u.name, u.role_id, u.password_hash, r.role_key
+  FROM users u
+  LEFT JOIN roles r ON r.id=u.role_id
+  WHERE u.id=? LIMIT 1
+");
 $stmt->execute([$userId]);
 $user = $stmt->fetch();
 if (!$user) {
@@ -46,7 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $customCss = setting('custom_css', '');
-$isPegawai = ($user['role'] ?? '') === 'pegawai';
+$resolvedRole = resolve_user_role($user ?: []);
+$isKasir = (($resolvedRole['role_key'] ?? '') === 'kasir');
 ?>
 <!doctype html>
 <html>
@@ -60,17 +66,17 @@ $isPegawai = ($user['role'] ?? '') === 'pegawai';
 </head>
 <body>
   <div class="container">
-    <?php if (!$isPegawai): ?>
+    <?php if (!$isKasir): ?>
       <?php include __DIR__ . '/admin/partials_sidebar.php'; ?>
     <?php endif; ?>
     <div class="main">
       <div class="topbar">
-        <?php if (!$isPegawai): ?>
+        <?php if (!$isKasir): ?>
           <button class="btn" data-toggle-sidebar type="button">Menu</button>
         <?php endif; ?>
         <div class="title">Ubah Password</div>
         <div class="spacer"></div>
-        <?php if ($isPegawai): ?>
+        <?php if ($isKasir): ?>
           <a class="btn" href="<?php echo e(base_url('pos/index.php')); ?>">Kembali ke POS</a>
         <?php endif; ?>
       </div>

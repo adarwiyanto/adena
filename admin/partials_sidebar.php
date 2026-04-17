@@ -6,6 +6,11 @@ require_once __DIR__ . '/../core/rbac.php';
 $appName = app_config()['app']['name'];
 $u = current_user();
 ensure_rbac_schema();
+$resolvedRole = resolve_user_role(is_array($u) ? $u : []);
+$displayRole = (string)($resolvedRole['role_name'] ?? '');
+if ($displayRole === '') {
+  $displayRole = (string)($resolvedRole['role_key'] ?? 'unknown');
+}
 $avatarUrl = '';
 if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
@@ -25,7 +30,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </div>
         <div class="p-text">
           <div class="p-title"><?php echo e($u['name'] ?? 'User'); ?></div>
-          <div class="p-sub"><?php echo e(ucfirst($u['role'] ?? 'admin')); ?></div>
+          <div class="p-sub"><?php echo e($displayRole); ?></div>
         </div>
         <div class="p-right">
           <span class="chev">▾</span>
@@ -123,7 +128,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/theme.php')); ?>">Tema / CSS</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
-          <?php if (($u['role'] ?? '') === 'owner'): ?>
+          <?php if (current_user_is_owner()): ?>
             <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
           <?php endif; ?>
         </div>
