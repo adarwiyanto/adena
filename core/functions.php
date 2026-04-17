@@ -479,10 +479,31 @@ function ensure_landing_order_tables(): void {
     } catch (Throwable $e) {
       // abaikan jika indeks sudah ada
     }
+    $stmt = $db->query("SHOW COLUMNS FROM customers LIKE 'username'");
+    $hasUsername = (bool)$stmt->fetch();
+    if (!$hasUsername) {
+      $db->exec("ALTER TABLE customers ADD COLUMN username VARCHAR(60) NULL AFTER name");
+    }
+    try {
+      $db->exec("ALTER TABLE customers ADD UNIQUE KEY uniq_customers_username (username)");
+    } catch (Throwable $e) {
+      // abaikan jika indeks sudah ada
+    }
+    try {
+      $db->exec("ALTER TABLE customers ADD UNIQUE KEY uniq_customers_email (email)");
+    } catch (Throwable $e) {
+      // abaikan jika indeks sudah ada / data lama belum bersih
+    }
     try {
       $db->exec("ALTER TABLE customers MODIFY email VARCHAR(190) NULL");
     } catch (Throwable $e) {
       // abaikan jika tidak bisa mengubah kolom.
+    }
+    if (!function_exists('customer_backfill_usernames')) {
+      require_once __DIR__ . '/auth_helpers.php';
+    }
+    if (function_exists('customer_backfill_usernames')) {
+      customer_backfill_usernames();
     }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.

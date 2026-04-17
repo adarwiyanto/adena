@@ -5,6 +5,7 @@ require_once __DIR__ . '/core/functions.php';
 require_once __DIR__ . '/core/security.php';
 require_once __DIR__ . '/core/csrf.php';
 require_once __DIR__ . '/core/rbac.php';
+require_once __DIR__ . '/core/auth_helpers.php';
 start_secure_session();
 
 ensure_owner_role();
@@ -54,11 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $p1 = (string)($_POST['pass1'] ?? '');
     $p2 = (string)($_POST['pass2'] ?? '');
     if ($name === '' || $username === '') throw new Exception('Nama dan username wajib diisi.');
+    if (!is_valid_username_format($username)) throw new Exception('Format username tidak valid.');
     if ($p1 === '' || $p1 !== $p2) throw new Exception('Password tidak cocok.');
-
-    $stmt = db()->prepare("SELECT id FROM users WHERE username=? LIMIT 1");
-    $stmt->execute([$username]);
-    if ($stmt->fetch()) throw new Exception('Username sudah dipakai.');
+    if (username_exists_anywhere($username)) throw new Exception('Username sudah dipakai.');
 
     $role = strtolower(trim((string)($invite['role'] ?? 'kasir')));
     if ($role === 'superadmin') $role = 'owner';
