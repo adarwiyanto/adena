@@ -3,6 +3,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/auth_helpers.php';
 
 function customer_cookie_name(): string {
   return 'HOPE_CUSTOMER_TOKEN';
@@ -73,6 +74,45 @@ function customer_login(string $phone, string $password): bool {
   $stmt = db()->prepare("SELECT * FROM customers WHERE phone = ? LIMIT 1");
   $stmt->execute([$phone]);
   $customer = $stmt->fetch();
+  if (!$customer) {
+    return false;
+  }
+  $hash = (string)($customer['password_hash'] ?? '');
+  if ($hash === '') {
+    return false;
+  }
+  $verified = password_verify($password, $hash);
+  if (!$verified) {
+    $legacyMatch = false;
+    if (strlen($hash) === 32 && hash_equals($hash, md5($password))) {
+      $legacyMatch = true;
+    } elseif (strlen($hash) === 40 && hash_equals($hash, sha1($password))) {
+      $legacyMatch = true;
+    } elseif (hash_equals($hash, $password)) {
+      $legacyMatch = true;
+    }
+    if (!$legacyMatch) {
+      return false;
+    }
+  }
+  if ($verified && password_needs_rehash($hash, PASSWORD_DEFAULT)) {
+    $newHash = password_hash($password, PASSWORD_DEFAULT);
+    $stmt = db()->prepare("UPDATE customers SET password_hash=? WHERE id=?");
+    $stmt->execute([$newHash, (int)$customer['id']]);
+  }
+  if (!$verified) {
+    $newHash = password_hash($password, PASSWORD_DEFAULT);
+    $stmt = db()->prepare("UPDATE customers SET password_hash=? WHERE id=?");
+    $stmt->execute([$newHash, (int)$customer['id']]);
+  }
+  customer_create_session($customer);
+  return true;
+}
+
+function customer_login_by_username(string $username, string $password): bool {
+  $username = normalize_username($username);
+  if ($username === '') return false;
+  $customer = customer_find_by_username($username);
   if (!$customer) {
     return false;
   }

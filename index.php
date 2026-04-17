@@ -173,7 +173,7 @@ $currentUser = current_user();
 $customer = customer_current();
 $customerButton = $customer
   ? '<a class="btn" href="' . e(base_url('customer.php')) . '">Akun Saya</a>'
-  : '<a class="btn" href="' . e(base_url('customer.php')) . '">Masuk / Daftar</a>';
+  : '<a class="btn" href="' . e(base_url('auth.php')) . '">Masuk / Daftar</a>';
 $adminButton = '';
 if ($currentUser && in_array($currentUser['role'] ?? '', ['admin', 'owner'], true)) {
   $adminButton = '<a class="btn btn-light" href="' . e(base_url('admin/dashboard.php')) . '">Admin</a>';
