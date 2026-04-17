@@ -4,6 +4,7 @@ require_once __DIR__ . '/core/functions.php';
 require_once __DIR__ . '/core/security.php';
 require_once __DIR__ . '/core/auth.php';
 require_once __DIR__ . '/core/csrf.php';
+require_once __DIR__ . '/core/auth_helpers.php';
 require_once __DIR__ . '/lib/upload_secure.php';
 
 start_secure_session();
@@ -36,10 +37,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($username === '' || $name === '') {
       throw new Exception('Username dan nama wajib diisi.');
     }
-
-    $stmt = db()->prepare("SELECT id FROM users WHERE username=? AND id<>? LIMIT 1");
-    $stmt->execute([$username, $userId]);
-    if ($stmt->fetch()) {
+    if (!is_valid_username_format($username)) {
+      throw new Exception('Format username tidak valid.');
+    }
+    if (username_exists_anywhere($username, 'user', $userId)) {
       throw new Exception('Username sudah digunakan.');
     }
 
