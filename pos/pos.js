@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const shiftModal = document.querySelector('[data-shift-modal]');
   const cashModal = document.querySelector('[data-cash-modal]');
-  const closeModal = document.querySelector('[data-close-modal]');
+  const closeShiftModal = document.querySelector('.pos-modal[data-close-modal]');
   const openShiftBtn = document.querySelector('[data-open-shift-modal]');
   const openCashBtn = document.querySelector('[data-open-cash-modal]');
   const openCloseBtn = document.querySelector('[data-open-close-modal]');
@@ -24,10 +24,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const showModal = (modal) => { if (modal) modal.hidden = false; };
   const hideModals = () => document.querySelectorAll('.pos-modal').forEach((m) => { m.hidden = true; });
-  document.querySelectorAll('[data-close-modal]').forEach((btn) => btn.addEventListener('click', hideModals));
+  document.querySelectorAll('[data-dismiss-modal]').forEach((btn) => btn.addEventListener('click', hideModals));
   if (openShiftBtn) openShiftBtn.addEventListener('click', () => showModal(shiftModal));
   if (openCashBtn) openCashBtn.addEventListener('click', () => showModal(cashModal));
-  if (openCloseBtn) openCloseBtn.addEventListener('click', () => showModal(closeModal));
+  if (openCloseBtn) {
+    openCloseBtn.addEventListener('click', () => {
+      const hasShift = !!(window.POS_RUNTIME && window.POS_RUNTIME.hasActiveShift);
+      if (!hasShift) return;
+      showModal(closeShiftModal);
+    });
+  }
+
+  const initialShiftState = (window.POS_RUNTIME && window.POS_RUNTIME.shiftState) || 'no_active_shift';
+  if (initialShiftState === 'no_active_shift') {
+    hideModals();
+  }
 
   const postShiftAction = async (action, payload = {}) => {
     const form = new FormData();
