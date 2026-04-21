@@ -41,7 +41,14 @@ try {
   if ($action === 'status') {
     $active = pos_shift_get_active($branchId);
     if ($active) pos_shift_mark_user_activity($active, (int)$me['id'], 'join');
-    echo json_encode(['ok' => true, 'shift' => $active]);
+    echo json_encode([
+      'ok' => true,
+      'shift' => $active,
+      'has_active_shift' => (bool)$active,
+      'requires_open_shift' => !$active,
+      'state' => $active ? 'active_shift_exists' : 'no_active_shift',
+      'forced_close_required' => false,
+    ]);
     exit;
   }
 
@@ -58,7 +65,18 @@ try {
   }
 
   $active = pos_shift_get_active($branchId);
-  if (!$active) throw new Exception('Belum ada shift aktif.');
+  if (!$active) {
+    http_response_code(409);
+    echo json_encode([
+      'ok' => false,
+      'error' => 'Belum ada shift aktif.',
+      'code' => 'no_active_shift',
+      'has_active_shift' => false,
+      'requires_open_shift' => true,
+      'state' => 'no_active_shift',
+    ]);
+    exit;
+  }
 
   if ($action === 'summary') {
     pos_shift_mark_user_activity($active, (int)$me['id'], 'use');
