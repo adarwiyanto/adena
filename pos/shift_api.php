@@ -9,6 +9,16 @@ require_once __DIR__ . '/../core/pos_shift.php';
 
 header('Content-Type: application/json');
 
+if (!function_exists('pos_safe_branch_id')) {
+  function pos_safe_branch_id(): int {
+    if (function_exists('active_branch_id')) {
+      $id = (int)active_branch_id();
+      if ($id > 0) return $id;
+    }
+    return 1;
+  }
+}
+
 start_secure_session();
 require_login();
 ensure_rbac_schema();
@@ -25,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 try {
   csrf_check();
   $action = (string)($_POST['action'] ?? 'status');
-  $branchId = active_branch_id();
+  $branchId = pos_safe_branch_id();
   $role = (string)(resolve_user_role($me)['role_key'] ?? '');
 
   if ($action === 'status') {

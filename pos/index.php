@@ -9,6 +9,16 @@ require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../core/pos_shift.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 
+if (!function_exists('pos_safe_branch_id')) {
+  function pos_safe_branch_id(): int {
+    if (function_exists('active_branch_id')) {
+      $id = (int)active_branch_id();
+      if ($id > 0) return $id;
+    }
+    return 1;
+  }
+}
+
 start_secure_session();
 require_login();
 ensure_landing_order_tables();
@@ -29,8 +39,13 @@ $me = require_menu_access('pos', 'view');
 $isOwner = ((string)(resolve_user_role($me)['role_key'] ?? '') === 'owner');
 $resolvedRoleKey = (string)(resolve_user_role($me)['role_key'] ?? '');
 $isShiftAdmin = in_array($resolvedRoleKey, ['owner', 'admin'], true);
-$branchId = active_branch_id();
-$activeShift = pos_shift_get_active($branchId);
+$branchId = pos_safe_branch_id();
+$activeShift = null;
+try {
+  $activeShift = pos_shift_get_active($branchId);
+} catch (Throwable $e) {
+  $activeShift = null;
+}
 if ($activeShift) {
   pos_shift_mark_user_activity($activeShift, (int)($me['id'] ?? 0), 'join');
 }
@@ -269,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $db = db();
       $db->beginTransaction();
-      $branchId = active_branch_id();
+      $branchId = pos_safe_branch_id();
       $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
       $transactionGroupUuid = trim((string)($_POST['transaction_group_uuid'] ?? ''));
       if ($transactionGroupUuid === '') {
@@ -593,7 +608,14 @@ if (!empty($pendingOrders)) {
   }
 }
 
-$shiftSummary = $activeShift ? pos_shift_calculate_summary((int)$activeShift['id']) : null;
+$shiftSummary = null;
+if ($activeShift) {
+  try {
+    $shiftSummary = pos_shift_calculate_summary((int)$activeShift['id']);
+  } catch (Throwable $e) {
+    $shiftSummary = null;
+  }
+}
 
 $cartItems = [];
 $total = 0.0;

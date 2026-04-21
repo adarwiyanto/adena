@@ -178,6 +178,20 @@ function setting(string $key, $default = null) {
   }
 }
 
+if (!function_exists('active_branch_id')) {
+  function active_branch_id(): int {
+    try {
+      if (function_exists('setting')) {
+        $id = (int)setting('active_branch_id', '1');
+        if ($id > 0) return $id;
+      }
+    } catch (Throwable $e) {
+      // fallback ke default branch single-store.
+    }
+    return 1;
+  }
+}
+
 function favicon_url(): string {
   $storeLogo = setting('store_logo', '');
   if (!empty($storeLogo)) {
