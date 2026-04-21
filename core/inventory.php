@@ -359,10 +359,12 @@ function inventory_branches(): array {
   return $stmt->fetchAll();
 }
 
-function active_branch_id(): int {
-  $id = (int)setting('active_branch_id', '1');
-  if ($id > 0) return $id;
-  return 1;
+if (!function_exists('active_branch_id')) {
+  function active_branch_id(): int {
+    $id = (int)setting('active_branch_id', '1');
+    if ($id > 0) return $id;
+    return 1;
+  }
 }
 
 function branch_stock(int $branchId, int $productId): float {
