@@ -261,7 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (empty($cart) && empty($rewardCart)) throw new Exception('Keranjang masih kosong.');
       $activeShift = pos_shift_get_active($branchId);
       if (!$activeShift) {
-        throw new Exception('Belum ada shift aktif. Hubungi owner/admin untuk buka shift.');
+        throw new Exception('Belum ada shift aktif. Silakan buka shift terlebih dahulu.');
       }
 
       $paymentMethod = $_POST['payment_method'] ?? '';
@@ -269,19 +269,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Pilih metode pembayaran.');
       }
       $paymentProofPath = null;
-      $pendingQrisProof = (int)($_POST['pending_qris_proof'] ?? 0) === 1;
-      if ($paymentMethod === 'qris') {
-        if (empty($_FILES['payment_proof']['name'] ?? '') && !$pendingQrisProof) {
-          throw new Exception('Bukti pembayaran QRIS wajib diunggah.');
-        }
-        if (!empty($_FILES['payment_proof']['name'] ?? '')) {
-          $upload = upload_secure($_FILES['payment_proof'], 'image');
-          if (empty($upload['ok'])) {
-            throw new Exception($upload['error'] ?? 'Gagal mengunggah bukti pembayaran.');
-          }
-          $paymentProofPath = $upload['name'];
-        }
-      }
       $db = db();
       $db->beginTransaction();
       $branchId = pos_safe_branch_id();
@@ -1008,16 +995,6 @@ if (!empty($rewardCart)) {
                         <span>QRIS</span>
                       </label>
                     </div>
-                  </div>
-                  <div class="pos-qris" data-qris-field hidden>
-                    <label for="payment_proof">Foto Bukti QRIS</label>
-                    <input class="pos-qris-input" type="file" id="payment_proof" name="payment_proof" accept=".jpg,.jpeg,.png" capture="environment">
-                    <label class="btn pos-qris-upload" for="payment_proof">Ambil Foto QRIS</label>
-                    <div class="pos-qris-preview" data-qris-preview hidden>
-                      <img alt="Preview bukti QRIS">
-                      <button type="button" class="btn pos-qris-retake" data-qris-retake>Ulangi Foto</button>
-                    </div>
-                    <small>Pastikan foto bukti pembayaran jelas sebelum checkout.</small>
                   </div>
                   <button class="btn pos-checkout" type="submit">Checkout</button>
                 </form>

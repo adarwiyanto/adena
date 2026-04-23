@@ -53,8 +53,8 @@ try {
   }
 
   if ($action === 'open') {
-    if (!in_array($role, ['owner', 'admin'], true)) {
-      throw new Exception('Hanya owner/admin yang boleh membuka shift.');
+    if (!in_array($role, ['owner', 'admin', 'kasir'], true)) {
+      throw new Exception('Hanya owner/admin/kasir yang boleh membuka shift.');
     }
     $openingCash = (float)parse_number_input($_POST['opening_cash_actual'] ?? '0');
     $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));
