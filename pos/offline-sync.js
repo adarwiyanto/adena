@@ -135,7 +135,6 @@
       transaction_group_uuid: txUuid,
       payment_method: paymentMethod,
       items: cartItems,
-      pending_qris_proof: paymentMethod === 'qris' ? 1 : 0,
     });
 
     const receipts = loadReceipts();

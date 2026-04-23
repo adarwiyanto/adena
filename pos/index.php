@@ -28,6 +28,7 @@ ensure_sales_user_column();
 ensure_pos_print_jobs_table();
 ensure_inventory_module_schema();
 ensure_pos_shift_schema();
+ensure_payment_methods_table();
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
@@ -50,6 +51,7 @@ if ($activeShift) {
   pos_shift_mark_user_activity($activeShift, (int)($me['id'] ?? 0), 'join');
 }
 $posDefaultOpeningCash = (float)setting('pos_default_opening_cash', '100000');
+$activePaymentMethods = get_active_payment_methods();
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -265,7 +267,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
 
       $paymentMethod = $_POST['payment_method'] ?? '';
-      if (!in_array($paymentMethod, ['cash', 'qris'], true)) {
+      $validPaymentCodes = array_column(get_active_payment_methods(), 'code');
+      if (!in_array($paymentMethod, $validPaymentCodes, true)) {
         throw new Exception('Pilih metode pembayaran.');
       }
       $paymentProofPath = null;
@@ -982,18 +985,15 @@ if (!empty($rewardCart)) {
                   <input type="hidden" name="action" value="checkout">
                   <input type="hidden" name="offline_uuid" value="">
                   <input type="hidden" name="transaction_group_uuid" value="">
-                  <input type="hidden" name="pending_qris_proof" value="0">
                   <div class="pos-payment">
                     <label>Metode Pembayaran</label>
                     <div class="pos-payment-options">
-                      <label class="pos-payment-option">
-                        <input type="radio" name="payment_method" value="cash" checked>
-                        <span>Tunai</span>
-                      </label>
-                      <label class="pos-payment-option">
-                        <input type="radio" name="payment_method" value="qris">
-                        <span>QRIS</span>
-                      </label>
+                      <?php foreach ($activePaymentMethods as $i => $pm): ?>
+                        <label class="pos-payment-option">
+                          <input type="radio" name="payment_method" value="<?php echo e($pm['code']); ?>"<?php echo $i === 0 ? ' checked' : ''; ?>>
+                          <span><?php echo e($pm['name']); ?></span>
+                        </label>
+                      <?php endforeach; ?>
                     </div>
                   </div>
                   <button class="btn pos-checkout" type="submit">Checkout</button>

@@ -837,3 +837,39 @@ function mark_pos_print_job_printed(string $token): bool {
     return false;
   }
 }
+
+function ensure_payment_methods_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS payment_methods (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(50) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        is_system TINYINT(1) NOT NULL DEFAULT 0,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+    db()->exec("
+      INSERT IGNORE INTO payment_methods (code, name, is_system, is_active, sort_order) VALUES
+        ('cash', 'Tunai', 1, 1, 1),
+        ('qris', 'QRIS', 1, 1, 2)
+    ");
+  } catch (Throwable $e) {
+    // Diamkan jika gagal agar tidak mengganggu halaman.
+  }
+}
+
+function get_active_payment_methods(): array {
+  try {
+    ensure_payment_methods_table();
+    return db()->query("SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+  } catch (Throwable $e) {
+    return [['code' => 'cash', 'name' => 'Tunai'], ['code' => 'qris', 'name' => 'QRIS']];
+  }
+}

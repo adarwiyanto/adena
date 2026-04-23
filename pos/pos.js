@@ -160,10 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const queued = window.POSOfflineSync.queueSaleFromCurrentForm(checkoutForm);
         const offlineUuidInput = checkoutForm.querySelector('input[name="offline_uuid"]');
         const groupUuidInput = checkoutForm.querySelector('input[name="transaction_group_uuid"]');
-        const pendingQrisInput = checkoutForm.querySelector('input[name="pending_qris_proof"]');
         if (offlineUuidInput) offlineUuidInput.value = queued.queue.offline_uuid;
         if (groupUuidInput) groupUuidInput.value = queued.queue.payload.transaction_group_uuid || queued.queue.offline_uuid;
-        if (pendingQrisInput && queued.receipt.payment === 'qris') pendingQrisInput.value = '1';
 
         alert('Transaksi tersimpan offline. Jangan refresh halaman sebelum koneksi kembali.');
         const cartList = document.querySelector('.pos-cart-items');
