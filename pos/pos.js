@@ -152,6 +152,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      const paymentMethodInput = checkoutForm.querySelector('input[name="payment_method"]:checked');
+      const paymentBankInput = checkoutForm.querySelector('input[name="payment_bank"]:checked');
+      if (paymentMethodInput && paymentMethodInput.value === 'qris' && !paymentBankInput) {
+        e.preventDefault();
+        alert('Pilih bank QRIS terlebih dahulu.');
+        return;
+      }
+
       if (navigator.onLine) return;
 
       if (!window.POSOfflineSync) return;

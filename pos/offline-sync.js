@@ -113,13 +113,21 @@
 
     const paymentMethodInput = form.querySelector('input[name="payment_method"]:checked');
     const paymentMethod = paymentMethodInput ? paymentMethodInput.value : 'cash';
+    const paymentBankInput = form.querySelector('input[name="payment_bank"]:checked');
+    const paymentBank = paymentMethod === 'qris' && paymentBankInput ? paymentBankInput.value : '';
+    if (paymentMethod === 'qris' && paymentBank === '') {
+      throw new Error('Pilih bank QRIS terlebih dahulu.');
+    }
 
     const transactionCode = 'TRX-LOCAL-' + Date.now();
+    const paymentLabel = paymentMethod === 'qris' && paymentBank !== ''
+      ? paymentMethod.toUpperCase() + ' - ' + paymentBank
+      : paymentMethod;
     const receipt = {
       id: transactionCode,
       time: new Date().toLocaleString('id-ID'),
       cashier: (window.POS_RUNTIME && window.POS_RUNTIME.userName) || 'Kasir',
-      payment: paymentMethod,
+      payment: paymentLabel,
       items: cartItems.map((it) => ({
         name: (state.productNames && state.productNames[String(it.product_id)]) || ('Produk #' + it.product_id),
         qty: it.qty,
@@ -134,6 +142,7 @@
       transaction_code: transactionCode,
       transaction_group_uuid: txUuid,
       payment_method: paymentMethod,
+      payment_bank: paymentBank,
       items: cartItems,
     });
 
