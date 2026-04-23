@@ -29,6 +29,8 @@ ensure_pos_print_jobs_table();
 ensure_inventory_module_schema();
 ensure_pos_shift_schema();
 ensure_payment_methods_table();
+ensure_qris_banks_table();
+ensure_sales_payment_bank_column();
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
@@ -52,6 +54,7 @@ if ($activeShift) {
 }
 $posDefaultOpeningCash = (float)setting('pos_default_opening_cash', '100000');
 $activePaymentMethods = get_active_payment_methods();
+$qrisBanks = get_active_qris_banks();
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -271,6 +274,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!in_array($paymentMethod, $validPaymentCodes, true)) {
         throw new Exception('Pilih metode pembayaran.');
       }
+      $paymentBank = null;
+      if ($paymentMethod === 'qris') {
+        $paymentBank = trim((string)($_POST['payment_bank'] ?? ''));
+        if ($paymentBank === '') $paymentBank = null;
+      }
       $paymentProofPath = null;
       $db = db();
       $db->beginTransaction();
@@ -281,7 +289,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $transactionGroupUuid = 'GRP-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
       }
       $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));
-      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?)");
+      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?)");
       $receiptItems = [];
       $receiptTotal = 0.0;
       $autoProductionIds = [];
@@ -350,7 +358,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total = $price * $qty;
         $saleOfflineUuid = $offlineUuid !== '' ? $offlineUuid : null;
         $saleSyncStatus = $offlineUuid !== '' ? 'pending' : 'synced';
-        $stmt->execute([$transactionCode, $transactionGroupUuid, $saleOfflineUuid, $saleSyncStatus, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
+        $stmt->execute([$transactionCode, $transactionGroupUuid, $saleOfflineUuid, $saleSyncStatus, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, $paymentBank, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
         $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
         $saleId = (int)$db->lastInsertId();
         $stmtUpdateBranch->execute([$branchId, $saleId]);
@@ -407,7 +415,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($qty <= 0) {
             continue;
           }
-          $stmt->execute([$transactionCode, $transactionGroupUuid, null, 'synced', $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
+          $stmt->execute([$transactionCode, $transactionGroupUuid, null, 'synced', $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, $paymentBank, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
           $saleId = (int)$db->lastInsertId();
           $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
           $stmtUpdateBranch->execute([$branchId, $saleId]);
@@ -479,11 +487,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         unset($_SESSION['pos_order_id']);
       }
       pos_shift_log((int)$activeShift['id'], (int)($me['id'] ?? 0), 'checkout');
+      $receiptPaymentLabel = strtoupper($paymentMethod);
+      if ($paymentBank !== null) $receiptPaymentLabel .= ' — ' . $paymentBank;
       $_SESSION['pos_receipt'] = [
         'id' => $transactionCode,
         'time' => date('d/m/Y H:i'),
         'cashier' => $me['name'] ?? 'Kasir',
-        'payment' => $paymentMethod,
+        'payment' => $receiptPaymentLabel,
         'items' => $receiptItems,
         'total' => $receiptTotal,
         'paid_amount' => $receiptTotal,
@@ -675,6 +685,7 @@ if (!empty($rewardCart)) {
           <div class="pos-user-chevron">▾</div>
         </button>
         <div class="pos-user-dropdown submenu" id="pos-user-menu">
+          <a href="<?php echo e(base_url('pos/history.php')); ?>">Riwayat Transaksi</a>
           <a href="<?php echo e(base_url('profile.php')); ?>">Edit Profil</a>
           <a href="<?php echo e(base_url('password.php')); ?>">Ubah Password</a>
         </div>
@@ -990,11 +1001,27 @@ if (!empty($rewardCart)) {
                     <div class="pos-payment-options">
                       <?php foreach ($activePaymentMethods as $i => $pm): ?>
                         <label class="pos-payment-option">
-                          <input type="radio" name="payment_method" value="<?php echo e($pm['code']); ?>"<?php echo $i === 0 ? ' checked' : ''; ?>>
+                          <input type="radio" name="payment_method" value="<?php echo e($pm['code']); ?>"
+                            <?php echo $i === 0 ? ' checked' : ''; ?>
+                            onchange="posPaymentChanged(this)">
                           <span><?php echo e($pm['name']); ?></span>
                         </label>
                       <?php endforeach; ?>
                     </div>
+                    <?php if (!empty($qrisBanks)): ?>
+                      <div id="pos-qris-bank-wrap" style="display:none;margin-top:10px">
+                        <label style="font-size:.85rem;margin-bottom:4px;display:block">Pilih Bank QRIS</label>
+                        <div class="pos-payment-options" id="pos-qris-bank-options">
+                          <?php foreach ($qrisBanks as $bi => $bank): ?>
+                            <label class="pos-payment-option">
+                              <input type="radio" name="payment_bank" value="<?php echo e($bank['name']); ?>"
+                                <?php echo $bi === 0 ? ' checked' : ''; ?>>
+                              <span>QRIS <?php echo e($bank['name']); ?></span>
+                            </label>
+                          <?php endforeach; ?>
+                        </div>
+                      </div>
+                    <?php endif; ?>
                   </div>
                   <button class="btn pos-checkout" type="submit">Checkout</button>
                 </form>
@@ -1007,6 +1034,16 @@ if (!empty($rewardCart)) {
   </div>
   <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
   <script nonce="<?php echo e(csp_nonce()); ?>">
+    function posPaymentChanged(radio) {
+      var wrap = document.getElementById('pos-qris-bank-wrap');
+      if (!wrap) return;
+      wrap.style.display = radio.value === 'qris' ? '' : 'none';
+    }
+    // Init on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      var checked = document.querySelector('input[name="payment_method"]:checked');
+      if (checked) posPaymentChanged(checked);
+    });
     window.POS_RUNTIME = {
       csrf: <?php echo json_encode(csrf_token()); ?>,
       shiftApiUrl: <?php echo json_encode(base_url('pos/shift_api.php')); ?>,

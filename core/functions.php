@@ -873,3 +873,43 @@ function get_active_payment_methods(): array {
     return [['code' => 'cash', 'name' => 'Tunai'], ['code' => 'qris', 'name' => 'QRIS']];
   }
 }
+
+function ensure_qris_banks_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS qris_banks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+  } catch (Throwable $e) {}
+}
+
+function get_active_qris_banks(): array {
+  try {
+    ensure_qris_banks_table();
+    return db()->query("SELECT id, name FROM qris_banks WHERE is_active = 1 ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+  } catch (Throwable $e) {
+    return [];
+  }
+}
+
+function ensure_sales_payment_bank_column(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    $cols = db()->query("SHOW COLUMNS FROM sales LIKE 'payment_bank'")->fetchAll();
+    if (empty($cols)) {
+      db()->exec("ALTER TABLE sales ADD COLUMN payment_bank VARCHAR(100) NULL DEFAULT NULL");
+    }
+  } catch (Throwable $e) {}
+}

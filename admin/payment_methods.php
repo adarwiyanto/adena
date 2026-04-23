@@ -9,6 +9,7 @@ require_once __DIR__ . '/../core/rbac.php';
 start_secure_session();
 $me = require_menu_access('settings', 'view');
 ensure_payment_methods_table();
+ensure_qris_banks_table();
 
 $resolvedRole = (string)(resolve_user_role($me)['role_key'] ?? '');
 if (!in_array($resolvedRole, ['owner', 'admin'], true)) {
@@ -73,10 +74,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       db()->prepare("UPDATE payment_methods SET name = ? WHERE id = ? AND is_system = 0")->execute([$name, $id]);
       redirect(base_url('admin/payment_methods.php'));
     }
+
+  // QRIS banks actions
+  } elseif ($action === 'add_bank') {
+    $name = trim((string)($_POST['bank_name'] ?? ''));
+    if ($name === '') {
+      $err = 'Nama bank wajib diisi.';
+    } else {
+      try {
+        $maxOrder = (int)db()->query("SELECT COALESCE(MAX(sort_order),0) FROM qris_banks")->fetchColumn();
+        db()->prepare("INSERT INTO qris_banks (name, sort_order, is_active) VALUES (?, ?, 1)")
+          ->execute([$name, $maxOrder + 1]);
+        $ok = 'Bank QRIS berhasil ditambahkan.';
+      } catch (Throwable $e) {
+        $err = 'Gagal menambahkan bank: ' . $e->getMessage();
+      }
+    }
+  } elseif ($action === 'edit_bank') {
+    $id   = (int)($_POST['id'] ?? 0);
+    $name = trim((string)($_POST['bank_name'] ?? ''));
+    if ($id <= 0 || $name === '') {
+      $err = 'Nama bank tidak boleh kosong.';
+    } else {
+      db()->prepare("UPDATE qris_banks SET name = ? WHERE id = ?")->execute([$name, $id]);
+      redirect(base_url('admin/payment_methods.php'));
+    }
+  } elseif ($action === 'toggle_bank') {
+    $id  = (int)($_POST['id'] ?? 0);
+    $row = $id > 0 ? db()->query("SELECT * FROM qris_banks WHERE id = $id")->fetch(PDO::FETCH_ASSOC) : null;
+    if (!$row) {
+      $err = 'Bank tidak ditemukan.';
+    } else {
+      db()->prepare("UPDATE qris_banks SET is_active = ? WHERE id = ?")->execute([$row['is_active'] ? 0 : 1, $id]);
+      redirect(base_url('admin/payment_methods.php'));
+    }
+  } elseif ($action === 'delete_bank') {
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id > 0) {
+      db()->prepare("DELETE FROM qris_banks WHERE id = ?")->execute([$id]);
+    }
+    redirect(base_url('admin/payment_methods.php'));
   }
 }
 
-$methods = db()->query("SELECT * FROM payment_methods ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+$methods   = db()->query("SELECT * FROM payment_methods ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+$qrisBanks = db()->query("SELECT * FROM qris_banks ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $customCss = setting('custom_css', '');
 ?>
 <!doctype html>
@@ -171,6 +213,68 @@ $customCss = setting('custom_css', '');
                       <?php else: ?>
                         <span style="opacity:.4;font-size:.85rem">—</span>
                       <?php endif; ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
+      </div>
+
+      <!-- QRIS Banks -->
+      <div class="card" style="margin-top:24px">
+        <h3 style="margin-top:0">Bank QRIS</h3>
+        <p><small>Daftar nama bank yang tampil sebagai pilihan saat kasir memilih metode QRIS di POS.</small></p>
+
+        <form method="post" style="margin-bottom:16px">
+          <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+          <input type="hidden" name="action" value="add_bank">
+          <div class="row">
+            <label>Nama Bank</label>
+            <input name="bank_name" type="text" placeholder="cth. BCA, Mandiri, BRI" required maxlength="100">
+          </div>
+          <button class="btn" type="submit">Tambah Bank</button>
+        </form>
+
+        <?php if (empty($qrisBanks)): ?>
+          <p><small>Belum ada bank QRIS. Tambahkan di atas agar kasir bisa memilih bank saat checkout QRIS.</small></p>
+        <?php else: ?>
+          <div class="table-wrap" style="margin-top:12px">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nama Bank</th>
+                  <th>Status</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($qrisBanks as $b): ?>
+                  <tr>
+                    <td>
+                      <form method="post" style="display:flex;gap:6px;align-items:center">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="edit_bank">
+                        <input type="hidden" name="id" value="<?php echo e((string)$b['id']); ?>">
+                        <input type="text" name="bank_name" value="<?php echo e($b['name']); ?>" maxlength="100" required style="width:150px">
+                        <button class="btn" type="submit" style="padding:2px 8px;font-size:.8rem">Ubah</button>
+                      </form>
+                    </td>
+                    <td><?php echo $b['is_active'] ? '<span style="color:#22c55e">Aktif</span>' : '<span style="opacity:.5">Nonaktif</span>'; ?></td>
+                    <td style="display:flex;gap:6px;flex-wrap:wrap">
+                      <form method="post" style="display:inline">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="toggle_bank">
+                        <input type="hidden" name="id" value="<?php echo e((string)$b['id']); ?>">
+                        <button class="btn" type="submit"><?php echo $b['is_active'] ? 'Nonaktifkan' : 'Aktifkan'; ?></button>
+                      </form>
+                      <form method="post" style="display:inline" data-confirm="Hapus bank QRIS ini?">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="delete_bank">
+                        <input type="hidden" name="id" value="<?php echo e((string)$b['id']); ?>">
+                        <button class="btn" type="submit">Hapus</button>
+                      </form>
                     </td>
                   </tr>
                 <?php endforeach; ?>
