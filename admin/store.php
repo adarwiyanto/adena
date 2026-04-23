@@ -20,6 +20,7 @@ $storePromoEnabled = setting('store_promo_enabled', '1') === '1';
 $recaptchaSiteKey = setting('recaptcha_site_key', '');
 $recaptchaSecretKey = setting('recaptcha_secret_key', '');
 $landingOrderEnabled = setting('landing_order_enabled', '1') === '1';
+$posDefaultOpeningCash = setting('pos_default_opening_cash', '100000');
 $err = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -32,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $recaptchaSiteKeyInput = trim($_POST['recaptcha_site_key'] ?? '');
   $recaptchaSecretKeyInput = trim($_POST['recaptcha_secret_key'] ?? '');
   $landingOrderEnabledInput = isset($_POST['landing_order_enabled']) ? '1' : '0';
+  $posDefaultOpeningCashInput = trim((string)($_POST['pos_default_opening_cash'] ?? $posDefaultOpeningCash));
   $storePromoInput = trim($_POST['store_promo'] ?? '');
   $storePromoEnabledInput = isset($_POST['store_promo_enabled']) ? '1' : '0';
   $removeLogo = isset($_POST['remove_logo']);
@@ -76,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       set_setting('store_logo', $logoPath);
       set_setting('store_promo', $storePromoInput);
       set_setting('store_promo_enabled', $storePromoEnabledInput);
+      set_setting('pos_default_opening_cash', $posDefaultOpeningCashInput === '' ? '0' : $posDefaultOpeningCashInput);
     }
 
     if ($action === 'recaptcha') {
@@ -134,6 +137,11 @@ $customCss = setting('custom_css', '');
           <div class="row">
             <label>Perkenalan Usaha</label>
             <textarea name="store_intro" rows="4"><?php echo e($_POST['store_intro'] ?? $storeIntro); ?></textarea>
+          </div>
+          <div class="row">
+            <label>Default Kas Awal Shift POS</label>
+            <input type="number" step="0.01" name="pos_default_opening_cash" value="<?php echo e($_POST['pos_default_opening_cash'] ?? $posDefaultOpeningCash); ?>">
+            <small>Nominal default kas awal saat admin membuka shift.</small>
           </div>
           <div class="row">
             <label>Konten PROMO</label>

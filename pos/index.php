@@ -6,7 +6,18 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
+require_once __DIR__ . '/../core/pos_shift.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
+
+if (!function_exists('pos_safe_branch_id')) {
+  function pos_safe_branch_id(): int {
+    if (function_exists('active_branch_id')) {
+      $id = (int)active_branch_id();
+      if ($id > 0) return $id;
+    }
+    return 1;
+  }
+}
 
 start_secure_session();
 require_login();
@@ -16,6 +27,7 @@ ensure_sales_transaction_code_column();
 ensure_sales_user_column();
 ensure_pos_print_jobs_table();
 ensure_inventory_module_schema();
+ensure_pos_shift_schema();
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
@@ -25,6 +37,19 @@ $me = current_user();
 ensure_rbac_schema();
 $me = require_menu_access('pos', 'view');
 $isOwner = ((string)(resolve_user_role($me)['role_key'] ?? '') === 'owner');
+$resolvedRoleKey = (string)(resolve_user_role($me)['role_key'] ?? '');
+$isShiftAdmin = in_array($resolvedRoleKey, ['owner', 'admin'], true);
+$branchId = pos_safe_branch_id();
+$activeShift = null;
+try {
+  $activeShift = pos_shift_get_active($branchId);
+} catch (Throwable $e) {
+  $activeShift = null;
+}
+if ($activeShift) {
+  pos_shift_mark_user_activity($activeShift, (int)($me['id'] ?? 0), 'join');
+}
+$posDefaultOpeningCash = (float)setting('pos_default_opening_cash', '100000');
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -234,26 +259,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $_SESSION['pos_notice'] = 'Reward dihapus dari keranjang dan poin dikembalikan.';
     } elseif ($action === 'checkout') {
       if (empty($cart) && empty($rewardCart)) throw new Exception('Keranjang masih kosong.');
+      $activeShift = pos_shift_get_active($branchId);
+      if (!$activeShift) {
+        throw new Exception('Belum ada shift aktif. Hubungi owner/admin untuk buka shift.');
+      }
+
       $paymentMethod = $_POST['payment_method'] ?? '';
       if (!in_array($paymentMethod, ['cash', 'qris'], true)) {
         throw new Exception('Pilih metode pembayaran.');
       }
       $paymentProofPath = null;
+      $pendingQrisProof = (int)($_POST['pending_qris_proof'] ?? 0) === 1;
       if ($paymentMethod === 'qris') {
-        if (empty($_FILES['payment_proof']['name'] ?? '')) {
+        if (empty($_FILES['payment_proof']['name'] ?? '') && !$pendingQrisProof) {
           throw new Exception('Bukti pembayaran QRIS wajib diunggah.');
         }
-        $upload = upload_secure($_FILES['payment_proof'], 'image');
-        if (empty($upload['ok'])) {
-          throw new Exception($upload['error'] ?? 'Gagal mengunggah bukti pembayaran.');
+        if (!empty($_FILES['payment_proof']['name'] ?? '')) {
+          $upload = upload_secure($_FILES['payment_proof'], 'image');
+          if (empty($upload['ok'])) {
+            throw new Exception($upload['error'] ?? 'Gagal mengunggah bukti pembayaran.');
+          }
+          $paymentProofPath = $upload['name'];
         }
-        $paymentProofPath = $upload['name'];
       }
       $db = db();
       $db->beginTransaction();
-      $branchId = active_branch_id();
+      $branchId = pos_safe_branch_id();
       $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-      $stmt = $db->prepare("INSERT INTO sales (transaction_code, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by) VALUES (?,?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?)");
+      $transactionGroupUuid = trim((string)($_POST['transaction_group_uuid'] ?? ''));
+      if ($transactionGroupUuid === '') {
+        $transactionGroupUuid = 'GRP-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
+      }
+      $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));
+      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?)");
       $receiptItems = [];
       $receiptTotal = 0.0;
       $autoProductionIds = [];
@@ -320,7 +358,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $price = (float)$productsById[$pid]['price'];
         $total = $price * $qty;
-        $stmt->execute([$transactionCode, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0)]);
+        $saleOfflineUuid = $offlineUuid !== '' ? $offlineUuid : null;
+        $saleSyncStatus = $offlineUuid !== '' ? 'pending' : 'synced';
+        $stmt->execute([$transactionCode, $transactionGroupUuid, $saleOfflineUuid, $saleSyncStatus, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
         $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
         $saleId = (int)$db->lastInsertId();
         $stmtUpdateBranch->execute([$branchId, $saleId]);
@@ -377,7 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($qty <= 0) {
             continue;
           }
-          $stmt->execute([$transactionCode, $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0)]);
+          $stmt->execute([$transactionCode, $transactionGroupUuid, null, 'synced', $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
           $saleId = (int)$db->lastInsertId();
           $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
           $stmtUpdateBranch->execute([$branchId, $saleId]);
@@ -448,6 +488,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         unset($_SESSION['pos_order_id']);
       }
+      pos_shift_log((int)$activeShift['id'], (int)($me['id'] ?? 0), 'checkout');
       $_SESSION['pos_receipt'] = [
         'id' => $transactionCode,
         'time' => date('d/m/Y H:i'),
@@ -567,6 +608,15 @@ if (!empty($pendingOrders)) {
   }
 }
 
+$shiftSummary = null;
+if ($activeShift) {
+  try {
+    $shiftSummary = pos_shift_calculate_summary((int)$activeShift['id']);
+  } catch (Throwable $e) {
+    $shiftSummary = null;
+  }
+}
+
 $cartItems = [];
 $total = 0.0;
 $cartCount = 0;
@@ -649,6 +699,39 @@ if (!empty($rewardCart)) {
       <?php if ($err): ?>
         <div class="pos-panel pos-alert pos-alert-error"><?php echo e($err); ?></div>
       <?php endif; ?>
+      <div class="pos-panel pos-shift-panel" data-shift-panel>
+        <div class="pos-shift-header">
+          <strong>Shift POS</strong>
+          <div class="pos-badges">
+            <span class="pos-online-badge" data-online-badge>ONLINE</span>
+            <span class="pos-sync-badge">Pending Sync: <strong data-sync-count>0</strong></span>
+          </div>
+        </div>
+        <?php if ($activeShift): ?>
+          <div class="pos-shift-grid">
+            <div><small>Kode</small><div><?php echo e($activeShift['shift_code']); ?></div></div>
+            <div><small>Dibuka</small><div><?php echo e($activeShift['opened_at']); ?></div></div>
+            <div><small>Kas Awal</small><div>Rp <?php echo e(format_number_id((float)$activeShift['opening_cash_actual'])); ?></div></div>
+            <div><small>Oleh</small><div><?php echo e($activeShift['opened_by_name'] ?? '-'); ?></div></div>
+          </div>
+          <div class="pos-shift-actions">
+            <button type="button" class="btn" data-open-cash-modal>Kas Masuk/Keluar</button>
+            <button type="button" class="btn" data-open-close-modal>Tutup Shift</button>
+            <button type="button" class="btn" data-manual-sync>Sinkronkan Sekarang</button>
+          </div>
+        <?php else: ?>
+          <div class="pos-empty-cart">Belum ada shift aktif.</div>
+          <?php if ($isShiftAdmin): ?>
+            <button type="button" class="btn" data-open-shift-modal>Buka Shift</button>
+          <?php else: ?>
+            <small>Menunggu owner/admin membuka shift.</small>
+          <?php endif; ?>
+        <?php endif; ?>
+      </div>
+
+      <div class="pos-modal" data-shift-modal hidden><div class="pos-modal-card"><h3>Buka Shift</h3><p>Default kas awal: Rp <?php echo e(format_number_id($posDefaultOpeningCash)); ?></p><form data-open-shift-form><input type="number" step="0.01" name="opening_cash_actual" value="<?php echo e((string)$posDefaultOpeningCash); ?>" required><div class="pos-modal-actions"><button class="btn" type="submit">Simpan</button><button class="btn" type="button" data-dismiss-modal>Batal</button></div></form></div></div>
+      <div class="pos-modal" data-cash-modal hidden><div class="pos-modal-card"><h3>Kas Masuk / Keluar</h3><form data-cash-form><select name="movement_type"><option value="in">Kas Masuk</option><option value="out">Kas Keluar</option></select><input type="number" step="0.01" name="amount" placeholder="Nominal" required><input type="text" name="reason" placeholder="Alasan" required><textarea name="notes" placeholder="Catatan"></textarea><div class="pos-modal-actions"><button class="btn" type="submit">Simpan</button><button class="btn" type="button" data-dismiss-modal>Batal</button></div></form></div></div>
+      <div class="pos-modal" data-close-modal hidden><div class="pos-modal-card"><h3>Closing Shift</h3><?php if ($shiftSummary): ?><div class="pos-close-summary"><div>Kas Awal: Rp <?php echo e(format_number_id((float)$shiftSummary['opening_cash'])); ?></div><div>Penjualan Tunai: Rp <?php echo e(format_number_id((float)$shiftSummary['cash_sales'])); ?></div><div>Pengembalian Tunai: Rp <?php echo e(format_number_id((float)$shiftSummary['cash_refund'])); ?></div><div>Kas Masuk: Rp <?php echo e(format_number_id((float)$shiftSummary['cash_in'])); ?></div><div>Kas Keluar: Rp <?php echo e(format_number_id((float)$shiftSummary['cash_out'])); ?></div><div>Non Tunai: Rp <?php echo e(format_number_id((float)$shiftSummary['non_cash_sales'])); ?></div><div><strong>Kas Seharusnya: Rp <?php echo e(format_number_id((float)$shiftSummary['expected_cash'])); ?></strong></div></div><?php endif; ?><form data-close-shift-form><input type="number" step="0.01" name="counted_cash_total" placeholder="Uang fisik dihitung" required><textarea name="notes" placeholder="Catatan closing"></textarea><div class="pos-modal-actions"><button class="btn" type="submit">Tutup Shift</button><button class="btn" type="button" data-dismiss-modal>Batal</button></div></form></div></div>
       <div class="pos-panel pos-orders">
         <div class="pos-orders-header">
           <h3>Pesanan Online</h3>
@@ -907,9 +990,12 @@ if (!empty($rewardCart)) {
                   <input type="hidden" name="action" value="new_transaction">
                   <button class="btn pos-reset-btn" type="submit">Transaksi Baru</button>
                 </form>
-                <form method="post" enctype="multipart/form-data">
+                <form method="post" enctype="multipart/form-data" data-checkout-form>
                   <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                   <input type="hidden" name="action" value="checkout">
+                  <input type="hidden" name="offline_uuid" value="">
+                  <input type="hidden" name="transaction_group_uuid" value="">
+                  <input type="hidden" name="pending_qris_proof" value="0">
                   <div class="pos-payment">
                     <label>Metode Pembayaran</label>
                     <div class="pos-payment-options">
@@ -943,6 +1029,23 @@ if (!empty($rewardCart)) {
     </div>
   </div>
   <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
+  <script nonce="<?php echo e(csp_nonce()); ?>">
+    window.POS_RUNTIME = {
+      csrf: <?php echo json_encode(csrf_token()); ?>,
+      shiftApiUrl: <?php echo json_encode(base_url('pos/shift_api.php')); ?>,
+      syncUrl: <?php echo json_encode(base_url('pos/sync.php')); ?>,
+      userName: <?php echo json_encode($me['name'] ?? 'Kasir'); ?>,
+      isShiftAdmin: <?php echo $isShiftAdmin ? 'true' : 'false'; ?>,
+      hasActiveShift: <?php echo $activeShift ? 'true' : 'false'; ?>,
+      shiftState: <?php echo json_encode($activeShift ? 'active_shift_exists' : 'no_active_shift'); ?>
+    };
+    window.POS_STATE = {
+      cartItems: <?php echo json_encode($cartItems); ?>,
+      productNames: <?php echo json_encode(array_map(fn($p) => $p['name'], $productsById)); ?>,
+      activeShiftId: <?php echo json_encode($activeShift ? (int)$activeShift['id'] : null); ?>
+    };
+  </script>
+  <script defer src="<?php echo e(asset_url('pos/offline-sync.js')); ?>"></script>
   <script defer src="<?php echo e(asset_url('pos/pos.js')); ?>"></script>
 </body>
 </html>

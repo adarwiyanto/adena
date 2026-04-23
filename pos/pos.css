@@ -685,3 +685,19 @@
     display:none !important;
   }
 }
+
+.pos-shift-panel{margin-bottom:12px}
+.pos-shift-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.pos-badges{display:flex;gap:8px;flex-wrap:wrap}
+.pos-online-badge,.pos-sync-badge{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid var(--border);font-weight:700}
+.pos-online-badge.is-online{background:#dcfce7;color:#166534;border-color:#86efac}
+.pos-online-badge.is-offline{background:#fee2e2;color:#991b1b;border-color:#fca5a5}
+.pos-shift-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px}
+.pos-shift-grid small{display:block;color:var(--muted)}
+.pos-shift-actions{display:flex;gap:8px;flex-wrap:wrap}
+.pos-modal{position:fixed;inset:0;background:rgba(2,6,23,.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:12px}
+.pos-modal[hidden]{display:none !important}
+.pos-modal-card{width:min(520px,96vw);background:#fff;border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.pos-modal-card input,.pos-modal-card select,.pos-modal-card textarea{width:100%;min-height:42px}
+.pos-modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.pos-close-summary{font-size:13px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px;display:grid;gap:6px}
