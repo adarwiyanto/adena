@@ -17,8 +17,6 @@ ensure_sales_revision_schema();
 
 $appName  = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
-$userId   = (int)($me['id'] ?? 0);
-
 $range = $_GET['range'] ?? 'today';
 if (!in_array($range, ['today', 'yesterday', '7days', 'custom'], true)) $range = 'today';
 $customStart = $_GET['start'] ?? '';
@@ -69,20 +67,21 @@ try {
       MIN(s.sold_at)          AS sold_at,
       SUM(s.total)            AS total_amount,
       MAX(s.payment_method)   AS payment_method,
+      MAX(u.name)             AS cashier_name,
       {$bankSel}
       {$proofSel}
       {$returnSel}
       MAX(s.revision_no)          AS revision_no,
       MAX(s.is_active_revision)   AS is_active_revision
     FROM sales s
-    WHERE s.created_by = ?
-      AND s.is_active_revision = 1
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.is_active_revision = 1
       AND s.sold_at BETWEEN ? AND ?
     GROUP BY COALESCE(NULLIF(s.transaction_code, ''), CONCAT('LEGACY-', s.id))
     ORDER BY MIN(s.sold_at) DESC
     LIMIT 500
   ");
-  $stmt->execute([$userId, $startDate->format('Y-m-d H:i:s'), $endDate->format('Y-m-d H:i:s')]);
+  $stmt->execute([$startDate->format('Y-m-d H:i:s'), $endDate->format('Y-m-d H:i:s')]);
   $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
   $transactions = [];
@@ -266,6 +265,7 @@ $customCss  = setting('custom_css', '');
             </div>
 
             <div class="transaction-summary">
+              <span>Kasir: <?php echo e((string)($tx['cashier_name'] ?? '-')); ?></span>
               <span>Pembayaran: <span class="hist-badge <?php echo $badgeCls; ?>"><?php echo e($pmLabel ?: '-'); ?></span></span>
               <?php if ($hasReturn): ?>
                 <span>Alasan retur: <?php echo e((string)$tx['return_reason']); ?></span>
