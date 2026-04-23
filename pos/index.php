@@ -1023,8 +1023,7 @@ if (!empty($rewardCart)) {
                       <?php foreach ($activePaymentMethods as $i => $pm): ?>
                         <label class="pos-payment-option">
                           <input type="radio" name="payment_method" value="<?php echo e($pm['code']); ?>"
-                            <?php echo $i === 0 ? ' checked' : ''; ?>
-                            onchange="posPaymentChanged(this)">
+                            <?php echo $i === 0 ? ' checked' : ''; ?>>
                           <span><?php echo e($pm['name']); ?></span>
                         </label>
                       <?php endforeach; ?>
@@ -1057,16 +1056,6 @@ if (!empty($rewardCart)) {
   </div>
   <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
   <script nonce="<?php echo e(csp_nonce()); ?>">
-    function posPaymentChanged(radio) {
-      var wrap = document.getElementById('pos-qris-bank-wrap');
-      if (!wrap) return;
-      wrap.style.display = radio.value === 'qris' ? '' : 'none';
-    }
-    // Init on page load
-    document.addEventListener('DOMContentLoaded', function() {
-      var checked = document.querySelector('input[name="payment_method"]:checked');
-      if (checked) posPaymentChanged(checked);
-    });
     window.POS_RUNTIME = {
       csrf: <?php echo json_encode(csrf_token()); ?>,
       shiftApiUrl: <?php echo json_encode(base_url('pos/shift_api.php')); ?>,
