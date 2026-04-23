@@ -102,7 +102,8 @@ try {
         $itemsPayload = $payload['items'] ?? [];
         if (!is_array($itemsPayload) || empty($itemsPayload)) throw new Exception('Item transaksi kosong');
         $paymentMethod = (string)($payload['payment_method'] ?? 'cash');
-        if (!in_array($paymentMethod, ['cash', 'qris'], true)) $paymentMethod = 'cash';
+        $validSyncCodes = array_column(get_active_payment_methods(), 'code');
+        if (!in_array($paymentMethod, $validSyncCodes, true)) $paymentMethod = 'cash';
 
         $db = db();
         $db->beginTransaction();
