@@ -27,24 +27,35 @@ if ($txCode === '') {
 
 $userId = (int)($me['id'] ?? 0);
 
-$stmt = db()->prepare("
-  SELECT
-    s.transaction_code,
-    MIN(s.created_at)     AS created_at,
-    SUM(s.total)          AS total,
-    MAX(s.payment_method) AS payment_method,
-    MAX(s.payment_bank)   AS payment_bank,
-    MAX(s.created_by)     AS created_by,
-    u.name                AS cashier_name
-  FROM sales s
-  LEFT JOIN users u ON u.id = s.created_by
-  WHERE s.transaction_code = ?
-    AND s.is_active_revision = 1
-  GROUP BY s.transaction_code
-  LIMIT 1
-");
-$stmt->execute([$txCode]);
-$tx = $stmt->fetch(PDO::FETCH_ASSOC);
+$hasBankCol = false;
+try {
+  $hasBankCol = !empty(db()->query("SHOW COLUMNS FROM sales LIKE 'payment_bank'")->fetchAll());
+} catch (Throwable $e) {}
+$bankSelect = $hasBankCol ? "MAX(s.payment_bank)" : "NULL";
+
+$tx = null;
+try {
+  $stmt = db()->prepare("
+    SELECT
+      s.transaction_code,
+      MIN(s.created_at)     AS created_at,
+      SUM(s.total)          AS total,
+      MAX(s.payment_method) AS payment_method,
+      $bankSelect           AS payment_bank,
+      MAX(s.created_by)     AS created_by,
+      u.name                AS cashier_name
+    FROM sales s
+    LEFT JOIN users u ON u.id = s.created_by
+    WHERE s.transaction_code = ?
+      AND s.is_active_revision = 1
+    GROUP BY s.transaction_code
+    LIMIT 1
+  ");
+  $stmt->execute([$txCode]);
+  $tx = $stmt->fetch(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+  $tx = null;
+}
 
 if (!$tx) {
   echo '<p>Transaksi tidak ditemukan.</p>';

@@ -35,40 +35,55 @@ if ($period === 'yesterday') {
 
 $userId = (int)($me['id'] ?? 0);
 
-$stmt = db()->prepare("
-  SELECT
-    s.transaction_code,
-    MIN(s.created_at)    AS created_at,
-    SUM(s.total)         AS total,
-    MAX(s.payment_method) AS payment_method,
-    MAX(s.payment_bank)  AS payment_bank
-  FROM sales s
-  WHERE s.created_by = ?
-    AND s.is_active_revision = 1
-    AND DATE(s.created_at) BETWEEN ? AND ?
-  GROUP BY s.transaction_code
-  ORDER BY MIN(s.created_at) DESC
-  LIMIT 500
-");
-$stmt->execute([$userId, $dateFrom, $dateTo]);
-$transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Check if payment_bank column exists (may not exist on older deployments)
+$hasBankCol = false;
+try {
+  $hasBankCol = !empty(db()->query("SHOW COLUMNS FROM sales LIKE 'payment_bank'")->fetchAll());
+} catch (Throwable $e) {}
+$bankSelect = $hasBankCol ? "MAX(s.payment_bank)" : "NULL";
+
+$transactions = [];
+try {
+  $stmt = db()->prepare("
+    SELECT
+      s.transaction_code,
+      MIN(s.created_at)     AS created_at,
+      SUM(s.total)          AS total,
+      MAX(s.payment_method) AS payment_method,
+      $bankSelect           AS payment_bank
+    FROM sales s
+    WHERE s.created_by = ?
+      AND s.is_active_revision = 1
+      AND DATE(s.created_at) BETWEEN ? AND ?
+    GROUP BY s.transaction_code
+    ORDER BY MIN(s.created_at) DESC
+    LIMIT 500
+  ");
+  $stmt->execute([$userId, $dateFrom, $dateTo]);
+  $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+  $transactions = [];
+}
 
 $itemsByTx = [];
 if (!empty($transactions)) {
   $txCodes      = array_column($transactions, 'transaction_code');
   $placeholders = implode(',', array_fill(0, count($txCodes), '?'));
-  $stmtItems    = db()->prepare("
-    SELECT s.transaction_code, p.name AS product_name, s.qty, s.price_each, s.total, s.price_each = 0 AS is_reward
-    FROM sales s
-    LEFT JOIN products p ON p.id = s.product_id
-    WHERE s.transaction_code IN ($placeholders)
-      AND s.is_active_revision = 1
-    ORDER BY s.id ASC
-  ");
-  $stmtItems->execute($txCodes);
-  foreach ($stmtItems->fetchAll(PDO::FETCH_ASSOC) as $item) {
-    $itemsByTx[$item['transaction_code']][] = $item;
-  }
+  try {
+    $stmtItems = db()->prepare("
+      SELECT s.transaction_code, p.name AS product_name, s.qty, s.price_each, s.total,
+             CASE WHEN s.price_each = 0 THEN 1 ELSE 0 END AS is_reward
+      FROM sales s
+      LEFT JOIN products p ON p.id = s.product_id
+      WHERE s.transaction_code IN ($placeholders)
+        AND s.is_active_revision = 1
+      ORDER BY s.id ASC
+    ");
+    $stmtItems->execute($txCodes);
+    foreach ($stmtItems->fetchAll(PDO::FETCH_ASSOC) as $item) {
+      $itemsByTx[$item['transaction_code']][] = $item;
+    }
+  } catch (Throwable $e) {}
 }
 
 $grandTotal = array_sum(array_column($transactions, 'total'));
