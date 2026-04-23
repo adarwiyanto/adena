@@ -10,6 +10,7 @@
   const saveQueue = (queue) => localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
   const loadReceipts = () => parseJson(localStorage.getItem(RECEIPT_KEY) || '[]', []);
   const saveReceipts = (rows) => localStorage.setItem(RECEIPT_KEY, JSON.stringify(rows));
+  const bankRequiredMethods = new Set(['qris', 'edc', 'transfer']);
 
   const uuid = () => {
     if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
@@ -113,13 +114,21 @@
 
     const paymentMethodInput = form.querySelector('input[name="payment_method"]:checked');
     const paymentMethod = paymentMethodInput ? paymentMethodInput.value : 'cash';
+    const paymentBankInput = form.querySelector('[name="payment_bank"]');
+    const paymentBank = bankRequiredMethods.has(paymentMethod) && paymentBankInput ? String(paymentBankInput.value || '').trim() : '';
+    if (bankRequiredMethods.has(paymentMethod) && paymentBank === '') {
+      throw new Error('Pilih bank terlebih dahulu.');
+    }
 
     const transactionCode = 'TRX-LOCAL-' + Date.now();
+    const paymentLabel = bankRequiredMethods.has(paymentMethod) && paymentBank !== ''
+      ? paymentMethod.toUpperCase() + ' - ' + paymentBank
+      : paymentMethod;
     const receipt = {
       id: transactionCode,
       time: new Date().toLocaleString('id-ID'),
       cashier: (window.POS_RUNTIME && window.POS_RUNTIME.userName) || 'Kasir',
-      payment: paymentMethod,
+      payment: paymentLabel,
       items: cartItems.map((it) => ({
         name: (state.productNames && state.productNames[String(it.product_id)]) || ('Produk #' + it.product_id),
         qty: it.qty,
@@ -134,8 +143,8 @@
       transaction_code: transactionCode,
       transaction_group_uuid: txUuid,
       payment_method: paymentMethod,
+      payment_bank: paymentBank,
       items: cartItems,
-      pending_qris_proof: paymentMethod === 'qris' ? 1 : 0,
     });
 
     const receipts = loadReceipts();

@@ -23,6 +23,9 @@ start_secure_session();
 require_login();
 ensure_rbac_schema();
 ensure_pos_shift_schema();
+ensure_payment_methods_table();
+ensure_qris_banks_table();
+ensure_sales_payment_bank_column();
 $me = current_user();
 $me = require_menu_access('pos', 'create');
 
@@ -102,12 +105,21 @@ try {
         $itemsPayload = $payload['items'] ?? [];
         if (!is_array($itemsPayload) || empty($itemsPayload)) throw new Exception('Item transaksi kosong');
         $paymentMethod = (string)($payload['payment_method'] ?? 'cash');
-        if (!in_array($paymentMethod, ['cash', 'qris'], true)) $paymentMethod = 'cash';
+        $validSyncCodes = array_column(get_active_payment_methods(), 'code');
+        if (!in_array($paymentMethod, $validSyncCodes, true)) $paymentMethod = 'cash';
+        $paymentBank = null;
+        if (payment_method_requires_bank($paymentMethod)) {
+          $paymentBank = trim((string)($payload['payment_bank'] ?? ''));
+          $validQrisBanks = array_column(get_active_qris_banks(), 'name');
+          if ($paymentBank === '' || !in_array($paymentBank, $validQrisBanks, true)) {
+            throw new Exception('Pilih bank non-tunai yang aktif.');
+          }
+        }
 
         $db = db();
         $db->beginTransaction();
-        $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, created_by, branch_id, shift_id)
-          VALUES (?,?,?,'synced',?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?, ?,?)");
+        $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, created_by, branch_id, shift_id)
+          VALUES (?,?,?,'synced',?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?)");
         $firstId = 0;
         foreach ($itemsPayload as $i => $s) {
           $pid = (int)($s['product_id'] ?? 0);
@@ -116,7 +128,7 @@ try {
           if ($pid <= 0 || $qty <= 0) continue;
           $total = $price * $qty;
           $rowOffline = $i === 0 ? $offlineUuid : null;
-          $stmt->execute([$transactionCode, $groupUuid, $rowOffline, $transactionCode, $pid, $qty, $price, $total, $paymentMethod, null, (int)$me['id'], $branchId, (int)$active['id']]);
+          $stmt->execute([$transactionCode, $groupUuid, $rowOffline, $transactionCode, $pid, $qty, $price, $total, $paymentMethod, null, $paymentBank, (int)$me['id'], $branchId, (int)$active['id']]);
           $saleId = (int)$db->lastInsertId();
           if ($firstId <= 0) $firstId = $saleId;
           try {

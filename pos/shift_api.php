@@ -53,8 +53,8 @@ try {
   }
 
   if ($action === 'open') {
-    if (!in_array($role, ['owner', 'admin'], true)) {
-      throw new Exception('Hanya owner/admin yang boleh membuka shift.');
+    if (!has_menu_access($me, 'shift', 'create')) {
+      throw new Exception('Anda tidak memiliki izin untuk membuka shift.');
     }
     $openingCash = (float)parse_number_input($_POST['opening_cash_actual'] ?? '0');
     $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));
@@ -98,6 +98,9 @@ try {
   }
 
   if ($action === 'close') {
+    if (!has_menu_access($me, 'shift', 'delete')) {
+      throw new Exception('Anda tidak memiliki izin untuk menutup shift.');
+    }
     $countedCash = (float)parse_number_input($_POST['counted_cash_total'] ?? '0');
     $notes = trim((string)($_POST['notes'] ?? ''));
     $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));

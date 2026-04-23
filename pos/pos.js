@@ -4,11 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const empty = document.querySelector('#pos-empty');
   const printBtn = document.querySelector('[data-print-receipt]');
   const paymentOptions = Array.from(document.querySelectorAll('input[name="payment_method"]'));
-  const qrisField = document.querySelector('[data-qris-field]');
-  const qrisInput = document.querySelector('#payment_proof');
-  const qrisPreview = document.querySelector('[data-qris-preview]');
-  const qrisImg = qrisPreview ? qrisPreview.querySelector('img') : null;
-  const qrisRetake = document.querySelector('[data-qris-retake]');
 
   const shiftModal = document.querySelector('[data-shift-modal]');
   const cashModal = document.querySelector('[data-cash-modal]');
@@ -21,6 +16,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const cashForm = document.querySelector('[data-cash-form]');
   const closeShiftForm = document.querySelector('[data-close-shift-form]');
   const checkoutForm = document.querySelector('[data-checkout-form]');
+
+  const bankRequiredMethods = new Set(['qris', 'edc', 'transfer']);
+  const bankWrap = document.querySelector('#pos-bank-wrap');
+  const bankSelect = document.querySelector('#pos-payment-bank');
+  const selectedPaymentCode = () => {
+    const checkedPayment = document.querySelector('input[name="payment_method"]:checked');
+    return checkedPayment ? String(checkedPayment.value || '').toLowerCase() : '';
+  };
+  const paymentNeedsBank = () => bankRequiredMethods.has(selectedPaymentCode());
+  const updateBankVisibility = () => {
+    if (!bankWrap) return;
+    const needsBank = paymentNeedsBank();
+    bankWrap.style.display = needsBank ? '' : 'none';
+    if (bankSelect) {
+      bankSelect.required = needsBank;
+      if (!needsBank) bankSelect.value = '';
+    }
+  };
+  paymentOptions.forEach((option) => option.addEventListener('change', updateBankVisibility));
+  updateBankVisibility();
 
   const showModal = (modal) => { if (modal) modal.hidden = false; };
   const hideModals = () => document.querySelectorAll('.pos-modal').forEach((m) => { m.hidden = true; });
@@ -157,6 +172,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      const paymentBank = bankSelect ? String(bankSelect.value || '').trim() : '';
+      if (paymentNeedsBank() && paymentBank === '') {
+        e.preventDefault();
+        alert('Pilih bank terlebih dahulu.');
+        return;
+      }
+
       if (navigator.onLine) return;
 
       if (!window.POSOfflineSync) return;
@@ -165,10 +187,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const queued = window.POSOfflineSync.queueSaleFromCurrentForm(checkoutForm);
         const offlineUuidInput = checkoutForm.querySelector('input[name="offline_uuid"]');
         const groupUuidInput = checkoutForm.querySelector('input[name="transaction_group_uuid"]');
-        const pendingQrisInput = checkoutForm.querySelector('input[name="pending_qris_proof"]');
         if (offlineUuidInput) offlineUuidInput.value = queued.queue.offline_uuid;
         if (groupUuidInput) groupUuidInput.value = queued.queue.payload.transaction_group_uuid || queued.queue.offline_uuid;
-        if (pendingQrisInput && queued.receipt.payment === 'qris') pendingQrisInput.value = '1';
 
         alert('Transaksi tersimpan offline. Jangan refresh halaman sebelum koneksi kembali.');
         const cartList = document.querySelector('.pos-cart-items');
@@ -185,43 +205,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  const toggleQris = (method) => {
-    if (!qrisField) return;
-    const isQris = method === 'qris';
-    qrisField.hidden = !isQris;
-    if (qrisInput) {
-      qrisInput.required = isQris;
-    }
-  };
-
-  if (paymentOptions.length) {
-    const selected = paymentOptions.find((opt) => opt.checked);
-    toggleQris(selected ? selected.value : '');
-    paymentOptions.forEach((opt) => {
-      opt.addEventListener('change', () => toggleQris(opt.value));
-    });
-  }
-
-  const resetQrisPreview = () => {
-    if (qrisInput) qrisInput.value = '';
-    if (qrisPreview) qrisPreview.hidden = true;
-    if (qrisImg) qrisImg.src = '';
-  };
-
-  if (qrisInput) {
-    qrisInput.addEventListener('change', () => {
-      const file = qrisInput.files && qrisInput.files[0];
-      if (!file || !qrisPreview || !qrisImg) return;
-      qrisImg.src = URL.createObjectURL(file);
-      qrisPreview.hidden = false;
-    });
-  }
-
-  if (qrisRetake) {
-    qrisRetake.addEventListener('click', () => {
-      resetQrisPreview();
-    });
-  }
 
   if (!input || !cards.length) return;
 

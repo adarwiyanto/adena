@@ -190,6 +190,7 @@ function role_menu_tree(): array {
     'purchase' => ['label' => 'Pembelian Bahan Baku', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'users' => ['label' => 'Manajemen User', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'roles' => ['label' => 'Role & Permission', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
+    'shift' => ['label' => 'Buka / Tutup Shift', 'actions' => ['create', 'delete']],
     'settings' => ['label' => 'Pengaturan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
   ];
 }
@@ -197,9 +198,9 @@ function role_menu_tree(): array {
 function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
-    'admin' => ['dashboard', 'pos', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings'],
+    'admin' => ['dashboard', 'pos', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift'],
     'manager' => ['dashboard', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase'],
-    'kasir' => ['pos'],
+    'kasir' => ['pos', 'shift'],
     'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
   foreach ($menuDefaults as $roleKey => $menus) {
