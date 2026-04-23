@@ -39,7 +39,7 @@ ensure_rbac_schema();
 $me = require_menu_access('pos', 'view');
 $isOwner = ((string)(resolve_user_role($me)['role_key'] ?? '') === 'owner');
 $resolvedRoleKey = (string)(resolve_user_role($me)['role_key'] ?? '');
-$isShiftAdmin = in_array($resolvedRoleKey, ['owner', 'admin'], true);
+$isShiftAdmin = has_menu_access($me, 'shift', 'create');
 $branchId = pos_safe_branch_id();
 $activeShift = null;
 try {
@@ -714,7 +714,7 @@ if (!empty($rewardCart)) {
           <?php if ($isShiftAdmin): ?>
             <button type="button" class="btn" data-open-shift-modal>Buka Shift</button>
           <?php else: ?>
-            <small>Menunggu owner/admin membuka shift.</small>
+            <small>Menunggu staff yang berwenang membuka shift.</small>
           <?php endif; ?>
         <?php endif; ?>
       </div>
