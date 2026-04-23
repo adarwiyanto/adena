@@ -17,6 +17,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeShiftForm = document.querySelector('[data-close-shift-form]');
   const checkoutForm = document.querySelector('[data-checkout-form]');
 
+  const qrisBankWrap = document.querySelector('#pos-qris-bank-wrap');
+  const updateQrisBankVisibility = () => {
+    if (!qrisBankWrap) return;
+    const checkedPayment = document.querySelector('input[name="payment_method"]:checked');
+    const selectedCode = checkedPayment ? String(checkedPayment.value || '').toLowerCase() : '';
+    qrisBankWrap.style.display = selectedCode === 'qris' ? '' : 'none';
+  };
+  paymentOptions.forEach((option) => option.addEventListener('change', updateQrisBankVisibility));
+  updateQrisBankVisibility();
+
   const showModal = (modal) => { if (modal) modal.hidden = false; };
   const hideModals = () => document.querySelectorAll('.pos-modal').forEach((m) => { m.hidden = true; });
   document.querySelectorAll('[data-dismiss-modal]').forEach((btn) => btn.addEventListener('click', hideModals));
