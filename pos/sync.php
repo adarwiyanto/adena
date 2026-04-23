@@ -108,11 +108,11 @@ try {
         $validSyncCodes = array_column(get_active_payment_methods(), 'code');
         if (!in_array($paymentMethod, $validSyncCodes, true)) $paymentMethod = 'cash';
         $paymentBank = null;
-        if ($paymentMethod === 'qris') {
+        if (payment_method_requires_bank($paymentMethod)) {
           $paymentBank = trim((string)($payload['payment_bank'] ?? ''));
           $validQrisBanks = array_column(get_active_qris_banks(), 'name');
           if ($paymentBank === '' || !in_array($paymentBank, $validQrisBanks, true)) {
-            throw new Exception('Pilih bank QRIS yang aktif.');
+            throw new Exception('Pilih bank non-tunai yang aktif.');
           }
         }
 

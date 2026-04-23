@@ -288,11 +288,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Pilih metode pembayaran.');
       }
       $paymentBank = null;
-      if ($paymentMethod === 'qris') {
+      if (payment_method_requires_bank($paymentMethod)) {
         $paymentBank = trim((string)($_POST['payment_bank'] ?? ''));
         $validQrisBanks = array_column(get_active_qris_banks(), 'name');
         if ($paymentBank === '' || !in_array($paymentBank, $validQrisBanks, true)) {
-          throw new Exception('Pilih bank QRIS yang aktif.');
+          throw new Exception('Pilih bank non-tunai yang aktif.');
         }
       }
       $paymentProofPath = null;
@@ -1028,20 +1028,17 @@ if (!empty($rewardCart)) {
                         </label>
                       <?php endforeach; ?>
                     </div>
-                    <div id="pos-qris-bank-wrap" style="display:none;margin-top:10px">
+                    <div id="pos-bank-wrap" style="display:none;margin-top:10px">
                       <?php if (!empty($qrisBanks)): ?>
-                        <label style="font-size:.85rem;margin-bottom:4px;display:block">Pilih Bank QRIS</label>
-                        <div class="pos-payment-options" id="pos-qris-bank-options">
+                        <label for="pos-payment-bank" style="font-size:.85rem;margin-bottom:4px;display:block">Pilih Bank</label>
+                        <select id="pos-payment-bank" name="payment_bank" class="pos-bank-select">
+                          <option value="">-- pilih bank --</option>
                           <?php foreach ($qrisBanks as $bi => $bank): ?>
-                            <label class="pos-payment-option">
-                              <input type="radio" name="payment_bank" value="<?php echo e($bank['name']); ?>"
-                                <?php echo $bi === 0 ? ' checked' : ''; ?>>
-                              <span>QRIS <?php echo e($bank['name']); ?></span>
-                            </label>
+                            <option value="<?php echo e($bank['name']); ?>"><?php echo e($bank['name']); ?></option>
                           <?php endforeach; ?>
-                        </div>
+                        </select>
                       <?php else: ?>
-                        <div class="pos-qris-empty">Bank QRIS belum diatur/diaktifkan di admin.</div>
+                        <div class="pos-bank-empty">Bank non-tunai belum diatur/diaktifkan di admin.</div>
                       <?php endif; ?>
                     </div>
                   </div>
@@ -1056,6 +1053,29 @@ if (!empty($rewardCart)) {
   </div>
   <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
   <script nonce="<?php echo e(csp_nonce()); ?>">
+    (function () {
+      var bankMethods = ['qris', 'edc', 'transfer'];
+      function updateBankDropdown() {
+        var wrap = document.getElementById('pos-bank-wrap');
+        if (!wrap) return;
+        var checked = document.querySelector('input[name="payment_method"]:checked');
+        var code = checked ? String(checked.value || '').toLowerCase() : '';
+        var needsBank = bankMethods.indexOf(code) !== -1;
+        wrap.style.display = needsBank ? '' : 'none';
+        var select = document.getElementById('pos-payment-bank');
+        if (select) {
+          select.required = needsBank;
+          if (!needsBank) select.value = '';
+        }
+      }
+      document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('input[name="payment_method"]').forEach(function (input) {
+          input.addEventListener('change', updateBankDropdown);
+        });
+        updateBankDropdown();
+      });
+    })();
+
     window.POS_RUNTIME = {
       csrf: <?php echo json_encode(csrf_token()); ?>,
       shiftApiUrl: <?php echo json_encode(base_url('pos/shift_api.php')); ?>,

@@ -858,11 +858,17 @@ function ensure_payment_methods_table(): void {
     db()->exec("
       INSERT IGNORE INTO payment_methods (code, name, is_system, is_active, sort_order) VALUES
         ('cash', 'Tunai', 1, 1, 1),
-        ('qris', 'QRIS', 1, 1, 2)
+        ('qris', 'QRIS', 1, 1, 2),
+        ('edc', 'EDC', 1, 1, 3),
+        ('transfer', 'Transfer', 1, 1, 4)
     ");
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
   }
+}
+
+function payment_method_requires_bank(string $code): bool {
+  return in_array(strtolower(trim($code)), ['qris', 'edc', 'transfer'], true);
 }
 
 function get_active_payment_methods(): array {
@@ -870,7 +876,12 @@ function get_active_payment_methods(): array {
     ensure_payment_methods_table();
     return db()->query("SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
   } catch (Throwable $e) {
-    return [['code' => 'cash', 'name' => 'Tunai'], ['code' => 'qris', 'name' => 'QRIS']];
+    return [
+      ['code' => 'cash', 'name' => 'Tunai'],
+      ['code' => 'qris', 'name' => 'QRIS'],
+      ['code' => 'edc', 'name' => 'EDC'],
+      ['code' => 'transfer', 'name' => 'Transfer'],
+    ];
   }
 }
 

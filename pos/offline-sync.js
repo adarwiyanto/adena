@@ -10,6 +10,7 @@
   const saveQueue = (queue) => localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
   const loadReceipts = () => parseJson(localStorage.getItem(RECEIPT_KEY) || '[]', []);
   const saveReceipts = (rows) => localStorage.setItem(RECEIPT_KEY, JSON.stringify(rows));
+  const bankRequiredMethods = new Set(['qris', 'edc', 'transfer']);
 
   const uuid = () => {
     if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
@@ -113,14 +114,14 @@
 
     const paymentMethodInput = form.querySelector('input[name="payment_method"]:checked');
     const paymentMethod = paymentMethodInput ? paymentMethodInput.value : 'cash';
-    const paymentBankInput = form.querySelector('input[name="payment_bank"]:checked');
-    const paymentBank = paymentMethod === 'qris' && paymentBankInput ? paymentBankInput.value : '';
-    if (paymentMethod === 'qris' && paymentBank === '') {
-      throw new Error('Pilih bank QRIS terlebih dahulu.');
+    const paymentBankInput = form.querySelector('[name="payment_bank"]');
+    const paymentBank = bankRequiredMethods.has(paymentMethod) && paymentBankInput ? String(paymentBankInput.value || '').trim() : '';
+    if (bankRequiredMethods.has(paymentMethod) && paymentBank === '') {
+      throw new Error('Pilih bank terlebih dahulu.');
     }
 
     const transactionCode = 'TRX-LOCAL-' + Date.now();
-    const paymentLabel = paymentMethod === 'qris' && paymentBank !== ''
+    const paymentLabel = bankRequiredMethods.has(paymentMethod) && paymentBank !== ''
       ? paymentMethod.toUpperCase() + ' - ' + paymentBank
       : paymentMethod;
     const receipt = {
