@@ -76,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     'inc' => 'edit',
     'dec' => 'edit',
     'remove' => 'delete',
+    'update_qty' => 'edit',
     'toggle_bypass' => 'approve',
     'load_order' => 'create',
     'save_order' => 'create',
@@ -93,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $rewardId = (int)($_POST['reward_id'] ?? 0);
 
   try {
-    if (in_array($action, ['add','inc','dec','remove','toggle_bypass'], true)) {
+    if (in_array($action, ['add','inc','dec','remove','update_qty','toggle_bypass'], true)) {
       if ($productId <= 0 || empty($productsById[$productId])) {
         throw new Exception('Produk tidak ditemukan.');
       }
@@ -134,6 +135,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $cart[$productId] = $current - 1;
       }
       $_SESSION['pos_notice'] = 'Jumlah produk dikurangi.';
+    } elseif ($action === 'update_qty') {
+      if (!isset($cart[$productId])) {
+        throw new Exception('Produk tidak ditemukan di keranjang.');
+      }
+      $newQty = (int)($_POST['qty'] ?? 0);
+      if ($newQty <= 0) {
+        unset($cart[$productId], $bypassItems[$productId]);
+        $_SESSION['pos_notice'] = 'Produk dihapus dari keranjang.';
+      } else {
+        $cart[$productId] = min($newQty, 9999);
+        $_SESSION['pos_notice'] = 'Jumlah produk diperbarui.';
+      }
     } elseif ($action === 'remove') {
       unset($cart[$productId]);
       unset($bypassItems[$productId]);
@@ -277,7 +290,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $paymentBank = null;
       if ($paymentMethod === 'qris') {
         $paymentBank = trim((string)($_POST['payment_bank'] ?? ''));
-        if ($paymentBank === '') $paymentBank = null;
+        $validQrisBanks = array_column(get_active_qris_banks(), 'name');
+        if ($paymentBank === '' || !in_array($paymentBank, $validQrisBanks, true)) {
+          throw new Exception('Pilih bank QRIS yang aktif.');
+        }
       }
       $paymentProofPath = null;
       $db = db();
@@ -488,7 +504,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       pos_shift_log((int)$activeShift['id'], (int)($me['id'] ?? 0), 'checkout');
       $receiptPaymentLabel = strtoupper($paymentMethod);
-      if ($paymentBank !== null) $receiptPaymentLabel .= ' — ' . $paymentBank;
+      if ($paymentBank !== null) $receiptPaymentLabel .= ' - ' . $paymentBank;
       $_SESSION['pos_receipt'] = [
         'id' => $transactionCode,
         'time' => date('d/m/Y H:i'),
@@ -943,7 +959,12 @@ if (!empty($rewardCart)) {
                             <input type="hidden" name="product_id" value="<?php echo e((string)$item['id']); ?>">
                             <button class="btn pos-qty-btn" type="submit">−</button>
                           </form>
-                          <div class="pos-qty-value"><?php echo e((string)$item['qty']); ?></div>
+                          <form method="post" class="pos-qty-input-form">
+                            <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                            <input type="hidden" name="action" value="update_qty">
+                            <input type="hidden" name="product_id" value="<?php echo e((string)$item['id']); ?>">
+                            <input class="pos-qty-input" type="number" name="qty" value="<?php echo e((string)$item['qty']); ?>" min="1" max="9999" step="1" inputmode="numeric" aria-label="Jumlah <?php echo e($item['name']); ?>" onchange="this.form.submit()">
+                          </form>
                           <form method="post">
                             <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                             <input type="hidden" name="action" value="inc">
@@ -1008,8 +1029,8 @@ if (!empty($rewardCart)) {
                         </label>
                       <?php endforeach; ?>
                     </div>
-                    <?php if (!empty($qrisBanks)): ?>
-                      <div id="pos-qris-bank-wrap" style="display:none;margin-top:10px">
+                    <div id="pos-qris-bank-wrap" style="display:none;margin-top:10px">
+                      <?php if (!empty($qrisBanks)): ?>
                         <label style="font-size:.85rem;margin-bottom:4px;display:block">Pilih Bank QRIS</label>
                         <div class="pos-payment-options" id="pos-qris-bank-options">
                           <?php foreach ($qrisBanks as $bi => $bank): ?>
@@ -1020,8 +1041,10 @@ if (!empty($rewardCart)) {
                             </label>
                           <?php endforeach; ?>
                         </div>
-                      </div>
-                    <?php endif; ?>
+                      <?php else: ?>
+                        <div class="pos-qris-empty">Bank QRIS belum diatur/diaktifkan di admin.</div>
+                      <?php endif; ?>
+                    </div>
                   </div>
                   <button class="btn pos-checkout" type="submit">Checkout</button>
                 </form>

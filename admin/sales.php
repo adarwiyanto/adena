@@ -14,6 +14,7 @@ require_admin();
 ensure_rbac_schema();
 ensure_sales_transaction_code_column();
 ensure_sales_user_column();
+ensure_sales_payment_bank_column();
 ensure_inventory_module_schema();
 ensure_rbac_schema();
 ensure_sales_revision_schema();
@@ -208,6 +209,7 @@ $stmt = db()->prepare("
     MIN(s.sold_at) AS sold_at,
     SUM(s.total) AS total_amount,
     MAX(s.payment_method) AS payment_method,
+    MAX(s.payment_bank) AS payment_bank,
     MAX(s.payment_proof_path) AS payment_proof_path,
     MAX(s.return_reason) AS return_reason,
     MAX(u.name) AS cashier_name,
@@ -480,6 +482,10 @@ $customCss = setting('custom_css', '');
                   $displayCode = 'TRX-' . $legacyId;
                 }
                 $items = $itemsByTx[$txCode] ?? [];
+                $paymentLabel = (string)($tx['payment_method'] ?? '-');
+                if (!empty($tx['payment_bank'])) {
+                  $paymentLabel .= ' - ' . (string)$tx['payment_bank'];
+                }
               ?>
               <div class="transaction-card">
                 <div class="transaction-header">
@@ -495,7 +501,7 @@ $customCss = setting('custom_css', '');
                 </div>
                 <div class="transaction-summary">
                   <span>Kasir: <?php echo e($tx['cashier_name'] ?? '-'); ?></span>
-                  <span>Pembayaran: <?php echo e($tx['payment_method'] ?? '-'); ?></span>
+                  <span>Pembayaran: <?php echo e($paymentLabel); ?></span>
                   <span>Status:
                     <?php if (!empty($tx['return_reason'])): ?>
                       Retur: <?php echo e($tx['return_reason']); ?>
@@ -572,6 +578,9 @@ $customCss = setting('custom_css', '');
               </p>
               <p><strong>Tanggal:</strong> <?php echo e($detailSale['sold_at']); ?> · <strong>Kasir:</strong> <?php echo e($detailSale['cashier_name'] ?? '-'); ?> (<?php echo e($detailSale['cashier_role'] ?? '-'); ?>) · <strong>Pembayaran:</strong> <?php echo e($detailSale['payment_method'] ?? '-'); ?></p>
               <p><strong>Kategori alasan:</strong> <?php echo e($detailSale['revision_reason_category'] ?? '-'); ?> · <strong>Alasan:</strong> <?php echo e($detailSale['revision_reason_text'] ?? '-'); ?></p>
+              <?php if (!empty($detailSale['payment_bank'])): ?>
+                <p><strong>Bank QRIS:</strong> <?php echo e($detailSale['payment_bank']); ?></p>
+              <?php endif; ?>
               <table class="table"><thead><tr><th>Produk</th><th>Qty</th><th>Satuan</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>
                 <?php $sum=0; foreach ($detailItems as $di): $sum += (float)$di['total']; ?>
                   <tr><td><?php echo e($di['product_name']); ?></td><td><?php echo e((string)$di['qty']); ?></td><td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td><td>Rp <?php echo e(format_number_id((float)$di['price_each'])); ?></td><td>Rp <?php echo e(format_number_id((float)$di['total'])); ?></td></tr>

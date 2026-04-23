@@ -509,6 +509,29 @@
   font-weight:700;
 }
 
+.pos-qty-input-form{
+  margin:0;
+}
+
+.pos-qty-input{
+  width:68px;
+  min-height:44px;
+  padding:6px 8px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  text-align:center;
+  font-weight:700;
+}
+
+.pos-qris-empty{
+  padding:10px 12px;
+  border:1px solid #fecdd3;
+  border-radius:10px;
+  background:#fff1f2;
+  color:#be123c;
+  font-size:.9rem;
+}
+
 .pos-cart-subtotal{
   font-weight:700;
 }
