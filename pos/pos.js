@@ -17,15 +17,25 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeShiftForm = document.querySelector('[data-close-shift-form]');
   const checkoutForm = document.querySelector('[data-checkout-form]');
 
-  const qrisBankWrap = document.querySelector('#pos-qris-bank-wrap');
-  const updateQrisBankVisibility = () => {
-    if (!qrisBankWrap) return;
+  const bankRequiredMethods = new Set(['qris', 'edc', 'transfer']);
+  const bankWrap = document.querySelector('#pos-bank-wrap');
+  const bankSelect = document.querySelector('#pos-payment-bank');
+  const selectedPaymentCode = () => {
     const checkedPayment = document.querySelector('input[name="payment_method"]:checked');
-    const selectedCode = checkedPayment ? String(checkedPayment.value || '').toLowerCase() : '';
-    qrisBankWrap.style.display = selectedCode === 'qris' ? '' : 'none';
+    return checkedPayment ? String(checkedPayment.value || '').toLowerCase() : '';
   };
-  paymentOptions.forEach((option) => option.addEventListener('change', updateQrisBankVisibility));
-  updateQrisBankVisibility();
+  const paymentNeedsBank = () => bankRequiredMethods.has(selectedPaymentCode());
+  const updateBankVisibility = () => {
+    if (!bankWrap) return;
+    const needsBank = paymentNeedsBank();
+    bankWrap.style.display = needsBank ? '' : 'none';
+    if (bankSelect) {
+      bankSelect.required = needsBank;
+      if (!needsBank) bankSelect.value = '';
+    }
+  };
+  paymentOptions.forEach((option) => option.addEventListener('change', updateBankVisibility));
+  updateBankVisibility();
 
   const showModal = (modal) => { if (modal) modal.hidden = false; };
   const hideModals = () => document.querySelectorAll('.pos-modal').forEach((m) => { m.hidden = true; });
@@ -162,11 +172,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      const paymentMethodInput = checkoutForm.querySelector('input[name="payment_method"]:checked');
-      const paymentBankInput = checkoutForm.querySelector('input[name="payment_bank"]:checked');
-      if (paymentMethodInput && paymentMethodInput.value === 'qris' && !paymentBankInput) {
+      const paymentBank = bankSelect ? String(bankSelect.value || '').trim() : '';
+      if (paymentNeedsBank() && paymentBank === '') {
         e.preventDefault();
-        alert('Pilih bank QRIS terlebih dahulu.');
+        alert('Pilih bank terlebih dahulu.');
         return;
       }
 

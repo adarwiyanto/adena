@@ -523,6 +523,25 @@
   font-weight:700;
 }
 
+.pos-bank-select{
+  width:100%;
+  min-height:44px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:#fff;
+  padding:8px 12px;
+  font-weight:700;
+}
+
+.pos-bank-empty{
+  padding:10px 12px;
+  border:1px solid #fecdd3;
+  border-radius:10px;
+  background:#fff1f2;
+  color:#be123c;
+  font-size:.9rem;
+}
+
 .pos-qris-empty{
   padding:10px 12px;
   border:1px solid #fecdd3;

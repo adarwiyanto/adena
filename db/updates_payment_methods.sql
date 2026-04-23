@@ -10,4 +10,6 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 
 INSERT IGNORE INTO payment_methods (code, name, is_system, is_active, sort_order) VALUES
   ('cash', 'Tunai', 1, 1, 1),
-  ('qris', 'QRIS', 1, 1, 2);
+  ('qris', 'QRIS', 1, 1, 2),
+  ('edc', 'EDC', 1, 1, 3),
+  ('transfer', 'Transfer', 1, 1, 4);

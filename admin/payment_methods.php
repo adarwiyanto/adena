@@ -30,8 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $err = 'Nama metode pembayaran wajib diisi.';
     } elseif ($code === '') {
       $err = 'Kode metode pembayaran tidak valid.';
-    } elseif (in_array($code, ['cash', 'qris'], true)) {
-      $err = 'Kode "cash" dan "qris" adalah metode sistem dan tidak bisa ditambahkan ulang.';
+    } elseif (in_array($code, ['cash', 'qris', 'edc', 'transfer'], true)) {
+      $err = 'Kode "cash", "qris", "edc", dan "transfer" adalah metode sistem dan tidak bisa ditambahkan ulang.';
     } else {
       try {
         $maxOrder = (int)db()->query("SELECT COALESCE(MAX(sort_order),0) FROM payment_methods")->fetchColumn();
@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       redirect(base_url('admin/payment_methods.php'));
     }
 
-  // QRIS banks actions
+  // Non-cash bank actions
   } elseif ($action === 'add_bank') {
     $name = trim((string)($_POST['bank_name'] ?? ''));
     if ($name === '') {
@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $maxOrder = (int)db()->query("SELECT COALESCE(MAX(sort_order),0) FROM qris_banks")->fetchColumn();
         db()->prepare("INSERT INTO qris_banks (name, sort_order, is_active) VALUES (?, ?, 1)")
           ->execute([$name, $maxOrder + 1]);
-        $ok = 'Bank QRIS berhasil ditambahkan.';
+        $ok = 'Bank non-tunai berhasil ditambahkan.';
       } catch (Throwable $e) {
         $err = 'Gagal menambahkan bank: ' . $e->getMessage();
       }
@@ -142,7 +142,7 @@ $customCss = setting('custom_css', '');
     <div class="content">
       <div class="card">
         <h3 style="margin-top:0">Metode Pembayaran</h3>
-        <p><small>Kelola metode pembayaran yang tersedia di POS. Metode sistem (Tunai & QRIS) tidak bisa dihapus.</small></p>
+        <p><small>Kelola metode pembayaran yang tersedia di POS. Metode sistem (Tunai, QRIS, EDC & Transfer) tidak bisa dihapus.</small></p>
         <?php if ($err): ?>
           <div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div>
         <?php endif; ?>
@@ -222,10 +222,10 @@ $customCss = setting('custom_css', '');
         <?php endif; ?>
       </div>
 
-      <!-- QRIS Banks -->
+      <!-- Non-cash Banks -->
       <div class="card" style="margin-top:24px">
-        <h3 style="margin-top:0">Bank QRIS</h3>
-        <p><small>Daftar nama bank yang tampil sebagai pilihan saat kasir memilih metode QRIS di POS.</small></p>
+        <h3 style="margin-top:0">Bank Non Tunai</h3>
+        <p><small>Daftar nama bank yang tampil sebagai pilihan saat kasir memilih QRIS, EDC, atau Transfer di POS.</small></p>
 
         <form method="post" style="margin-bottom:16px">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
@@ -238,7 +238,7 @@ $customCss = setting('custom_css', '');
         </form>
 
         <?php if (empty($qrisBanks)): ?>
-          <p><small>Belum ada bank QRIS. Tambahkan di atas agar kasir bisa memilih bank saat checkout QRIS.</small></p>
+          <p><small>Belum ada bank non-tunai. Tambahkan di atas agar kasir bisa memilih bank saat checkout QRIS, EDC, atau Transfer.</small></p>
         <?php else: ?>
           <div class="table-wrap" style="margin-top:12px">
             <table>
@@ -269,7 +269,7 @@ $customCss = setting('custom_css', '');
                         <input type="hidden" name="id" value="<?php echo e((string)$b['id']); ?>">
                         <button class="btn" type="submit"><?php echo $b['is_active'] ? 'Nonaktifkan' : 'Aktifkan'; ?></button>
                       </form>
-                      <form method="post" style="display:inline" data-confirm="Hapus bank QRIS ini?">
+                      <form method="post" style="display:inline" data-confirm="Hapus bank non-tunai ini?">
                         <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                         <input type="hidden" name="action" value="delete_bank">
                         <input type="hidden" name="id" value="<?php echo e((string)$b['id']); ?>">
