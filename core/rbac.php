@@ -192,14 +192,15 @@ function role_menu_tree(): array {
     'roles' => ['label' => 'Role & Permission', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'shift' => ['label' => 'Buka / Tutup Shift', 'actions' => ['create', 'delete']],
     'settings' => ['label' => 'Pengaturan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'rekap_omset' => ['label' => 'Rekap Omset', 'actions' => ['view', 'export']],
   ];
 }
 
 function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
-    'admin' => ['dashboard', 'pos', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift'],
-    'manager' => ['dashboard', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase'],
+    'admin' => ['dashboard', 'pos', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset'],
+    'manager' => ['dashboard', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
     'kasir' => ['pos', 'shift'],
     'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
