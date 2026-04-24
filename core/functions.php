@@ -860,7 +860,8 @@ function ensure_payment_methods_table(): void {
         ('cash', 'Tunai', 1, 1, 1),
         ('qris', 'QRIS', 1, 1, 2),
         ('edc', 'EDC', 1, 1, 3),
-        ('transfer', 'Transfer', 1, 1, 4)
+        ('transfer', 'Transfer', 1, 1, 4),
+        ('credit_card', 'Kartu Kredit', 1, 1, 5)
     ");
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
@@ -868,7 +869,7 @@ function ensure_payment_methods_table(): void {
 }
 
 function payment_method_requires_bank(string $code): bool {
-  return in_array(strtolower(trim($code)), ['qris', 'edc', 'transfer'], true);
+  return in_array(strtolower(trim($code)), ['qris', 'edc', 'transfer', 'credit_card'], true);
 }
 
 function get_active_payment_methods(): array {
@@ -881,6 +882,7 @@ function get_active_payment_methods(): array {
       ['code' => 'qris', 'name' => 'QRIS'],
       ['code' => 'edc', 'name' => 'EDC'],
       ['code' => 'transfer', 'name' => 'Transfer'],
+      ['code' => 'credit_card', 'name' => 'Kartu Kredit'],
     ];
   }
 }
