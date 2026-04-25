@@ -178,9 +178,8 @@
       </div>
       <div class="form-group" style="margin-bottom:8px" id="guide-wrap">
         <label class="form-label">Guide (Opsional)</label>
-        <select class="form-control" id="sel-guide">
-          <option value="">— Tanpa Guide —</option>
-        </select>
+        <input class="form-control" type="text" id="guide-name" list="guide-list" autocomplete="off" placeholder="Ketik atau pilih nama guide...">
+        <datalist id="guide-list"></datalist>
       </div>
       <div class="form-group" style="margin-bottom:10px">
         <label class="form-label">Diskon Transaksi</label>
@@ -365,11 +364,12 @@ function buildProductImageUrl(imagePath) {
   const raw = String(imagePath || '').trim();
   if (!raw) return null;
   if (/^https?:\/\//i.test(raw)) return raw;
-
-  const clean = raw.replace(/^\.?\//, '');
+  const clean = raw.replace(/^(\.\/|\/)+/, '').replace(/^\.\.\//, '');
   if (!clean) return null;
+  if (clean.startsWith('download.php')) return `${IMAGE_BASE_URL}/${clean}`;
   if (clean.startsWith('uploads/')) return `${IMAGE_BASE_URL}/${clean}`;
-  return `${IMAGE_BASE_URL}/uploads/${clean}`;
+  if (clean.includes('/')) return `${IMAGE_BASE_URL}/${clean}`;
+  return `${IMAGE_BASE_URL}/download.php?type=image&f=${encodeURIComponent(clean)}`;
 }
 
 function addToCart(productId) {
@@ -458,7 +458,7 @@ function resetCart() {
   cart = {};
   document.getElementById('tx-disc-amt').value = 0;
   document.getElementById('sel-customer').value = '';
-  document.getElementById('sel-guide').value = '';
+  document.getElementById('guide-name').value = '';
   renderCart();
 }
 
@@ -501,14 +501,16 @@ function buildCustomers() {
   });
 }
 function buildGuides() {
-  const sel = document.getElementById('sel-guide');
-  sel.innerHTML = '<option value="">— Tanpa Guide —</option>';
-  if (!guides.length) { document.getElementById('guide-wrap').style.display = 'none'; return; }
-  document.getElementById('guide-wrap').style.display = '';
+  const list = document.getElementById('guide-list');
+  const input = document.getElementById('guide-name');
+  list.innerHTML = '';
+  input.placeholder = guides.length
+    ? 'Ketik atau pilih nama guide...'
+    : 'Ketik nama guide...';
   guides.forEach((g) => {
     const opt = document.createElement('option');
-    opt.value = g.name; opt.textContent = g.name;
-    sel.appendChild(opt);
+    opt.value = g.name;
+    list.appendChild(opt);
   });
 }
 
@@ -540,7 +542,7 @@ document.getElementById('btn-bayar').addEventListener('click', async () => {
     total,
     customer_id: parseInt(document.getElementById('sel-customer').value) || null,
     customer_name: (customers.find((c) => c.id === (parseInt(document.getElementById('sel-customer').value) || 0)) || {}).name || null,
-    guide_name: document.getElementById('sel-guide').value || null,
+    guide_name: (document.getElementById('guide-name').value || '').trim() || null,
   };
 
   await window.POS.setPendingCart(cartData);
