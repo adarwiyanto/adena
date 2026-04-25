@@ -19,6 +19,17 @@ function rows(PDO $pdo, string $sql, array $params = []): array {
     $s = $pdo->prepare($sql); $s->execute($params); return $s->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function rows_first_available(PDO $pdo, array $queries): array {
+    foreach ($queries as $sql) {
+        try {
+            return rows($pdo, $sql);
+        } catch (Throwable $_) {
+            // coba query fallback berikutnya
+        }
+    }
+    return [];
+}
+
 // ── Products (show_on_pos only) ───────────────────────────────────────────────
 $productSql = "SELECT id, name, price, category, image_path,
                       is_favorite, is_best_seller, show_on_pos,
@@ -63,42 +74,26 @@ try {
 }
 
 // ── QRIS banks ────────────────────────────────────────────────────────────────
-$banks = [];
-try {
-    $banks = rows($pdo,
-        "SELECT id, name, sort_order, is_active
-         FROM qris_banks
-         WHERE is_active = 1
-         ORDER BY sort_order, name"
-    );
-} catch (Throwable $_) {
-    try {
-        $banks = rows($pdo,
-            "SELECT id, name, 0 AS sort_order, 1 AS is_active
-             FROM qris_banks
-             ORDER BY name"
-        );
-    } catch (Throwable $_2) {}
-}
+$banks = rows_first_available($pdo, [
+    "SELECT id, name, sort_order, is_active
+     FROM qris_banks
+     WHERE is_active = 1
+     ORDER BY sort_order, name",
+    "SELECT id, name, 0 AS sort_order, 1 AS is_active
+     FROM qris_banks
+     ORDER BY name",
+]);
 
 // ── Guides ────────────────────────────────────────────────────────────────────
-$guides = [];
-try {
-    $guides = rows($pdo,
-        "SELECT id, name, is_active
-         FROM guides
-         WHERE is_active = 1
-         ORDER BY name"
-    );
-} catch (Throwable $_) {
-    try {
-        $guides = rows($pdo,
-            "SELECT id, name, 1 AS is_active
-             FROM guides
-             ORDER BY name"
-        );
-    } catch (Throwable $_2) {}
-}
+$guides = rows_first_available($pdo, [
+    "SELECT id, name, is_active
+     FROM guides
+     WHERE is_active = 1
+     ORDER BY name",
+    "SELECT id, name, 1 AS is_active
+     FROM guides
+     ORDER BY name",
+]);
 
 // ── Store settings ────────────────────────────────────────────────────────────
 $settingKeys = [
