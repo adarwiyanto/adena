@@ -8,12 +8,15 @@ data class ReceiptItem(
     val qty: Double,
     val price: Long,
     val subtotal: Long,
+    val discountAmount: Double = 0.0,
+    val discountType: String = "fixed",
 )
 
 data class ReceiptPayload(
     val receiptId: String,
     val tanggalJam: String,
     val cashier: String,
+    val guide: String?,
     val storeName: String,
     val storeSubtitle: String,
     val storeAddress: String,
@@ -22,6 +25,8 @@ data class ReceiptPayload(
     val logoUrl: String,
     val paymentMethod: String,
     val total: Long,
+    val txDiscountAmount: Double,
+    val txDiscountType: String,
     val bayar: Long,
     val kembalian: Long,
     val paperWidth: Int,
@@ -41,6 +46,8 @@ data class ReceiptPayload(
                     qty = child.optDouble("qty", 0.0),
                     price = child.optLong("price", 0L),
                     subtotal = child.optLong("subtotal", 0L),
+                    discountAmount = child.optDouble("discount_amount", 0.0),
+                    discountType = child.optString("discount_type", "fixed").trim(),
                 )
             }
             if (items.isEmpty()) throw IllegalArgumentException("Item receipt kosong")
@@ -48,10 +55,12 @@ data class ReceiptPayload(
             val receiptId = obj.optString("receipt_id", "").trim()
             if (receiptId.isBlank()) throw IllegalArgumentException("receipt_id wajib diisi")
 
+            val guideRaw = obj.optString("guide", "").trim()
             return ReceiptPayload(
                 receiptId = receiptId,
                 tanggalJam = obj.optString("tanggal_jam", "-").trim(),
                 cashier = obj.optString("cashier", "-").trim(),
+                guide = if (guideRaw.isBlank()) null else guideRaw,
                 storeName = obj.optString("store_name", "HOPe POS").trim(),
                 storeSubtitle = obj.optString("store_subtitle", "").trim(),
                 storeAddress = obj.optString("store_address", "").trim(),
@@ -60,6 +69,8 @@ data class ReceiptPayload(
                 logoUrl = obj.optString("logo_url", "").trim(),
                 paymentMethod = obj.optString("payment_method", "").trim(),
                 total = obj.optLong("total", 0L),
+                txDiscountAmount = obj.optDouble("tx_discount_amount", 0.0),
+                txDiscountType = obj.optString("tx_discount_type", "fixed").trim(),
                 bayar = obj.optLong("bayar", 0L),
                 kembalian = obj.optLong("kembalian", 0L),
                 paperWidth = obj.optInt("paper_width", 58),
