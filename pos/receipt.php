@@ -36,6 +36,7 @@ if (!$receiptValid && $jobToken !== '') {
       'id' => (string)($payload['receipt_id'] ?? '-'),
       'time' => (string)($payload['tanggal_jam'] ?? '-'),
       'cashier' => (string)($payload['cashier'] ?? '-'),
+      'guide' => isset($payload['guide']) && $payload['guide'] !== null ? (string)$payload['guide'] : null,
       'payment' => (string)($payload['payment_method'] ?? '-'),
       'items' => is_array($payload['items'] ?? null) ? $payload['items'] : [],
       'total' => (float)($payload['total'] ?? 0),
@@ -182,6 +183,9 @@ $deepLink = $jobToken !== ''
           <div>No: <?php echo e($receipt['id']); ?></div>
           <div>Tanggal: <?php echo e($receipt['time']); ?></div>
           <div>Kasir: <?php echo e($receipt['cashier']); ?></div>
+          <?php if (!empty($receipt['guide'])): ?>
+            <div>Guide: <?php echo e($receipt['guide']); ?></div>
+          <?php endif; ?>
         </div>
 
         <div class="receipt-items">
@@ -192,6 +196,16 @@ $deepLink = $jobToken !== ''
                 <div class="receipt-item-qty"><?php echo e(format_number_id((float)($item['qty'] ?? 0), 0)); ?> x Rp <?php echo e(format_number_id((float)($item['price'] ?? 0))); ?></div>
                 <div class="receipt-item-subtotal">Rp <?php echo e(format_number_id((float)($item['subtotal'] ?? 0))); ?></div>
               </div>
+              <?php if (!empty($item['discount_amount'])): ?>
+                <div class="receipt-item-discount">
+                  Diskon:
+                  <?php if (($item['discount_type'] ?? 'fixed') === 'percent'): ?>
+                    <?php echo e(format_number_id((float)$item['discount_amount'])); ?>%
+                  <?php else: ?>
+                    Rp <?php echo e(format_number_id((float)$item['discount_amount'])); ?>
+                  <?php endif; ?>
+                </div>
+              <?php endif; ?>
             </div>
           <?php endforeach; ?>
         </div>
@@ -199,8 +213,21 @@ $deepLink = $jobToken !== ''
         <?php
           $paid = (float)($receipt['paid_amount'] ?? $receipt['total'] ?? 0);
           $change = (float)($receipt['change_amount'] ?? max($paid - (float)($receipt['total'] ?? 0), 0));
+          $txDiscAmt = (float)($receipt['tx_discount_amount'] ?? 0);
+          $txDiscType = (string)($receipt['tx_discount_type'] ?? 'fixed');
+          $subtotalBeforeDisc = (float)($receipt['subtotal_before_tx_discount'] ?? $receipt['total'] ?? 0);
         ?>
         <div class="receipt-summary">
+          <?php if ($txDiscAmt > 0): ?>
+            <div class="receipt-line">
+              <span>Subtotal</span>
+              <span>Rp <?php echo e(format_number_id($subtotalBeforeDisc)); ?></span>
+            </div>
+            <div class="receipt-line">
+              <span>Diskon<?php echo $txDiscType === 'percent' ? ' ' . e(format_number_id($txDiscAmt)) . '%' : ''; ?></span>
+              <span>-Rp <?php echo e(format_number_id(max(0, $subtotalBeforeDisc - (float)($receipt['total'] ?? $subtotalBeforeDisc)))); ?></span>
+            </div>
+          <?php endif; ?>
           <div class="receipt-line">
             <span>Total</span>
             <span>Rp <?php echo e(format_number_id((float)$receipt['total'])); ?></span>

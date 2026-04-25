@@ -135,6 +135,11 @@ body {
   text-align: right;
 }
 
+.receipt-item-discount {
+  font-size: 9.5px;
+  color: #dc2626;
+}
+
 .receipt-summary {
   border-top: 1px dashed #d1d5db;
   margin-top: 8px;
@@ -168,12 +173,17 @@ body {
     margin: var(--receipt-margin);
   }
 
-  body {
+  html, body {
+    height: auto !important;
+    min-height: unset !important;
     background: #fff;
   }
 
   .receipt-page {
     padding: 0;
+    height: auto !important;
+    min-height: unset !important;
+    display: block;
   }
 
   .no-print {
@@ -184,6 +194,11 @@ body {
     width: var(--receipt-paper-width);
     max-width: var(--receipt-safe-width);
     padding: 0;
+    page-break-after: avoid;
+  }
+
+  .receipt-footer {
+    page-break-after: avoid;
   }
 }
 

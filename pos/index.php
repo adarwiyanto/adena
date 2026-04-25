@@ -31,6 +31,8 @@ ensure_pos_shift_schema();
 ensure_payment_methods_table();
 ensure_qris_banks_table();
 ensure_sales_payment_bank_column();
+ensure_sales_guide_column();
+ensure_sales_discount_columns();
 
 $appName = app_config()['app']['name'];
 $storeName = setting('store_name', $appName);
@@ -55,6 +57,7 @@ if ($activeShift) {
 $posDefaultOpeningCash = (float)setting('pos_default_opening_cash', '100000');
 $activePaymentMethods = get_active_payment_methods();
 $qrisBanks = get_active_qris_banks();
+$activeGuides = get_active_guides();
 $products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -65,6 +68,7 @@ foreach ($products as $p) {
 $cart = $_SESSION['pos_cart'] ?? [];
 $rewardCart = $_SESSION['pos_reward_cart'] ?? [];
 $bypassItems = $_SESSION['pos_bypass_items'] ?? [];
+$itemDiscounts = $_SESSION['pos_item_discounts'] ?? [];
 $activeOrderId = $_SESSION['pos_order_id'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -77,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     'dec' => 'edit',
     'remove' => 'delete',
     'update_qty' => 'edit',
+    'set_item_discount' => 'edit',
     'toggle_bypass' => 'approve',
     'load_order' => 'create',
     'save_order' => 'create',
@@ -108,10 +113,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
     }
 
-    if ($action === 'new_transaction') {
+    if ($action === 'set_item_discount') {
+      $pid = (int)($_POST['product_id'] ?? 0);
+      $discAmt  = max(0.0, (float)($_POST['discount_amount'] ?? 0));
+      $discType = in_array($_POST['discount_type'] ?? '', ['fixed', 'percent'], true)
+        ? $_POST['discount_type'] : 'fixed';
+      if ($discType === 'percent') $discAmt = min(100.0, $discAmt);
+      if ($discAmt > 0) {
+        $itemDiscounts[$pid] = ['amount' => $discAmt, 'type' => $discType];
+      } else {
+        unset($itemDiscounts[$pid]);
+      }
+      $_SESSION['pos_item_discounts'] = $itemDiscounts;
+    } elseif ($action === 'new_transaction') {
       $cart = [];
       $rewardCart = [];
       $bypassItems = [];
+      $itemDiscounts = [];
+      $_SESSION['pos_item_discounts'] = [];
       unset($_SESSION['pos_receipt']);
       if (!empty($_SESSION['pos_order_id'])) {
         $orderId = (int)$_SESSION['pos_order_id'];
@@ -296,6 +315,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
       }
       $paymentProofPath = null;
+      $guideName = trim((string)($_POST['guide_name'] ?? ''));
+      if ($guideName === '') $guideName = null;
+      $txDiscountAmt  = max(0.0, (float)($_POST['tx_discount_amount'] ?? 0));
+      $txDiscountType = in_array($_POST['tx_discount_type'] ?? '', ['fixed', 'percent'], true)
+        ? $_POST['tx_discount_type'] : 'fixed';
+      if ($txDiscountType === 'percent') $txDiscountAmt = min(100.0, $txDiscountAmt);
       $db = db();
       $db->beginTransaction();
       $branchId = pos_safe_branch_id();
@@ -305,7 +330,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $transactionGroupUuid = 'GRP-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
       }
       $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));
-      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?)");
+      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, guide_name, discount_amount, discount_type, tx_discount_amount, tx_discount_type, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
       $receiptItems = [];
       $receiptTotal = 0.0;
       $autoProductionIds = [];
@@ -371,10 +396,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           throw new Exception('Jumlah produk tidak valid.');
         }
         $price = (float)$productsById[$pid]['price'];
-        $total = $price * $qty;
+        $itemDisc = $itemDiscounts[(int)$pid] ?? null;
+        $itemDiscAmt  = 0.0;
+        $itemDiscType = 'fixed';
+        if ($itemDisc) {
+          $itemDiscType = (string)($itemDisc['type'] ?? 'fixed');
+          $itemDiscAmt  = (float)($itemDisc['amount'] ?? 0);
+          if ($itemDiscType === 'percent') {
+            $itemDiscAmt = min(100.0, $itemDiscAmt);
+          }
+        }
+        $grossSubtotal = $price * $qty;
+        $itemDiscValue = $itemDiscType === 'percent'
+          ? round($grossSubtotal * $itemDiscAmt / 100, 2)
+          : min($itemDiscAmt, $grossSubtotal);
+        $total = max(0.0, $grossSubtotal - $itemDiscValue);
         $saleOfflineUuid = $offlineUuid !== '' ? $offlineUuid : null;
         $saleSyncStatus = $offlineUuid !== '' ? 'pending' : 'synced';
-        $stmt->execute([$transactionCode, $transactionGroupUuid, $saleOfflineUuid, $saleSyncStatus, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, $paymentBank, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
+        $stmt->execute([$transactionCode, $transactionGroupUuid, $saleOfflineUuid, $saleSyncStatus, $transactionCode, (int)$pid, $qty, $price, $total, $paymentMethod, $paymentProofPath, $paymentBank, $guideName, $itemDiscAmt, $itemDiscType, $txDiscountAmt, $txDiscountType, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
         $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
         $saleId = (int)$db->lastInsertId();
         $stmtUpdateBranch->execute([$branchId, $saleId]);
@@ -398,13 +437,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'created_by' => (int)($me['id'] ?? 0),
           ]);
         }
-        $receiptItems[] = [
+        $receiptEntry = [
           'name' => $productsById[$pid]['name'],
           'qty' => $qty,
           'price' => $price,
           'subtotal' => $total,
           'is_reward' => false,
         ];
+        if ($itemDiscValue > 0) {
+          $receiptEntry['discount_amount'] = $itemDiscAmt;
+          $receiptEntry['discount_type']   = $itemDiscType;
+          $receiptEntry['discount_value']  = $itemDiscValue;
+        }
+        $receiptItems[] = $receiptEntry;
         $receiptTotal += $total;
       }
       if (!empty($rewardCart)) {
@@ -431,7 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if ($qty <= 0) {
             continue;
           }
-          $stmt->execute([$transactionCode, $transactionGroupUuid, null, 'synced', $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, $paymentBank, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
+          $stmt->execute([$transactionCode, $transactionGroupUuid, null, 'synced', $transactionCode, $pid, $qty, 0, 0, $paymentMethod, $paymentProofPath, $paymentBank, $guideName, 0, 'fixed', $txDiscountAmt, $txDiscountType, (int)($me['id'] ?? 0), (int)$activeShift['id']]);
           $saleId = (int)$db->lastInsertId();
           $stmtUpdateBranch = $db->prepare("UPDATE sales SET branch_id=? WHERE id=?");
           $stmtUpdateBranch->execute([$branchId, $saleId]);
@@ -503,16 +548,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         unset($_SESSION['pos_order_id']);
       }
       pos_shift_log((int)$activeShift['id'], (int)($me['id'] ?? 0), 'checkout');
+      $txDiscountValue = 0.0;
+      if ($txDiscountAmt > 0) {
+        $txDiscountValue = $txDiscountType === 'percent'
+          ? round($receiptTotal * $txDiscountAmt / 100, 2)
+          : min($txDiscountAmt, $receiptTotal);
+      }
+      $receiptFinalTotal = max(0.0, $receiptTotal - $txDiscountValue);
       $receiptPaymentLabel = strtoupper($paymentMethod);
       if ($paymentBank !== null) $receiptPaymentLabel .= ' - ' . $paymentBank;
       $_SESSION['pos_receipt'] = [
         'id' => $transactionCode,
         'time' => date('d/m/Y H:i'),
         'cashier' => $me['name'] ?? 'Kasir',
+        'guide' => $guideName,
         'payment' => $receiptPaymentLabel,
         'items' => $receiptItems,
-        'total' => $receiptTotal,
-        'paid_amount' => $receiptTotal,
+        'subtotal_before_tx_discount' => $receiptTotal,
+        'tx_discount_amount' => $txDiscountAmt,
+        'tx_discount_type' => $txDiscountType,
+        'tx_discount_value' => $txDiscountValue,
+        'total' => $receiptFinalTotal,
+        'paid_amount' => $receiptFinalTotal,
       ];
 
       $printPayload = build_pos_receipt_payload($_SESSION['pos_receipt'], [
@@ -522,7 +579,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'store_phone' => setting('store_phone', ''),
         'footer' => setting('receipt_footer', ''),
         'store_logo' => setting('store_logo', ''),
-        'paid_amount' => $receiptTotal,
+        'paid_amount' => $receiptFinalTotal,
       ]);
       $printJob = create_pos_print_job($printPayload, [
         'sale_id' => isset($saleId) ? (int)$saleId : null,
@@ -537,6 +594,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $cart = [];
       $rewardCart = [];
       $bypassItems = [];
+      $itemDiscounts = [];
+      $_SESSION['pos_item_discounts'] = [];
       $_SESSION['pos_notice'] = 'Transaksi berhasil disimpan.';
     }
   } catch (Throwable $e) {
@@ -640,7 +699,20 @@ foreach ($cart as $pid => $qty) {
   if (empty($productsById[$pid])) continue;
   $price = (float)$productsById[$pid]['price'];
   $qty = (int)$qty;
-  $subtotal = $price * $qty;
+  $grossSub = $price * $qty;
+  $iDisc = $itemDiscounts[(int)$pid] ?? null;
+  $iDiscAmt  = 0.0;
+  $iDiscType = 'fixed';
+  $iDiscValue = 0.0;
+  if ($iDisc) {
+    $iDiscType = (string)($iDisc['type'] ?? 'fixed');
+    $iDiscAmt  = (float)($iDisc['amount'] ?? 0);
+    if ($iDiscType === 'percent') $iDiscAmt = min(100.0, $iDiscAmt);
+    $iDiscValue = $iDiscType === 'percent'
+      ? round($grossSub * $iDiscAmt / 100, 2)
+      : min($iDiscAmt, $grossSub);
+  }
+  $subtotal = max(0.0, $grossSub - $iDiscValue);
   $total += $subtotal;
   $cartCount += $qty;
   $cartItems[] = [
@@ -651,6 +723,9 @@ foreach ($cart as $pid => $qty) {
     'subtotal' => $subtotal,
     'is_reward' => false,
     'is_bypass' => $isOwner && !empty($bypassItems[(int)$pid]),
+    'discount_amount' => $iDiscAmt,
+    'discount_type' => $iDiscType,
+    'discount_value' => $iDiscValue,
   ];
 }
 if (!empty($rewardCart)) {
@@ -972,9 +1047,32 @@ if (!empty($rewardCart)) {
                             <button class="btn pos-qty-btn" type="submit">+</button>
                           </form>
                         </div>
-                        <div class="pos-cart-subtotal">Rp <?php echo e(format_number_id($item['subtotal'])); ?></div>
+                        <div class="pos-cart-subtotal">
+                          Rp <?php echo e(format_number_id($item['subtotal'])); ?>
+                          <?php if (!empty($item['discount_value'])): ?>
+                            <div class="pos-item-disc-badge">
+                              Diskon: <?php echo $item['discount_type'] === 'percent'
+                                ? e(format_number_id($item['discount_amount'])) . '%'
+                                : 'Rp ' . e(format_number_id($item['discount_amount'])); ?>
+                            </div>
+                          <?php endif; ?>
+                        </div>
                       <?php endif; ?>
                     </div>
+                    <?php if (empty($item['is_reward'])): ?>
+                      <form method="post" class="pos-item-discount-form">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="set_item_discount">
+                        <input type="hidden" name="product_id" value="<?php echo e((string)$item['id']); ?>">
+                        <div class="pos-item-discount-row">
+                          <select name="discount_type" class="pos-disc-type">
+                            <option value="fixed"<?php echo ($item['discount_type'] ?? 'fixed') === 'fixed' ? ' selected' : ''; ?>>Rp</option>
+                            <option value="percent"<?php echo ($item['discount_type'] ?? '') === 'percent' ? ' selected' : ''; ?>>%</option>
+                          </select>
+                          <input type="number" name="discount_amount" value="<?php echo e((string)($item['discount_amount'] ?? 0)); ?>" min="0" step="any" placeholder="Diskon item..." class="pos-disc-input" onchange="this.form.submit()">
+                        </div>
+                      </form>
+                    <?php endif; ?>
                     <?php if (empty($item['is_reward']) && $isOwner): ?>
                       <form method="post" class="pos-bypass-form">
                         <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
@@ -1017,6 +1115,15 @@ if (!empty($rewardCart)) {
                   <input type="hidden" name="action" value="checkout">
                   <input type="hidden" name="offline_uuid" value="">
                   <input type="hidden" name="transaction_group_uuid" value="">
+                  <div class="pos-guide">
+                    <label for="pos-guide-name">Nama Guide <small style="font-weight:400;opacity:.7">(opsional)</small></label>
+                    <input id="pos-guide-name" type="text" name="guide_name" list="pos-guide-list" autocomplete="off" placeholder="Ketik atau pilih nama guide..." maxlength="100">
+                    <datalist id="pos-guide-list">
+                      <?php foreach ($activeGuides as $g): ?>
+                        <option value="<?php echo e($g['name']); ?>">
+                      <?php endforeach; ?>
+                    </datalist>
+                  </div>
                   <div class="pos-payment">
                     <label>Metode Pembayaran</label>
                     <div class="pos-payment-options">
@@ -1042,6 +1149,16 @@ if (!empty($rewardCart)) {
                       <?php endif; ?>
                     </div>
                   </div>
+                  <div class="pos-tx-discount">
+                    <label>Diskon Total <small style="font-weight:400;opacity:.7">(opsional)</small></label>
+                    <div class="pos-item-discount-row">
+                      <select name="tx_discount_type" class="pos-disc-type">
+                        <option value="fixed">Rp</option>
+                        <option value="percent">%</option>
+                      </select>
+                      <input type="number" name="tx_discount_amount" value="0" min="0" step="any" placeholder="0" class="pos-disc-input" id="pos-tx-discount-input">
+                    </div>
+                  </div>
                   <button class="btn pos-checkout" type="submit">Checkout</button>
                 </form>
               </div>
@@ -1054,7 +1171,7 @@ if (!empty($rewardCart)) {
   <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
   <script nonce="<?php echo e(csp_nonce()); ?>">
     (function () {
-      var bankMethods = ['qris', 'edc', 'transfer'];
+      var bankMethods = ['qris', 'edc', 'transfer', 'credit_card'];
       function updateBankDropdown() {
         var wrap = document.getElementById('pos-bank-wrap');
         if (!wrap) return;
