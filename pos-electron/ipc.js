@@ -30,6 +30,7 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
     // Simpan token + user ke lokal
     setSetting('device_token', res.token);
     setSetting('current_user', JSON.stringify(res.user));
+    setSetting('current_user_info', JSON.stringify(res.user));
     saveLocalUser(res.user, res.token);
     // Simpan hash password untuk login offline
     const hash = bcrypt.hashSync(password, 10);
@@ -42,7 +43,7 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
         user: res.user,
         online: true,
         sync_ok: false,
-        warning: `Login berhasil, tetapi sync data gagal: ${syncResult.message}`,
+        warning: 'Login berhasil, tetapi gagal mengambil data dari server.',
       };
     }
     return { ok: true, user: res.user, online: true, sync_ok: true };
@@ -70,6 +71,10 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
     id: localUser.id, username: localUser.username,
     name: localUser.name, role: localUser.role,
   }));
+  setSetting('current_user_info', JSON.stringify({
+    id: localUser.id, username: localUser.username,
+    name: localUser.name, role: localUser.role,
+  }));
   return {
     ok: true,
     user: { id: localUser.id, username: localUser.username, name: localUser.name, role: localUser.role },
@@ -80,12 +85,14 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
 ipcMain.handle('auth:logout', () => {
   setSetting('current_user', '');
   setSetting('device_token', '');
+  setSetting('current_user_info', '');
   return { ok: true };
 });
 
 ipcMain.handle('auth:reset-local', () => {
   setSetting('current_user', '');
   setSetting('device_token', '');
+  setSetting('current_user_info', '');
   return { ok: true };
 });
 

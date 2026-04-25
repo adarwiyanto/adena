@@ -276,7 +276,7 @@ const IMAGE_BASE_URL = 'https://adena.co.id';
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
   const user = await window.POS.currentUser();
-  if (!user) { window.POS.logout(); return; }
+  if (!user) { window.POS.navigate('login'); return; }
   document.getElementById('user-name').textContent = user.name;
 
   [products, categories, customers, guides, paymentMethods, banks, settings, activeShift] = await Promise.all([
@@ -337,7 +337,7 @@ document.getElementById('search').addEventListener('input', () => renderProducts
 function renderProducts(list) {
   const grid = document.getElementById('product-grid');
   if (!list.length) {
-    grid.innerHTML = '<div class="product-empty">Produk belum tersedia. Klik Sync Manual atau login online ulang.</div>';
+    grid.innerHTML = '<div class="product-empty">Data produk belum tersedia. Silakan login ulang atau lakukan sync.</div>';
     return;
   }
   grid.innerHTML = list.map((p) => `
