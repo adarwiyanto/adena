@@ -81,6 +81,15 @@ function createMainWindow() {
 // Karena preload tidak bisa diubah setelah window dibuat, kita reuse 1 preload
 // yang expose semua IPC channels
 function reloadWithPreload(preloadFile, htmlFile) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadFile(page(htmlFile));
+      Menu.setApplicationMenu(buildMenu());
+    }
+    return;
+  }
+
   const wasMaximized = mainWindow.isMaximized();
   const bounds = mainWindow.getBounds();
 
@@ -104,12 +113,22 @@ function reloadWithPreload(preloadFile, htmlFile) {
 ipcMain.on('navigate:pos', () => {
   const currentUser = dbMod.getSetting('current_user', '');
   if (!currentUser) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadFile(page('login.html'));
+      return;
+    }
     reloadWithPreload('login-pre.js', 'login.html');
     return;
   }
   reloadWithPreload('pos-pre.js', 'pos.html');
 });
-ipcMain.on('navigate:login', () => reloadWithPreload('login-pre.js', 'login.html'));
+ipcMain.on('navigate:login', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.loadFile(page('login.html'));
+    return;
+  }
+  reloadWithPreload('login-pre.js', 'login.html');
+});
 ipcMain.handle('session:reset-local', () => {
   resetLocalSession();
   return { ok: true };

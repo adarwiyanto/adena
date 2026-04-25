@@ -166,7 +166,8 @@ async function pullFromServer(token, fullSync = false) {
     if (d.qris_banks.length) {
       replaceAll('qris_banks', d.qris_banks.map((b) => ({
       id: b.id, name: b.name,
-      sort_order: b.sort_order || 0, is_active: b.is_active ? 1 : 0,
+      sort_order: b.sort_order || 0,
+      is_active: b.is_active == null ? 1 : (b.is_active ? 1 : 0),
       })));
     }
   }
@@ -175,7 +176,8 @@ async function pullFromServer(token, fullSync = false) {
     db().prepare('DELETE FROM guides').run();
     if (d.guides.length) {
       replaceAll('guides', d.guides.map((g) => ({
-      id: g.id, name: g.name, is_active: g.is_active ? 1 : 0,
+      id: g.id, name: g.name,
+      is_active: g.is_active == null ? 1 : (g.is_active ? 1 : 0),
       })));
     }
   }
