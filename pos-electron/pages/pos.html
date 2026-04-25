@@ -337,7 +337,7 @@ document.getElementById('search').addEventListener('input', () => renderProducts
 function renderProducts(list) {
   const grid = document.getElementById('product-grid');
   if (!list.length) {
-    grid.innerHTML = '<div class="product-empty">Data produk belum tersedia. Silakan login ulang atau lakukan sync.</div>';
+    grid.innerHTML = '<div class="product-empty">Produk belum tersedia. Klik Sync Manual atau login ulang.</div>';
     return;
   }
   grid.innerHTML = list.map((p) => `
@@ -368,8 +368,9 @@ function buildProductImageUrl(imagePath) {
 
   const clean = raw.replace(/^\.?\//, '');
   if (!clean) return null;
-  if (clean.startsWith('uploads/')) return `${IMAGE_BASE_URL}/${clean}`;
-  return `${IMAGE_BASE_URL}/uploads/${clean}`;
+  const hasLegacyPath = /[\\/]/.test(clean) || clean.includes('uploads');
+  if (hasLegacyPath) return `${IMAGE_BASE_URL}/${clean.replace(/^\/+/, '')}`;
+  return `${IMAGE_BASE_URL}/download.php?type=image&f=${encodeURIComponent(clean)}`;
 }
 
 function addToCart(productId) {

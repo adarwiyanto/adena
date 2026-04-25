@@ -170,6 +170,11 @@ function migrate(d) {
       d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
     }
   };
+  ensureColumn('products', 'image_path', 'image_path TEXT');
+  ensureColumn('products', 'show_on_pos', 'show_on_pos INTEGER DEFAULT 1');
+  ensureColumn('qris_banks', 'sort_order', 'sort_order INTEGER DEFAULT 0');
+  ensureColumn('qris_banks', 'is_active', 'is_active INTEGER DEFAULT 1');
+  ensureColumn('guides', 'is_active', 'is_active INTEGER DEFAULT 1');
   ensureColumn('payment_methods', 'requires_bank', 'requires_bank INTEGER DEFAULT 0');
 }
 
