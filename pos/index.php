@@ -1185,11 +1185,9 @@ if (!empty($rewardCart)) {
           if (!needsBank) select.value = '';
         }
       }
-      document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('input[name="payment_method"]').forEach(function (input) {
-          input.addEventListener('change', updateBankDropdown);
-        });
-        updateBankDropdown();
+      document.addEventListener('DOMContentLoaded', updateBankDropdown);
+      document.addEventListener('change', function (e) {
+        if (e.target && e.target.name === 'payment_method') updateBankDropdown();
       });
     })();
 
