@@ -337,7 +337,7 @@ document.getElementById('search').addEventListener('input', () => renderProducts
 function renderProducts(list) {
   const grid = document.getElementById('product-grid');
   if (!list.length) {
-    grid.innerHTML = '<div class="product-empty">Data produk belum tersedia. Silakan login ulang atau lakukan sync.</div>';
+    grid.innerHTML = '<div class="product-empty">Produk belum tersedia. Klik Sync Manual atau login ulang.</div>';
     return;
   }
   grid.innerHTML = list.map((p) => `

@@ -66,14 +66,22 @@ try {
 $banks = [];
 try {
     $banks = rows($pdo,
-        "SELECT id, name, sort_order FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, name"
+        "SELECT id, name, sort_order, is_active
+         FROM qris_banks
+         WHERE is_active = 1
+         ORDER BY sort_order, name"
     );
 } catch (Throwable $_) {}
 
 // ── Guides ────────────────────────────────────────────────────────────────────
 $guides = [];
 try {
-    $guides = rows($pdo, "SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name");
+    $guides = rows($pdo,
+        "SELECT id, name, is_active
+         FROM guides
+         WHERE is_active = 1
+         ORDER BY name"
+    );
 } catch (Throwable $_) {}
 
 // ── Store settings ────────────────────────────────────────────────────────────
