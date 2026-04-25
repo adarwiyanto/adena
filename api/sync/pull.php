@@ -116,6 +116,32 @@ if ($activeShift) {
     } catch (Throwable $_) {}
 }
 
+// ── Pending landing orders (belanja landing page) ───────────────────────────
+$pendingOrders = [];
+$pendingOrderItems = [];
+try {
+    $pendingOrders = rows($pdo, "
+      SELECT o.id, o.order_code, o.customer_id, o.status, o.created_at, o.updated_at,
+             c.name AS customer_name, COALESCE(c.phone, c.email) AS contact
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      WHERE o.status = 'pending'
+      ORDER BY o.created_at DESC
+      LIMIT 50
+    ");
+    if (!empty($pendingOrders)) {
+        $orderIds = array_map(static fn($row) => (int)$row['id'], $pendingOrders);
+        $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+        $pendingOrderItems = rows($pdo, "
+          SELECT oi.order_id, oi.product_id, oi.qty, p.name AS product_name
+          FROM order_items oi
+          LEFT JOIN products p ON p.id = oi.product_id
+          WHERE oi.order_id IN ($placeholders)
+          ORDER BY oi.order_id ASC, oi.id ASC
+        ", $orderIds);
+    }
+} catch (Throwable $_) {}
+
 api_ok([
     'data' => [
         'synced_at'       => date('c'),
@@ -130,5 +156,7 @@ api_ok([
         'settings'        => $settingsData,
         'active_shift'    => $activeShift,
         'cash_movements'  => array_values($cashMovements),
+        'pending_orders' => array_values($pendingOrders),
+        'pending_order_items' => array_values($pendingOrderItems),
     ],
 ]);
