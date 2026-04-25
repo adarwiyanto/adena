@@ -111,11 +111,13 @@ ipcMain.handle('data:payment-methods', () => {
   const rows = db().prepare("SELECT * FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, code").all();
   // Fallback jika belum ada
   if (!rows.length) return [
-    { code: 'cash', name: 'Tunai' },
-    { code: 'qris', name: 'QRIS' },
-    { code: 'edc',  name: 'EDC' },
-    { code: 'transfer', name: 'Transfer Bank' },
-    { code: 'credit_card', name: 'Kartu Kredit' },
+    { code: 'cash', name: 'Tunai', requires_bank: 0 },
+    { code: 'qris', name: 'QRIS', requires_bank: 1 },
+    { code: 'edc',  name: 'EDC', requires_bank: 1 },
+    { code: 'transfer', name: 'Transfer Bank', requires_bank: 1 },
+    { code: 'debit', name: 'Kartu Debit', requires_bank: 1 },
+    { code: 'credit_card', name: 'Kartu Kredit', requires_bank: 1 },
+    { code: 'bank_transfer', name: 'Bank Transfer', requires_bank: 1 },
   ];
   return rows;
 });
@@ -221,6 +223,12 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
   const shift = getActiveShift();
   if (!shift) return { ok: false, message: 'Tidak ada shift aktif.' };
 
+  const selectedMethod = String(paymentData.payment_method || 'cash');
+  const selectedBank = (paymentData.payment_bank || '').trim();
+  if (requiresBank(selectedMethod) && !selectedBank) {
+    return { ok: false, message: 'Metode pembayaran ini wajib memilih bank / penyedia.' };
+  }
+
   const currentUser = JSON.parse(getSetting('current_user', 'null') || 'null');
   const loyaltyVal  = parseFloat(getServerSetting('loyalty_point_value', '0')) || 0;
   const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -231,10 +239,10 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
     transaction_group_uuid: uuid(),
     shift_id: shift.id,
     shift_offline_uuid: shift.offline_uuid,
-    customer_id: paymentData.customer_id || null,
-    guide_name: paymentData.guide_name || null,
-    payment_method: paymentData.payment_method || 'cash',
-    payment_bank: paymentData.payment_bank || null,
+    customer_id: paymentData.customer_id || cart.customer_id || null,
+    guide_name: paymentData.guide_name || cart.guide_name || null,
+    payment_method: selectedMethod,
+    payment_bank: selectedBank || null,
     items_json: JSON.stringify(cart.items),
     subtotal: cart.subtotal || 0,
     tx_discount_amount: cart.tx_discount_amount || 0,
@@ -263,6 +271,13 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
 
   return { ok: true, receipt };
 });
+
+function requiresBank(methodCode) {
+  const code = String(methodCode || '').toLowerCase();
+  const row = db().prepare('SELECT requires_bank FROM payment_methods WHERE code = ? LIMIT 1').get(code);
+  if (row && row.requires_bank != null) return Number(row.requires_bank) === 1;
+  return new Set(['qris', 'edc', 'transfer', 'debit', 'credit_card', 'bank_transfer']).has(code);
+}
 
 function buildReceiptPayload(cart, payment, user, txId) {
   const storeName = getServerSetting('store_name', 'Adena POS');
