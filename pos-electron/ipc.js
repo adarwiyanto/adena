@@ -34,9 +34,18 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
     // Simpan hash password untuk login offline
     const hash = bcrypt.hashSync(password, 10);
     setLocalPasswordHash(res.user.id, hash);
-    // Full sync setelah login pertama online
-    await sync_module.runSync(true);
-    return { ok: true, user: res.user, online: true };
+    // Full sync setelah login pertama online (tetap login walau sync gagal)
+    const syncResult = await sync_module.runSync(true);
+    if (!syncResult.ok) {
+      return {
+        ok: true,
+        user: res.user,
+        online: true,
+        sync_ok: false,
+        warning: `Login berhasil, tetapi sync data gagal: ${syncResult.message}`,
+      };
+    }
+    return { ok: true, user: res.user, online: true, sync_ok: true };
   } catch (err) {
     console.error('[auth:login online failed]', err);
     onlineErrorMessage = err?.message || 'Gagal login online';
@@ -69,6 +78,12 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
 });
 
 ipcMain.handle('auth:logout', () => {
+  setSetting('current_user', '');
+  setSetting('device_token', '');
+  return { ok: true };
+});
+
+ipcMain.handle('auth:reset-local', () => {
   setSetting('current_user', '');
   setSetting('device_token', '');
   return { ok: true };

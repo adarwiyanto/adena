@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('POS', {
   getCategories:  ()     => ipcRenderer.invoke('data:categories'),
   getCustomers:   ()     => ipcRenderer.invoke('data:customers'),
   getPayMethods:  ()     => ipcRenderer.invoke('data:payment-methods'),
+  getBanks:       ()     => ipcRenderer.invoke('data:banks'),
   getGuides:      ()     => ipcRenderer.invoke('data:guides'),
   getLoyaltyRew:  ()     => ipcRenderer.invoke('data:loyalty-rewards'),
   getSettings:    ()     => ipcRenderer.invoke('data:server-settings'),
@@ -29,11 +30,13 @@ contextBridge.exposeInMainWorld('POS', {
   openPayment:    ()     => ipcRenderer.send('open:payment'),
 
   // Sync
-  syncManual:     ()     => ipcRenderer.invoke('sync:manual'),
+  syncManual:     ()     => ipcRenderer.invoke('sync:run', { full: true }),
   syncStatus:     ()     => ipcRenderer.invoke('sync:status'),
+  resetLocalLogin:()     => ipcRenderer.invoke('session:reset-local'),
 
   // Events dari main
   onSyncStart:    (cb)   => ipcRenderer.on('sync:start', cb),
   onSyncDone:     (cb)   => ipcRenderer.on('sync:done', (_, r) => cb(r)),
+  onSyncWarning:  (cb)   => ipcRenderer.on('sync:warning', (_, msg) => cb(msg)),
   onReset:        (cb)   => ipcRenderer.on('pos:reset', cb),
 });

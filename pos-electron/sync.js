@@ -110,17 +110,20 @@ async function pullFromServer(token, fullSync = false) {
   const d = res.data || res;
   let pulled = 0;
 
-  if (d.products?.length) {
-    replaceAll('products', d.products.map((p) => ({
-      id: p.id, name: p.name, price: p.price,
-      category: p.category || null, image_path: p.image_path || null,
-      is_favorite: p.is_favorite ? 1 : 0,
-      is_best_seller: p.is_best_seller ? 1 : 0,
-      show_on_pos: p.show_on_pos ? 1 : 0,
-      track_stock: p.track_stock ? 1 : 0,
-      base_unit: p.base_unit || 'pcs',
-      updated_at: p.updated_at || null,
-    })));
+  if (Array.isArray(d.products)) {
+    if (fullSync) db().prepare('DELETE FROM products').run();
+    if (d.products.length) {
+      replaceAll('products', d.products.map((p) => ({
+        id: p.id, name: p.name, price: p.price,
+        category: p.category || null, image_path: p.image_path || null,
+        is_favorite: p.is_favorite ? 1 : 0,
+        is_best_seller: p.is_best_seller ? 1 : 0,
+        show_on_pos: p.show_on_pos ? 1 : 0,
+        track_stock: p.track_stock ? 1 : 0,
+        base_unit: p.base_unit || 'pcs',
+        updated_at: p.updated_at || null,
+      })));
+    }
     pulled += d.products.length;
   }
 

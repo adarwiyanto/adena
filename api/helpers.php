@@ -74,7 +74,7 @@ function api_verify_token(): array {
     ");
     $stmt->execute([$hash]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) api_err('Token tidak valid atau kadaluarsa.', 401);
+    if (!$row) api_err('Token tidak valid.', 401);
 
     // Refresh last_used
     $pdo->prepare("UPDATE device_tokens SET last_used_at = NOW() WHERE id = ?")->execute([$row['token_id']]);
