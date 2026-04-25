@@ -28,7 +28,20 @@ if ($username === '' || $password === '') {
 }
 
 $pdo  = db();
-$stmt = $pdo->prepare("SELECT id, username, name, role, password_hash FROM users WHERE username = ? LIMIT 1");
+$stmt = $pdo->prepare("
+    SELECT
+      u.id,
+      u.username,
+      u.name,
+      u.role AS legacy_role,
+      u.role_id,
+      r.role_key,
+      u.password_hash
+    FROM users u
+    LEFT JOIN roles r ON r.id = u.role_id
+    WHERE u.username = ?
+    LIMIT 1
+");
 $stmt->execute([$username]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -36,9 +49,11 @@ if (!$user || !password_verify($password, (string)$user['password_hash'])) {
     api_err('Username atau password salah.', 401);
 }
 
+$effectiveRole = trim((string)($user['role_key'] ?: $user['legacy_role']));
+
 // Hanya role kasir, admin, manager, owner yang boleh login ke app
 $allowedRoles = ['kasir', 'admin', 'manager', 'owner'];
-if (!in_array($user['role'], $allowedRoles, true)) {
+if (!in_array($effectiveRole, $allowedRoles, true)) {
     api_err('Role Anda tidak memiliki akses ke POS Desktop.', 403);
 }
 
@@ -63,6 +78,6 @@ api_ok([
         'id'       => (int)$user['id'],
         'username' => $user['username'],
         'name'     => $user['name'],
-        'role'     => $user['role'],
+        'role'     => $effectiveRole,
     ],
 ]);

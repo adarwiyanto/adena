@@ -23,6 +23,7 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
   if (!username || !password) return { ok: false, message: 'Username dan password wajib diisi.' };
 
   // Coba online login dulu
+  let onlineErrorMessage = '';
   try {
     const deviceName = require('os').hostname() + '-Adena-POS';
     const res = await sync_module.loginOnline(username, password, deviceName);
@@ -36,11 +37,20 @@ ipcMain.handle('auth:login', async (_, { username, password }) => {
     // Full sync setelah login pertama online
     await sync_module.runSync(true);
     return { ok: true, user: res.user, online: true };
-  } catch (_) {}
+  } catch (err) {
+    console.error('[auth:login online failed]', err);
+    onlineErrorMessage = err?.message || 'Gagal login online';
+  }
 
   // Offline login: verifikasi password lokal
   const localUser = getLocalUser(username);
   if (!localUser || !localUser.password_hash) {
+    if (onlineErrorMessage) {
+      return {
+        ok: false,
+        message: `Login online gagal: ${onlineErrorMessage}. Login offline membutuhkan login online sebelumnya.`,
+      };
+    }
     return { ok: false, message: 'Tidak dapat terhubung ke server. Login offline membutuhkan login online sebelumnya.' };
   }
   if (!bcrypt.compareSync(password, localUser.password_hash)) {

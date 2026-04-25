@@ -64,9 +64,10 @@ function api_verify_token(): array {
     $pdo  = db();
     $stmt = $pdo->prepare("
         SELECT dt.id AS token_id, dt.user_id, dt.expires_at,
-               u.id, u.username, u.name, u.role
+               u.id, u.username, u.name, u.role AS legacy_role, r.role_key
         FROM   device_tokens dt
         JOIN   users u ON u.id = dt.user_id
+        LEFT JOIN roles r ON r.id = u.role_id
         WHERE  dt.token_hash = ?
           AND  dt.expires_at > NOW()
         LIMIT 1
@@ -78,11 +79,13 @@ function api_verify_token(): array {
     // Refresh last_used
     $pdo->prepare("UPDATE device_tokens SET last_used_at = NOW() WHERE id = ?")->execute([$row['token_id']]);
 
+    $effectiveRole = trim((string)($row['role_key'] ?: $row['legacy_role']));
+
     return [
         'id'       => (int)$row['id'],
         'username' => $row['username'],
         'name'     => $row['name'],
-        'role'     => $row['role'],
+        'role'     => $effectiveRole,
     ];
 }
 
