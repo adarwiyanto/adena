@@ -64,18 +64,16 @@ function createMainWindow() {
     },
   });
 
-  // Cek sesi login lokal: wajib current_user + device_token
-  const currentUser = dbMod.getSetting('current_user', '');
   const token = dbMod.getSetting('device_token', '');
-  if (currentUser && token) {
-    reloadWithPreload('pos-pre.js', 'pos.html');
-    runStartupSync();
-  } else {
-    if (currentUser && !token) {
-      dbMod.setSetting('current_user', '');
-    }
-    mainWindow.loadFile(page('login.html'));
-  }
+  void token;
+
+  // Wajib reset session setiap startup
+  dbMod.setSetting('current_user', '');
+  dbMod.setSetting('device_token', '');
+  dbMod.setSetting('current_user_info', '');
+
+  // Selalu arahkan ke login
+  mainWindow.loadFile(page('login.html'));
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -103,7 +101,14 @@ function reloadWithPreload(preloadFile, htmlFile) {
 }
 
 // IPC: navigasi antar halaman
-ipcMain.on('navigate:pos', () => reloadWithPreload('pos-pre.js', 'pos.html'));
+ipcMain.on('navigate:pos', () => {
+  const currentUser = dbMod.getSetting('current_user', '');
+  if (!currentUser) {
+    reloadWithPreload('login-pre.js', 'login.html');
+    return;
+  }
+  reloadWithPreload('pos-pre.js', 'pos.html');
+});
 ipcMain.on('navigate:login', () => reloadWithPreload('login-pre.js', 'login.html'));
 ipcMain.handle('session:reset-local', () => {
   resetLocalSession();
@@ -314,6 +319,7 @@ async function runStartupSync() {
 function resetLocalSession() {
   dbMod.setSetting('current_user', '');
   dbMod.setSetting('device_token', '');
+  dbMod.setSetting('current_user_info', '');
   if (mainWindow && !mainWindow.isDestroyed()) {
     reloadWithPreload('login-pre.js', 'login.html');
   }

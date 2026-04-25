@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('POS', {
   // Auth
   currentUser:    ()     => ipcRenderer.invoke('auth:current'),
+  navigate:       (page) => ipcRenderer.send('navigate:' + page),
   logout:         ()     => ipcRenderer.invoke('auth:logout').then(() => ipcRenderer.send('navigate:login')),
 
   // Data

@@ -73,8 +73,8 @@
             document.getElementById('offline-badge').style.display = 'block';
           }
           if (res.warning) {
-            showNotice(res.warning, 'warn');
-            setTimeout(() => window.POS.navigate('pos'), 700);
+            alert(res.warning);
+            window.POS.navigate('pos');
           } else {
             window.POS.navigate('pos');
           }
