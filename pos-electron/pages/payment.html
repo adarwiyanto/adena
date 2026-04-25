@@ -148,6 +148,14 @@ const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
 let cart = null, payMethods = [], banks = [];
 let selectedMethod = 'cash';
 const FALLBACK_BANK_METHODS = new Set(['qris','edc','transfer','debit','credit_card','bank_transfer']);
+const FALLBACK_BANK_OPTIONS = {
+  qris: ['QRIS'],
+  transfer: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
+  bank_transfer: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
+  credit_card: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
+  debit: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
+  edc: ['BCA', 'Mandiri', 'BRI', 'BNI'],
+};
 
 async function init() {
   [cart, payMethods, banks] = await Promise.all([
@@ -191,14 +199,21 @@ function renderSummary() {
 function buildMethods() {
   const container = document.getElementById('methods');
   container.innerHTML = '';
+  let initial = 'cash';
+  if (!payMethods.some((m) => m.code === 'cash') && payMethods.length) {
+    initial = payMethods[0].code;
+  }
+  selectedMethod = initial;
   payMethods.forEach((m) => {
     const btn = document.createElement('button');
-    btn.className = 'method-btn' + (m.code === 'cash' ? ' active' : '');
+    btn.className = 'method-btn' + (m.code === initial ? ' active' : '');
     btn.dataset.code = m.code;
     btn.textContent = m.name;
     btn.addEventListener('click', () => selectMethod(m.code, btn));
     container.appendChild(btn);
   });
+  const initialBtn = container.querySelector(`.method-btn[data-code="${initial.replace(/"/g, '\\"')}"]`);
+  if (initialBtn) selectMethod(initial, initialBtn);
 }
 
 function selectMethod(code, btn) {
@@ -208,6 +223,7 @@ function selectMethod(code, btn) {
 
   const isCash    = code === 'cash';
   const needsBank = methodNeedsBank(code);
+  renderBankOptions(code);
 
   document.getElementById('cash-wrap').style.display  = isCash ? '' : 'none';
   document.getElementById('bank-wrap').style.display  = needsBank ? '' : 'none';
@@ -223,13 +239,29 @@ function selectMethod(code, btn) {
 function buildBanks() {
   const sel = document.getElementById('sel-bank');
   sel.innerHTML = '<option value="">— Pilih —</option>';
-  if (!banks.length) {
-    return;
-  }
   banks.forEach((b) => {
     const opt = document.createElement('option'); opt.value = b.name; opt.textContent = b.name;
     sel.appendChild(opt);
   });
+}
+
+function renderBankOptions(methodCode) {
+  const sel = document.getElementById('sel-bank');
+  const current = sel.value;
+  const dynamicOptions = banks.map((b) => String(b.name || '').trim()).filter(Boolean);
+  const fallbackOptions = FALLBACK_BANK_OPTIONS[String(methodCode || '').toLowerCase()] || [];
+  const options = [...new Set([...dynamicOptions, ...fallbackOptions])];
+
+  sel.innerHTML = '<option value="">— Pilih —</option>';
+  options.forEach((name) => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  if (options.includes(current)) {
+    sel.value = current;
+  }
 }
 
 // ── Quick amount buttons ──────────────────────────────────────────────────────
