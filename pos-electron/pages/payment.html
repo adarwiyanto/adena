@@ -375,9 +375,16 @@ document.getElementById('btn-cancel').addEventListener('click', () => window.PAY
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function methodNeedsBank(code) {
-  const m = payMethods.find((x) => x.code === code);
-  if (m && m.requires_bank != null) return Number(m.requires_bank) === 1;
-  return FALLBACK_BANK_METHODS.has(String(code || '').toLowerCase());
+  const normalizedCode = String(code || '').toLowerCase();
+  const m = payMethods.find((x) => String(x.code || '').toLowerCase() === normalizedCode);
+  const fallbackByCode = FALLBACK_BANK_METHODS.has(normalizedCode);
+  const fallbackByName = m
+    ? /(qris|transfer|kartu\s*kredit|credit|cc)/i.test(String(m.name || ''))
+    : false;
+  if (m && m.requires_bank != null) {
+    return Number(m.requires_bank) === 1 || fallbackByCode || fallbackByName;
+  }
+  return fallbackByCode || fallbackByName;
 }
 
 init();

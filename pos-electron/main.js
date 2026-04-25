@@ -33,6 +33,17 @@ function page(name) {
   return path.join(__dirname, 'pages', name);
 }
 
+function closeAuxWindows() {
+  if (paymentWindow && !paymentWindow.isDestroyed()) {
+    paymentWindow.close();
+    paymentWindow = null;
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.close();
+    settingsWindow = null;
+  }
+}
+
 // ── Menu ──────────────────────────────────────────────────────────────────────
 
 function buildMenu() {
@@ -123,10 +134,7 @@ ipcMain.on('navigate:pos', () => {
   reloadWithPreload('pos-pre.js', 'pos.html');
 });
 ipcMain.on('navigate:login', () => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.loadFile(page('login.html'));
-    return;
-  }
+  closeAuxWindows();
   reloadWithPreload('login-pre.js', 'login.html');
 });
 ipcMain.handle('session:reset-local', () => {
@@ -165,9 +173,17 @@ ipcMain.on('close:payment', () => {
 ipcMain.on('checkout:done', async (_, receipt) => {
   if (paymentWindow && !paymentWindow.isDestroyed()) paymentWindow.close();
   await printReceipt(receipt);
-  // Reload POS agar cart bersih
+  const syncResult = await syncMod.runSync(false);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('pos:reset');
+    mainWindow.webContents.send('pos:checkout-finished', {
+      synced: !!(syncResult && syncResult.ok),
+      syncMessage: syncResult?.ok ? '' : (syncResult?.message || 'Transaksi tersimpan lokal. Jalankan sync manual.'),
+    });
+    mainWindow.webContents.send('sync:done', syncResult);
+    if (!syncResult?.ok) {
+      mainWindow.webContents.send('sync:warning', syncResult?.message || 'Sync gagal sesudah transaksi.');
+    }
   }
 });
 
@@ -339,6 +355,7 @@ function resetLocalSession() {
   dbMod.setSetting('current_user', '');
   dbMod.setSetting('device_token', '');
   dbMod.setSetting('current_user_info', '');
+  closeAuxWindows();
   if (mainWindow && !mainWindow.isDestroyed()) {
     reloadWithPreload('login-pre.js', 'login.html');
   }

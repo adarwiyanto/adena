@@ -90,6 +90,26 @@ function migrate(d) {
       is_active INTEGER DEFAULT 1
     );
 
+    CREATE TABLE IF NOT EXISTS landing_orders (
+      id            INTEGER PRIMARY KEY,
+      order_code    TEXT,
+      customer_id   INTEGER,
+      customer_name TEXT,
+      contact       TEXT,
+      status        TEXT DEFAULT 'pending',
+      created_at    TEXT,
+      updated_at    TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS landing_order_items (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id     INTEGER NOT NULL,
+      product_id   INTEGER NOT NULL,
+      product_name TEXT,
+      qty          INTEGER DEFAULT 1,
+      UNIQUE(order_id, product_id)
+    );
+
     CREATE TABLE IF NOT EXISTS pos_shifts (
       id                   INTEGER PRIMARY KEY AUTOINCREMENT,
       server_id            INTEGER,
@@ -336,6 +356,24 @@ function addCustomerLoyaltyPoints(customerId, points) {
   db().prepare('UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?').run(points, customerId);
 }
 
+function getPendingLandingOrders() {
+  return db().prepare(
+    "SELECT * FROM landing_orders WHERE status = 'pending' ORDER BY datetime(created_at) DESC, id DESC LIMIT 30"
+  ).all();
+}
+
+function getLandingOrderItemsByOrderId(orderId) {
+  return db().prepare(
+    'SELECT order_id, product_id, product_name, qty FROM landing_order_items WHERE order_id = ? ORDER BY id ASC'
+  ).all(orderId);
+}
+
+function markLandingOrderProcessing(orderId) {
+  db().prepare(
+    "UPDATE landing_orders SET status = 'processing', updated_at = datetime('now','localtime') WHERE id = ?"
+  ).run(orderId);
+}
+
 // ── Sync log ──────────────────────────────────────────────────────────────────
 
 function logSync(entry) {
@@ -368,5 +406,6 @@ module.exports = {
   getPendingShifts, markShiftSynced,
   getPendingMovements, markMovementSynced,
   addCustomerLoyaltyPoints,
+  getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
   logSync, getLastSyncAt,
 };

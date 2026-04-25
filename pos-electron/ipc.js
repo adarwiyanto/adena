@@ -10,6 +10,7 @@ const {
   getActiveShift, openShift, closeShift,
   addCashMovement, getShiftMovements,
   saveTransaction, addCustomerLoyaltyPoints,
+  getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
   db,
 } = db_module;
 
@@ -89,6 +90,13 @@ ipcMain.handle('auth:logout', () => {
   return { ok: true };
 });
 
+ipcMain.handle('auth:logout-full', () => {
+  setSetting('current_user', '');
+  setSetting('device_token', '');
+  setSetting('current_user_info', '');
+  return { ok: true, navigate: 'login' };
+});
+
 ipcMain.handle('auth:reset-local', () => {
   setSetting('current_user', '');
   setSetting('device_token', '');
@@ -162,6 +170,10 @@ ipcMain.handle('data:server-settings', () => {
   const result = {};
   for (const k of keys) result[k] = getServerSetting(k, '');
   return result;
+});
+
+ipcMain.handle('data:landing-orders', () => {
+  return getPendingLandingOrders();
 });
 
 // ── Shift ─────────────────────────────────────────────────────────────────────
@@ -292,6 +304,58 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
   const receipt = buildReceiptPayload(cart, paymentData, currentUser, txUuid);
 
   return { ok: true, receipt };
+});
+
+ipcMain.handle('landing:load-order', (_, { order_id }) => {
+  const orderId = parseInt(order_id, 10) || 0;
+  if (orderId <= 0) return { ok: false, message: 'Pesanan tidak valid.' };
+  const order = getPendingLandingOrders().find((o) => Number(o.id) === orderId);
+  if (!order) return { ok: false, message: 'Pesanan landing tidak ditemukan.' };
+  const items = getLandingOrderItemsByOrderId(orderId);
+  if (!items.length) return { ok: false, message: 'Item pesanan landing kosong.' };
+
+  const productsById = new Map(
+    db().prepare('SELECT id, name, price FROM products WHERE show_on_pos = 1').all()
+      .map((row) => [Number(row.id), row])
+  );
+
+  const cartItems = [];
+  for (const item of items) {
+    const product = productsById.get(Number(item.product_id));
+    if (!product) continue;
+    const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+    cartItems.push({
+      product_id: product.id,
+      name: product.name,
+      qty,
+      price_each: Number(product.price || 0),
+      total: Number(product.price || 0) * qty,
+      discount_amount: 0,
+      discount_type: 'fixed',
+    });
+  }
+  if (!cartItems.length) return { ok: false, message: 'Produk pesanan tidak ditemukan di master POS.' };
+
+  const subtotal = cartItems.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  markLandingOrderProcessing(orderId);
+
+  return {
+    ok: true,
+    cart: {
+      items: cartItems,
+      subtotal,
+      tx_discount_amount: 0,
+      tx_discount_type: 'fixed',
+      total: subtotal,
+      customer_id: order.customer_id ? Number(order.customer_id) : null,
+      customer_name: order.customer_name || null,
+      guide_name: null,
+      source: 'landing',
+      source_order_id: orderId,
+      source_order_code: order.order_code || null,
+    },
+    order,
+  };
 });
 
 function requiresBank(methodCode) {

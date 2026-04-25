@@ -6,7 +6,10 @@ contextBridge.exposeInMainWorld('POS', {
   login:          (username, password) => ipcRenderer.invoke('auth:login', { username, password }),
   currentUser:    ()     => ipcRenderer.invoke('auth:current'),
   navigate:       (page) => ipcRenderer.send('navigate:' + page),
-  logout:         ()     => ipcRenderer.invoke('auth:logout').then(() => ipcRenderer.send('navigate:login')),
+  logout:         async () => {
+    await ipcRenderer.invoke('auth:logout-full');
+    ipcRenderer.send('navigate:login');
+  },
 
   // Data
   getProducts:    ()     => ipcRenderer.invoke('data:products'),
@@ -15,6 +18,8 @@ contextBridge.exposeInMainWorld('POS', {
   getPayMethods:  ()     => ipcRenderer.invoke('data:payment-methods'),
   getBanks:       ()     => ipcRenderer.invoke('data:banks'),
   getGuides:      ()     => ipcRenderer.invoke('data:guides'),
+  getLandingOrders:()    => ipcRenderer.invoke('data:landing-orders'),
+  loadLandingOrder:(data)=> ipcRenderer.invoke('landing:load-order', data),
   getLoyaltyRew:  ()     => ipcRenderer.invoke('data:loyalty-rewards'),
   getSettings:    ()     => ipcRenderer.invoke('data:server-settings'),
 
@@ -41,4 +46,5 @@ contextBridge.exposeInMainWorld('POS', {
   onSyncDone:     (cb)   => ipcRenderer.on('sync:done', (_, r) => cb(r)),
   onSyncWarning:  (cb)   => ipcRenderer.on('sync:warning', (_, msg) => cb(msg)),
   onReset:        (cb)   => ipcRenderer.on('pos:reset', cb),
+  onCheckoutFinished: (cb) => ipcRenderer.on('pos:checkout-finished', (_, payload) => cb(payload)),
 });

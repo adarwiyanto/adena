@@ -151,6 +151,7 @@
       <input type="text" id="search" placeholder="Cari produk...">
       <span id="shift-badge" class="shift-badge shift-closed">Shift Tutup</span>
       <button class="btn btn-ghost btn-sm" id="btn-shift">Shift</button>
+      <button class="btn btn-ghost btn-sm" id="btn-landing">Belanja Landing</button>
       <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync Manual (F4)">Sync Manual</button>
       <span class="user-badge" id="user-name"></span>
       <button class="btn btn-ghost btn-sm" id="btn-logout">Logout</button>
@@ -262,9 +263,20 @@
   </div>
 </div>
 
+<!-- Modal: Landing Orders -->
+<div class="modal-overlay" id="modal-landing" hidden>
+  <div class="modal modal-md">
+    <div class="modal-title">Pesanan Belanja Landing</div>
+    <div id="landing-body" style="max-height:360px;overflow:auto"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-landing-close">Tutup</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
-let products = [], categories = [], customers = [], guides = [], paymentMethods = [], banks = [];
+let products = [], categories = [], customers = [], guides = [], paymentMethods = [], banks = [], landingOrders = [];
 let settings = {}, activeShift = null;
 let cart = {}; // { productId: { product, qty, discount_amount, discount_type } }
 let currentDiscItemId = null;
@@ -296,6 +308,18 @@ async function init() {
   updateShiftBadge();
 
   window.POS.onReset(() => resetCart());
+  window.POS.onCheckoutFinished((payload) => {
+    const syncWarning = payload && payload.synced === false && payload.syncMessage
+      ? `\nCatatan sync: ${payload.syncMessage}`
+      : '';
+    const lanjutBaru = confirm(`Transaksi selesai dicetak. Mulai transaksi baru?${syncWarning}`);
+    if (lanjutBaru) {
+      const searchInput = document.getElementById('search');
+      searchInput.value = '';
+      searchInput.focus();
+      renderProducts(filterProducts());
+    }
+  });
   window.POS.onSyncDone(async (r) => {
     if (!r) return;
     if (r.ok) await reloadMasterData();
@@ -459,6 +483,25 @@ function resetCart() {
   document.getElementById('tx-disc-amt').value = 0;
   document.getElementById('sel-customer').value = '';
   document.getElementById('guide-name').value = '';
+  renderCart();
+}
+
+function loadCartFromExternal(cartData) {
+  cart = {};
+  for (const row of (cartData.items || [])) {
+    const product = products.find((p) => Number(p.id) === Number(row.product_id));
+    if (!product) continue;
+    cart[product.id] = {
+      product,
+      qty: Math.max(1, parseInt(row.qty, 10) || 1),
+      discount_amount: parseFloat(row.discount_amount) || 0,
+      discount_type: row.discount_type || 'fixed',
+    };
+  }
+  document.getElementById('tx-disc-amt').value = parseFloat(cartData.tx_discount_amount || 0);
+  document.getElementById('tx-disc-type').value = cartData.tx_discount_type || 'fixed';
+  document.getElementById('sel-customer').value = cartData.customer_id ? String(cartData.customer_id) : '';
+  document.getElementById('guide-name').value = cartData.guide_name || '';
   renderCart();
 }
 
@@ -657,12 +700,61 @@ document.getElementById('btn-sync').addEventListener('click', async () => {
   btn.disabled = false; btn.textContent = 'Sync Manual';
   if (result.ok) {
     await reloadMasterData();
+    await refreshLandingOrders();
     const updated = Number(result.pulled || 0) + Number(result.pushed || 0);
     alert(`Sync berhasil. ${updated} data diperbarui.`);
   } else {
     alert(result.message || 'Sync gagal.');
   }
 });
+
+// ── Landing orders ───────────────────────────────────────────────────────────
+document.getElementById('btn-landing').addEventListener('click', async () => {
+  await refreshLandingOrders();
+  renderLandingOrders();
+  document.getElementById('modal-landing').hidden = false;
+});
+document.getElementById('btn-landing-close').addEventListener('click', () => {
+  document.getElementById('modal-landing').hidden = true;
+});
+
+async function refreshLandingOrders() {
+  landingOrders = await window.POS.getLandingOrders();
+}
+
+function renderLandingOrders() {
+  const body = document.getElementById('landing-body');
+  if (!landingOrders.length) {
+    body.innerHTML = '<div class="cart-empty">Belum ada pesanan landing yang pending.</div>';
+    return;
+  }
+  body.innerHTML = landingOrders.map((order) => `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <div>
+          <div style="font-weight:700">${esc(order.order_code || ('Order #' + order.id))}</div>
+          <div style="font-size:12px;color:var(--text-muted)">
+            ${esc(order.customer_name || '-')} · ${esc(order.contact || '-')}
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="loadLandingOrder(${Number(order.id)})">Masukkan Keranjang</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadLandingOrder(orderId) {
+  if (Object.keys(cart).length && !confirm('Keranjang saat ini akan diganti pesanan landing. Lanjutkan?')) return;
+  const res = await window.POS.loadLandingOrder({ order_id: orderId });
+  if (!res.ok || !res.cart) {
+    alert(res.message || 'Gagal memuat pesanan landing.');
+    return;
+  }
+  loadCartFromExternal(res.cart);
+  document.getElementById('modal-landing').hidden = true;
+  alert(`Pesanan ${res.order?.order_code || ''} dimasukkan ke keranjang.`);
+}
+window.loadLandingOrder = loadLandingOrder;
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 document.getElementById('btn-logout').addEventListener('click', async () => {
@@ -678,13 +770,14 @@ function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;
 init();
 
 async function reloadMasterData() {
-  [products, categories, customers, guides, paymentMethods, banks] = await Promise.all([
+  [products, categories, customers, guides, paymentMethods, banks, landingOrders] = await Promise.all([
     window.POS.getProducts(),
     window.POS.getCategories(),
     window.POS.getCustomers(),
     window.POS.getGuides(),
     window.POS.getPayMethods(),
     window.POS.getBanks(),
+    window.POS.getLandingOrders(),
   ]);
   document.querySelectorAll('#sidebar .cat-btn:not([data-cat=""])').forEach((el) => el.remove());
   buildCategories();

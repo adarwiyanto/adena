@@ -182,6 +182,36 @@ async function pullFromServer(token, fullSync = false) {
     }
   }
 
+  if (Array.isArray(d.pending_orders)) {
+    db().prepare('DELETE FROM landing_orders').run();
+    if (d.pending_orders.length) {
+      replaceAll('landing_orders', d.pending_orders.map((o) => ({
+        id: o.id,
+        order_code: o.order_code || null,
+        customer_id: o.customer_id || null,
+        customer_name: o.customer_name || null,
+        contact: o.contact || null,
+        status: o.status || 'pending',
+        created_at: o.created_at || null,
+        updated_at: o.updated_at || null,
+      })));
+    }
+    pulled += d.pending_orders.length;
+  }
+
+  if (Array.isArray(d.pending_order_items)) {
+    db().prepare('DELETE FROM landing_order_items').run();
+    if (d.pending_order_items.length) {
+      replaceAll('landing_order_items', d.pending_order_items.map((i) => ({
+        order_id: i.order_id,
+        product_id: i.product_id,
+        product_name: i.product_name || null,
+        qty: i.qty || 1,
+      })));
+    }
+    pulled += d.pending_order_items.length;
+  }
+
   if (d.settings) replaceServerSettings(d.settings);
 
   // Simpan shift aktif dari server
