@@ -35,8 +35,49 @@ function apiRequest(method, path, token, body = null) {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch (_) { reject(new Error('Response bukan JSON')); }
+        let parsed = null;
+        const statusCode = res.statusCode || 0;
+        const isLikelyJson = (res.headers['content-type'] || '').includes('application/json');
+
+        if (data && isLikelyJson) {
+          try {
+            parsed = JSON.parse(data);
+          } catch (_) {
+            parsed = null;
+          }
+        } else if (data) {
+          try {
+            parsed = JSON.parse(data);
+          } catch (_) {
+            parsed = null;
+          }
+        }
+
+        if (!parsed) {
+          const snippet = String(data || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+          const debugPart = snippet ? ` (${snippet})` : '';
+          reject(new Error('Response server bukan JSON. Cek URL API atau redirect/HTML error.' + debugPart));
+          return;
+        }
+
+        if (parsed.ok === false) {
+          const message = parsed.message || `Request gagal (HTTP ${statusCode})`;
+          const err = new Error(message);
+          err.statusCode = statusCode;
+          err.response = parsed;
+          reject(err);
+          return;
+        }
+
+        if (statusCode >= 400) {
+          const err = new Error(parsed.message || `HTTP ${statusCode}`);
+          err.statusCode = statusCode;
+          err.response = parsed;
+          reject(err);
+          return;
+        }
+
+        resolve(parsed);
       });
     });
 
