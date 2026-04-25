@@ -128,7 +128,8 @@ $deepLink = $jobToken !== ''
     data-android-bridge-name="AndroidBridge"
     data-print-token="<?php echo e($jobToken); ?>"
     data-bridge-link="<?php echo e($deepLink); ?>"
-    data-api-url="<?php echo e($apiUrl); ?>">
+    data-api-url="<?php echo e($apiUrl); ?>"
+    data-auto-print="<?php echo ($receiptValid && $printJobStatus === 'pending') ? '1' : '0'; ?>">
     <div class="receipt-toolbar no-print">
       <div>
         <strong>Petunjuk Print Struk 58mm</strong>

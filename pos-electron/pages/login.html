@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <title>Login — Adena POS</title>
+  <link rel="stylesheet" href="../assets/app.css">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--sidebar); }
+    .card {
+      background: var(--surface); border-radius: 16px; padding: 40px 36px;
+      width: 360px; box-shadow: 0 25px 80px rgba(0,0,0,.3);
+    }
+    .brand { text-align: center; margin-bottom: 32px; }
+    .brand-name { font-size: 24px; font-weight: 800; color: var(--accent); }
+    .brand-sub  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .form-group { margin-bottom: 16px; }
+    .offline-badge {
+      text-align: center; font-size: 11px; color: var(--warn);
+      background: #fffbeb; border: 1px solid #fde68a;
+      border-radius: 6px; padding: 6px; margin-top: 12px; display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <div class="brand-name">Adena POS</div>
+      <div class="brand-sub">Point of Sale Desktop</div>
+    </div>
+
+    <div id="notice" class="notice"></div>
+
+    <form id="login-form">
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input id="username" class="form-control" type="text" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input id="password" class="form-control" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary btn-full btn-lg" type="submit" id="btn-login">Masuk</button>
+    </form>
+
+    <div class="offline-badge" id="offline-badge">Mode offline — data dari login sebelumnya</div>
+  </div>
+
+  <script>
+    const form    = document.getElementById('login-form');
+    const notice  = document.getElementById('notice');
+    const btnLogin = document.getElementById('btn-login');
+
+    function showNotice(msg, type) {
+      notice.textContent = msg;
+      notice.className = 'notice show notice-' + type;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btnLogin.disabled = true;
+      btnLogin.textContent = 'Memeriksa...';
+      notice.className = 'notice';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await window.POS.login(username, password);
+        if (!res.ok) {
+          showNotice(res.message || 'Login gagal.', 'err');
+        } else {
+          if (!res.online) {
+            document.getElementById('offline-badge').style.display = 'block';
+          }
+          window.POS.navigate('pos');
+        }
+      } catch (err) {
+        showNotice('Terjadi kesalahan: ' + err.message, 'err');
+      } finally {
+        btnLogin.disabled = false;
+        btnLogin.textContent = 'Masuk';
+      }
+    });
+
+    // Focus username on load
+    document.getElementById('username').focus();
+  </script>
+</body>
+</html>

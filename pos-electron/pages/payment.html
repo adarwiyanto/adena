@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <title>Pembayaran — Adena POS</title>
+  <link rel="stylesheet" href="../assets/app.css">
+  <style>
+    body { padding: 20px; background: var(--bg); }
+
+    .pay-header { margin-bottom: 16px; }
+    .pay-title  { font-size: 18px; font-weight: 800; }
+    .pay-sub    { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Items summary */
+    .items-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px;
+      max-height: 160px; overflow-y: auto;
+    }
+    .item-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
+    .item-row:not(:last-child) { border-bottom: 1px solid var(--border); }
+    .item-name { color: var(--text-muted); }
+
+    /* Totals */
+    .totals-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; margin-bottom: 14px;
+    }
+    .total-line { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+    .total-main { font-size: 22px; font-weight: 800; color: var(--accent); margin-top: 6px; }
+
+    /* Payment methods */
+    .methods { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .method-btn {
+      padding: 8px 14px; border-radius: var(--radius);
+      border: 2px solid var(--border); background: var(--surface);
+      cursor: pointer; font-size: 12px; font-weight: 600;
+      transition: border-color .15s, background .15s;
+    }
+    .method-btn.active { border-color: var(--accent); background: #eef2ff; color: var(--accent); }
+
+    /* Bank selection */
+    #bank-wrap { margin-bottom: 14px; display: none; }
+
+    /* Cash payment */
+    #cash-wrap { margin-bottom: 14px; }
+    .bayar-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block; }
+    .kembalian-box {
+      background: #ecfdf5; border: 1px solid #86efac; border-radius: var(--radius);
+      padding: 12px; margin-top: 10px; display: none;
+    }
+    .kembalian-label { font-size: 11px; color: #065f46; margin-bottom: 2px; }
+    .kembalian-val   { font-size: 24px; font-weight: 800; color: #059669; }
+    .kembalian-neg   { background: #fef2f2; border-color: #fca5a5; }
+    .kembalian-neg .kembalian-label { color: #991b1b; }
+    .kembalian-neg .kembalian-val   { color: var(--danger); }
+
+    /* Quick amount buttons */
+    .quick-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .quick-btn {
+      padding: 5px 10px; border-radius: var(--radius); border: 1px solid var(--border);
+      background: var(--surface); cursor: pointer; font-size: 12px; font-weight: 600;
+    }
+    .quick-btn:hover { background: var(--bg); border-color: var(--accent); }
+
+    .actions { display: flex; gap: 10px; margin-top: 16px; }
+
+    /* Spinner overlay */
+    .spinner-overlay {
+      position: fixed; inset: 0; background: rgba(255,255,255,.8);
+      display: none; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 700; color: var(--accent);
+      flex-direction: column; gap: 8px;
+    }
+    .spinner-overlay.show { display: flex; }
+    .spinner {
+      width: 36px; height: 36px; border: 4px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="pay-header">
+  <div class="pay-title">Pembayaran</div>
+  <div class="pay-sub" id="item-count">— item</div>
+</div>
+
+<!-- Ringkasan item -->
+<div class="items-box" id="items-box"></div>
+
+<!-- Totals -->
+<div class="totals-box">
+  <div class="total-line" id="subtotal-row" style="display:none">
+    <span>Subtotal</span><span id="subtotal-val"></span>
+  </div>
+  <div class="total-line" id="disc-row" style="display:none">
+    <span>Diskon</span><span id="disc-val" style="color:var(--danger)"></span>
+  </div>
+  <div class="total-line total-main">
+    <span>TOTAL</span><span id="total-val">Rp 0</span>
+  </div>
+</div>
+
+<!-- Metode pembayaran -->
+<div class="form-group" style="margin-bottom:10px">
+  <label class="form-label">Metode Pembayaran</label>
+  <div class="methods" id="methods"></div>
+</div>
+
+<!-- Bank (untuk QRIS/EDC/Transfer/CC) -->
+<div id="bank-wrap" class="form-group">
+  <label class="form-label">Pilih Bank / Penyedia</label>
+  <select class="form-control" id="sel-bank">
+    <option value="">— Pilih —</option>
+  </select>
+</div>
+
+<!-- Bayar (tunai) -->
+<div id="cash-wrap">
+  <label class="bayar-label">Uang Diterima (Rp)</label>
+  <input class="form-control currency-input" type="number" id="paid-amount" min="0" placeholder="0">
+  <div class="quick-btns" id="quick-btns"></div>
+  <div class="kembalian-box" id="kembalian-box">
+    <div class="kembalian-label">Kembalian</div>
+    <div class="kembalian-val" id="kembalian-val">Rp 0</div>
+  </div>
+</div>
+
+<!-- Tombol -->
+<div id="pay-notice" class="notice" style="margin-top:10px"></div>
+<div class="actions">
+  <button class="btn btn-ghost btn-full" id="btn-cancel">Batal</button>
+  <button class="btn btn-success btn-full btn-lg" id="btn-confirm">PROSES BAYAR</button>
+</div>
+
+<!-- Spinner -->
+<div class="spinner-overlay" id="spinner">
+  <div class="spinner"></div>
+  <span>Memproses & Mencetak...</span>
+</div>
+
+<script>
+const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
+
+let cart = null, payMethods = [], banks = [];
+let selectedMethod = 'cash';
+const NON_CASH_METHODS = new Set(['qris','edc','transfer','credit_card']);
+
+async function init() {
+  [cart, payMethods, banks] = await Promise.all([
+    window.PAY.getCart(),
+    window.PAY.getPayMethods(),
+    window.PAY.getBanks(),
+  ]);
+
+  if (!cart) { window.PAY.cancel(); return; }
+
+  renderSummary();
+  buildMethods();
+  buildBanks();
+  buildQuickBtns();
+  updateKembalian();
+}
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+function renderSummary() {
+  document.getElementById('item-count').textContent = cart.items.length + ' item';
+
+  document.getElementById('items-box').innerHTML = cart.items.map((it) => `
+    <div class="item-row">
+      <span class="item-name">${esc(it.name)} ×${it.qty}</span>
+      <span>${fmt(it.total)}</span>
+    </div>`).join('');
+
+  if (cart.tx_discount_amount > 0) {
+    document.getElementById('subtotal-row').style.display = '';
+    document.getElementById('subtotal-val').textContent = fmt(cart.subtotal);
+    document.getElementById('disc-row').style.display = '';
+    const discAmt = cart.tx_discount_type === 'percent'
+      ? Math.round(cart.subtotal * cart.tx_discount_amount / 100)
+      : cart.tx_discount_amount;
+    document.getElementById('disc-val').textContent = '- ' + fmt(discAmt);
+  }
+  document.getElementById('total-val').textContent = fmt(cart.total);
+}
+
+// ── Methods ───────────────────────────────────────────────────────────────────
+function buildMethods() {
+  const container = document.getElementById('methods');
+  payMethods.forEach((m) => {
+    const btn = document.createElement('button');
+    btn.className = 'method-btn' + (m.code === 'cash' ? ' active' : '');
+    btn.dataset.code = m.code;
+    btn.textContent = m.name;
+    btn.addEventListener('click', () => selectMethod(m.code, btn));
+    container.appendChild(btn);
+  });
+}
+
+function selectMethod(code, btn) {
+  selectedMethod = code;
+  document.querySelectorAll('.method-btn').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const isCash    = code === 'cash';
+  const needsBank = NON_CASH_METHODS.has(code);
+
+  document.getElementById('cash-wrap').style.display  = isCash ? '' : 'none';
+  document.getElementById('bank-wrap').style.display  = needsBank ? '' : 'none';
+
+  if (!isCash) {
+    document.getElementById('kembalian-box').style.display = 'none';
+  } else {
+    updateKembalian();
+  }
+}
+
+// ── Banks ─────────────────────────────────────────────────────────────────────
+function buildBanks() {
+  const sel = document.getElementById('sel-bank');
+  if (!banks.length) {
+    // Fallback manual
+    ['BCA','Mandiri','BNI','BRI','GoPay','OVO','Dana','LinkAja'].forEach((name) => {
+      const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    return;
+  }
+  banks.forEach((b) => {
+    const opt = document.createElement('option'); opt.value = b.name; opt.textContent = b.name;
+    sel.appendChild(opt);
+  });
+}
+
+// ── Quick amount buttons ──────────────────────────────────────────────────────
+function buildQuickBtns() {
+  const total = cart.total || 0;
+  const rounds = generateRounds(total);
+  const container = document.getElementById('quick-btns');
+  rounds.forEach((val) => {
+    const btn = document.createElement('button');
+    btn.className = 'quick-btn';
+    btn.textContent = fmt(val);
+    btn.addEventListener('click', () => {
+      document.getElementById('paid-amount').value = val;
+      updateKembalian();
+    });
+    container.appendChild(btn);
+  });
+}
+
+function generateRounds(total) {
+  const result = new Set([total]);
+  const units = [1000, 2000, 5000, 10000, 20000, 50000, 100000];
+  for (const u of units) {
+    const r = Math.ceil(total / u) * u;
+    if (r >= total && r <= total * 2.5) result.add(r);
+  }
+  return [...result].sort((a, b) => a - b).slice(0, 6);
+}
+
+// ── Kembalian ─────────────────────────────────────────────────────────────────
+function updateKembalian() {
+  if (selectedMethod !== 'cash') return;
+  const paid  = parseFloat(document.getElementById('paid-amount').value) || 0;
+  const total = cart.total || 0;
+  const box   = document.getElementById('kembalian-box');
+
+  if (paid === 0) { box.style.display = 'none'; return; }
+
+  const change = paid - total;
+  box.style.display = '';
+  box.className = 'kembalian-box' + (change < 0 ? ' kembalian-neg' : '');
+  box.querySelector('.kembalian-label').textContent = change < 0 ? 'Kurang Bayar' : 'Kembalian';
+  document.getElementById('kembalian-val').textContent = fmt(Math.abs(change));
+}
+
+document.getElementById('paid-amount').addEventListener('input', updateKembalian);
+
+// ── Confirm ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-confirm').addEventListener('click', async () => {
+  const notice = document.getElementById('pay-notice');
+  notice.className = 'notice';
+
+  // Validasi
+  if (NON_CASH_METHODS.has(selectedMethod) && !document.getElementById('sel-bank').value) {
+    notice.textContent = 'Pilih bank / penyedia pembayaran.';
+    notice.className = 'notice show notice-err';
+    return;
+  }
+  if (selectedMethod === 'cash') {
+    const paid  = parseFloat(document.getElementById('paid-amount').value) || 0;
+    const total = cart.total || 0;
+    if (paid < total) {
+      notice.textContent = 'Uang diterima kurang dari total. Kekurangan: ' + fmt(total - paid);
+      notice.className = 'notice show notice-err';
+      return;
+    }
+  }
+
+  const paid   = selectedMethod === 'cash'
+    ? parseFloat(document.getElementById('paid-amount').value) || cart.total
+    : cart.total;
+  const change = selectedMethod === 'cash' ? paid - cart.total : 0;
+  const bank   = document.getElementById('sel-bank').value || null;
+
+  document.getElementById('spinner').classList.add('show');
+  document.getElementById('btn-confirm').disabled = true;
+  document.getElementById('btn-cancel').disabled  = true;
+
+  try {
+    const res = await window.PAY.confirm({
+      payment_method: selectedMethod,
+      payment_bank:   bank,
+      paid_amount:    paid,
+      change_amount:  Math.max(0, change),
+      customer_id:    cart.customer_id || null,
+      guide_name:     cart.guide_name  || null,
+    });
+
+    if (!res.ok) {
+      notice.textContent = res.message || 'Gagal memproses.';
+      notice.className = 'notice show notice-err';
+      document.getElementById('spinner').classList.remove('show');
+      document.getElementById('btn-confirm').disabled = false;
+      document.getElementById('btn-cancel').disabled  = false;
+      return;
+    }
+
+    // Kirim ke main process untuk print + tutup window
+    window.PAY.done(res.receipt);
+
+  } catch (err) {
+    notice.textContent = 'Error: ' + err.message;
+    notice.className = 'notice show notice-err';
+    document.getElementById('spinner').classList.remove('show');
+    document.getElementById('btn-confirm').disabled = false;
+    document.getElementById('btn-cancel').disabled  = false;
+  }
+});
+
+document.getElementById('btn-cancel').addEventListener('click', () => window.PAY.cancel());
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+init();
+</script>
+</body>
+</html>

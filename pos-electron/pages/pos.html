@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <title>Adena POS</title>
+  <link rel="stylesheet" href="../assets/app.css">
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+
+    /* ── Layout ── */
+    .layout { display: flex; height: 100vh; }
+
+    /* ── Sidebar kategori ── */
+    .sidebar {
+      width: 140px; flex-shrink: 0;
+      background: var(--sidebar); color: #fff;
+      display: flex; flex-direction: column; overflow-y: auto;
+    }
+    .sidebar-brand {
+      padding: 14px 12px 10px; font-weight: 800; font-size: 15px;
+      color: #818cf8; border-bottom: 1px solid #334155;
+    }
+    .cat-btn {
+      padding: 10px 12px; cursor: pointer; font-size: 12px;
+      border: none; background: none; color: #cbd5e1; text-align: left; width: 100%;
+      transition: background .15s;
+    }
+    .cat-btn:hover, .cat-btn.active { background: var(--sidebar-hover); color: #fff; }
+    .cat-btn.active { border-left: 3px solid #818cf8; }
+
+    /* ── Product area ── */
+    .product-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .topbar {
+      display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .topbar input {
+      flex: 1; padding: 7px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius); outline: none; font-size: 13px;
+    }
+    .topbar input:focus { border-color: var(--accent); }
+
+    .shift-badge {
+      padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    }
+    .shift-open   { background: #ecfdf5; color: #065f46; }
+    .shift-closed { background: #fef2f2; color: #991b1b; }
+
+    .user-badge { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+    .product-grid {
+      flex: 1; overflow-y: auto; padding: 10px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px;
+      align-content: start;
+    }
+    .product-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 8px; cursor: pointer;
+      text-align: center; transition: border-color .15s, box-shadow .15s;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .product-card:hover { border-color: var(--accent); box-shadow: 0 0 0 2px #e0e7ff; }
+    .product-card.fav::after { content: '★'; position: absolute; top: 4px; right: 6px; color: #f59e0b; font-size: 10px; }
+    .product-card { position: relative; }
+    .product-name { font-size: 12px; font-weight: 600; line-height: 1.3; }
+    .product-price { font-size: 13px; color: var(--accent); font-weight: 700; }
+    .product-empty { grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px; }
+
+    /* ── Cart ── */
+    .cart {
+      width: 300px; flex-shrink: 0; background: var(--surface);
+      border-left: 1px solid var(--border); display: flex; flex-direction: column;
+    }
+    .cart-title {
+      padding: 12px 14px; font-weight: 700; font-size: 14px;
+      border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
+    }
+    .cart-items { flex: 1; overflow-y: auto; padding: 8px; }
+    .cart-empty { text-align: center; color: var(--text-muted); padding: 32px 16px; font-size: 12px; }
+    .cart-item {
+      display: flex; gap: 8px; padding: 7px 4px;
+      border-bottom: 1px solid var(--border); align-items: center;
+    }
+    .cart-item-name { flex: 1; font-size: 12px; font-weight: 600; line-height: 1.3; }
+    .cart-item-price { font-size: 11px; color: var(--text-muted); }
+    .cart-item-controls { display: flex; align-items: center; gap: 4px; }
+    .qty-btn {
+      width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border);
+      background: var(--bg); cursor: pointer; font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center; font-weight: 700;
+    }
+    .qty-btn:hover { background: var(--border); }
+    .qty-num { font-size: 13px; font-weight: 700; min-width: 22px; text-align: center; }
+    .cart-item-sub { font-size: 12px; font-weight: 700; min-width: 60px; text-align: right; }
+    .cart-item-disc { font-size: 10px; color: var(--danger); }
+
+    .cart-footer { border-top: 1px solid var(--border); padding: 10px 14px; flex-shrink: 0; }
+    .cart-line { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
+    .cart-total { font-size: 16px; font-weight: 800; }
+    .cart-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+    /* ── Modals ── */
+    .modal-sm { max-width: 380px; }
+    .modal-md { max-width: 500px; }
+
+    /* item discount inline */
+    .disc-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .disc-row input { width: 80px; }
+    .disc-row select { width: 80px; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar: Kategori -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">Adena POS</div>
+    <button class="cat-btn active" data-cat="">Semua</button>
+  </aside>
+
+  <!-- Area Produk -->
+  <div class="product-area">
+    <div class="topbar">
+      <input type="text" id="search" placeholder="Cari produk...">
+      <span id="shift-badge" class="shift-badge shift-closed">Shift Tutup</span>
+      <button class="btn btn-ghost btn-sm" id="btn-shift">Shift</button>
+      <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync Manual (F4)">⟳</button>
+      <span class="user-badge" id="user-name"></span>
+      <button class="btn btn-ghost btn-sm" id="btn-logout">Keluar</button>
+    </div>
+    <div class="product-grid" id="product-grid">
+      <div class="product-empty">Memuat produk...</div>
+    </div>
+  </div>
+
+  <!-- Cart -->
+  <aside class="cart">
+    <div class="cart-title">
+      <span>Keranjang</span>
+      <button class="btn btn-ghost btn-sm" id="btn-clear-cart">Hapus Semua</button>
+    </div>
+    <div class="cart-items" id="cart-items">
+      <div class="cart-empty">Keranjang kosong</div>
+    </div>
+    <div class="cart-footer">
+      <div class="form-group" style="margin-bottom:8px">
+        <label class="form-label">Customer (Opsional)</label>
+        <select class="form-control" id="sel-customer">
+          <option value="">— Tanpa Customer —</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:8px" id="guide-wrap">
+        <label class="form-label">Guide (Opsional)</label>
+        <select class="form-control" id="sel-guide">
+          <option value="">— Tanpa Guide —</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label">Diskon Transaksi</label>
+        <div class="disc-row">
+          <input class="form-control" type="number" id="tx-disc-amt" value="0" min="0">
+          <select class="form-control" id="tx-disc-type">
+            <option value="fixed">Rp</option>
+            <option value="percent">%</option>
+          </select>
+        </div>
+      </div>
+      <div class="cart-line"><span>Subtotal</span><span id="subtotal-val">Rp 0</span></div>
+      <div class="cart-line" id="disc-line" style="display:none"><span>Diskon</span><span id="disc-val" style="color:var(--danger)">- Rp 0</span></div>
+      <div class="cart-line cart-total"><span>TOTAL</span><span id="total-val">Rp 0</span></div>
+      <div class="cart-actions">
+        <button class="btn btn-success btn-full btn-lg" id="btn-bayar">BAYAR</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Modal: Shift -->
+<div class="modal-overlay" id="modal-shift" hidden>
+  <div class="modal modal-md">
+    <div class="modal-title" id="shift-modal-title">Shift POS</div>
+    <div id="shift-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-shift-cancel">Tutup</button>
+      <button class="btn btn-primary" id="btn-shift-action">Buka Shift</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Cash In/Out -->
+<div class="modal-overlay" id="modal-cash" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-title">Kas Masuk / Keluar</div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Tipe</label>
+      <select class="form-control" id="cash-type">
+        <option value="in">Kas Masuk</option>
+        <option value="out">Kas Keluar</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Jumlah (Rp)</label>
+      <input class="form-control" type="number" id="cash-amount" min="0" placeholder="0">
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Keterangan</label>
+      <input class="form-control" type="text" id="cash-reason" placeholder="Contoh: Modal awal">
+    </div>
+    <div id="cash-notice" class="notice"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="hideCashModal()">Batal</button>
+      <button class="btn btn-primary" id="btn-cash-save">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Item Discount -->
+<div class="modal-overlay" id="modal-item-disc" hidden>
+  <div class="modal modal-sm">
+    <div class="modal-title">Diskon Item: <span id="disc-item-name"></span></div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Jumlah Diskon</label>
+      <div class="disc-row">
+        <input class="form-control" type="number" id="item-disc-amt" min="0" placeholder="0">
+        <select class="form-control" id="item-disc-type">
+          <option value="fixed">Rp</option>
+          <option value="percent">%</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeItemDisc()">Batal</button>
+      <button class="btn btn-danger btn-sm" id="btn-remove-disc">Hapus Diskon</button>
+      <button class="btn btn-primary" id="btn-save-disc">Simpan</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let products = [], categories = [], customers = [], guides = [];
+let settings = {}, activeShift = null;
+let cart = {}; // { productId: { product, qty, discount_amount, discount_type } }
+let currentDiscItemId = null;
+
+const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  const user = await window.POS.currentUser();
+  if (!user) { window.POS.logout(); return; }
+  document.getElementById('user-name').textContent = user.name;
+
+  [products, categories, customers, guides, settings, activeShift] = await Promise.all([
+    window.POS.getProducts(),
+    window.POS.getCategories(),
+    window.POS.getCustomers(),
+    window.POS.getGuides(),
+    window.POS.getSettings(),
+    window.POS.getActiveShift(),
+  ]);
+
+  buildCategories();
+  buildCustomers();
+  buildGuides();
+  renderProducts(products);
+  updateShiftBadge();
+
+  window.POS.onReset(() => resetCart());
+  window.POS.onSyncDone(async (r) => {
+    if (r && r.ok) {
+      products = await window.POS.getProducts();
+      renderProducts(filterProducts());
+    }
+  });
+}
+
+// ── Categories ────────────────────────────────────────────────────────────────
+function buildCategories() {
+  const sidebar = document.getElementById('sidebar');
+  categories.forEach((c) => {
+    const btn = document.createElement('button');
+    btn.className = 'cat-btn'; btn.dataset.cat = c.name; btn.textContent = c.name;
+    btn.addEventListener('click', () => selectCat(c.name, btn));
+    sidebar.appendChild(btn);
+  });
+}
+
+let currentCat = '';
+function selectCat(cat, btn) {
+  currentCat = cat;
+  document.querySelectorAll('.cat-btn').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderProducts(filterProducts());
+}
+
+function filterProducts() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  return products.filter((p) =>
+    (!currentCat || p.category === currentCat) &&
+    (!q || p.name.toLowerCase().includes(q))
+  );
+}
+
+document.getElementById('search').addEventListener('input', () => renderProducts(filterProducts()));
+
+// ── Products ──────────────────────────────────────────────────────────────────
+function renderProducts(list) {
+  const grid = document.getElementById('product-grid');
+  if (!list.length) { grid.innerHTML = '<div class="product-empty">Tidak ada produk.</div>'; return; }
+  grid.innerHTML = list.map((p) => `
+    <div class="product-card${p.is_favorite ? ' fav' : ''}" data-id="${p.id}" onclick="addToCart(${p.id})">
+      <div class="product-name">${esc(p.name)}</div>
+      <div class="product-price">${fmt(p.price)}</div>
+    </div>`).join('');
+}
+
+function addToCart(productId) {
+  if (!activeShift) { alert('Buka shift terlebih dahulu.'); return; }
+  const p = products.find((x) => x.id === productId);
+  if (!p) return;
+  if (!cart[productId]) cart[productId] = { product: p, qty: 0, discount_amount: 0, discount_type: 'fixed' };
+  cart[productId].qty++;
+  renderCart();
+}
+
+// ── Cart ──────────────────────────────────────────────────────────────────────
+function renderCart() {
+  const container = document.getElementById('cart-items');
+  const items = Object.values(cart).filter((i) => i.qty > 0);
+  if (!items.length) { container.innerHTML = '<div class="cart-empty">Keranjang kosong</div>'; updateTotals(); return; }
+
+  container.innerHTML = items.map((i) => {
+    const subBeforeDisc = i.product.price * i.qty;
+    const discAmt = calcItemDisc(i);
+    const sub = subBeforeDisc - discAmt;
+    return `<div class="cart-item">
+      <div style="flex:1">
+        <div class="cart-item-name">${esc(i.product.name)}</div>
+        <div class="cart-item-price">${fmt(i.product.price)} / item</div>
+        ${i.discount_amount > 0 ? `<div class="cart-item-disc">Diskon: ${i.discount_type==='percent' ? i.discount_amount+'%' : fmt(i.discount_amount)} (-${fmt(discAmt)})</div>` : ''}
+      </div>
+      <div class="cart-item-controls">
+        <button class="qty-btn" onclick="changeQty(${i.product.id}, -1)">−</button>
+        <span class="qty-num">${i.qty}</span>
+        <button class="qty-btn" onclick="changeQty(${i.product.id}, 1)">+</button>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:60px">
+        <span class="cart-item-sub">${fmt(sub)}</span>
+        <button class="btn btn-ghost btn-sm" onclick="openItemDisc(${i.product.id})" style="font-size:10px;padding:2px 6px">Diskon</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  updateTotals();
+}
+
+function changeQty(id, delta) {
+  if (!cart[id]) return;
+  cart[id].qty = Math.max(0, cart[id].qty + delta);
+  if (cart[id].qty === 0) delete cart[id];
+  renderCart();
+}
+
+function calcItemDisc(item) {
+  if (!item.discount_amount) return 0;
+  const base = item.product.price * item.qty;
+  if (item.discount_type === 'percent') return Math.round(base * item.discount_amount / 100);
+  return Math.min(item.discount_amount, base);
+}
+
+function calcTxDisc(subtotal) {
+  const amt = parseFloat(document.getElementById('tx-disc-amt').value) || 0;
+  const type = document.getElementById('tx-disc-type').value;
+  if (!amt) return 0;
+  if (type === 'percent') return Math.round(subtotal * amt / 100);
+  return Math.min(amt, subtotal);
+}
+
+function updateTotals() {
+  const items = Object.values(cart).filter((i) => i.qty > 0);
+  const subtotal = items.reduce((s, i) => s + (i.product.price * i.qty) - calcItemDisc(i), 0);
+  const txDisc   = calcTxDisc(subtotal);
+  const total    = Math.max(0, subtotal - txDisc);
+
+  document.getElementById('subtotal-val').textContent = fmt(subtotal);
+  document.getElementById('total-val').textContent = fmt(total);
+  const discLine = document.getElementById('disc-line');
+  if (txDisc > 0) {
+    discLine.style.display = '';
+    document.getElementById('disc-val').textContent = '- ' + fmt(txDisc);
+  } else {
+    discLine.style.display = 'none';
+  }
+}
+
+document.getElementById('tx-disc-amt').addEventListener('input', updateTotals);
+document.getElementById('tx-disc-type').addEventListener('change', updateTotals);
+
+function resetCart() {
+  cart = {};
+  document.getElementById('tx-disc-amt').value = 0;
+  document.getElementById('sel-customer').value = '';
+  document.getElementById('sel-guide').value = '';
+  renderCart();
+}
+
+document.getElementById('btn-clear-cart').addEventListener('click', () => {
+  if (Object.keys(cart).length && confirm('Hapus semua item dari keranjang?')) resetCart();
+});
+
+// ── Item discount modal ───────────────────────────────────────────────────────
+function openItemDisc(id) {
+  currentDiscItemId = id;
+  const item = cart[id];
+  document.getElementById('disc-item-name').textContent = item.product.name;
+  document.getElementById('item-disc-amt').value = item.discount_amount || 0;
+  document.getElementById('item-disc-type').value = item.discount_type || 'fixed';
+  document.getElementById('modal-item-disc').hidden = false;
+}
+function closeItemDisc() { document.getElementById('modal-item-disc').hidden = true; currentDiscItemId = null; }
+
+document.getElementById('btn-save-disc').addEventListener('click', () => {
+  if (!currentDiscItemId || !cart[currentDiscItemId]) { closeItemDisc(); return; }
+  cart[currentDiscItemId].discount_amount = parseFloat(document.getElementById('item-disc-amt').value) || 0;
+  cart[currentDiscItemId].discount_type   = document.getElementById('item-disc-type').value;
+  closeItemDisc();
+  renderCart();
+});
+document.getElementById('btn-remove-disc').addEventListener('click', () => {
+  if (cart[currentDiscItemId]) { cart[currentDiscItemId].discount_amount = 0; }
+  closeItemDisc(); renderCart();
+});
+
+// ── Customers & Guides ────────────────────────────────────────────────────────
+function buildCustomers() {
+  const sel = document.getElementById('sel-customer');
+  customers.forEach((c) => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name + (c.loyalty_points > 0 ? ` (${c.loyalty_points} poin)` : '');
+    sel.appendChild(opt);
+  });
+}
+function buildGuides() {
+  const sel = document.getElementById('sel-guide');
+  if (!guides.length) { document.getElementById('guide-wrap').style.display = 'none'; return; }
+  guides.forEach((g) => {
+    const opt = document.createElement('option');
+    opt.value = g.name; opt.textContent = g.name;
+    sel.appendChild(opt);
+  });
+}
+
+// ── Bayar ─────────────────────────────────────────────────────────────────────
+document.getElementById('btn-bayar').addEventListener('click', async () => {
+  if (!activeShift) { alert('Buka shift terlebih dahulu.'); return; }
+  const items = Object.values(cart).filter((i) => i.qty > 0);
+  if (!items.length) { alert('Keranjang masih kosong.'); return; }
+
+  const subtotal = items.reduce((s, i) => s + (i.product.price * i.qty) - calcItemDisc(i), 0);
+  const txDiscAmt  = parseFloat(document.getElementById('tx-disc-amt').value) || 0;
+  const txDiscType = document.getElementById('tx-disc-type').value;
+  const txDisc     = calcTxDisc(subtotal);
+  const total      = Math.max(0, subtotal - txDisc);
+
+  const cartData = {
+    items: items.map((i) => ({
+      product_id: i.product.id,
+      name: i.product.name,
+      qty: i.qty,
+      price_each: i.product.price,
+      total: (i.product.price * i.qty) - calcItemDisc(i),
+      discount_amount: i.discount_amount,
+      discount_type: i.discount_type,
+    })),
+    subtotal,
+    tx_discount_amount: txDiscAmt,
+    tx_discount_type: txDiscType,
+    total,
+    customer_id: parseInt(document.getElementById('sel-customer').value) || null,
+    guide_name: document.getElementById('sel-guide').value || null,
+  };
+
+  await window.POS.setPendingCart(cartData);
+  window.POS.openPayment();
+});
+
+// ── Shift ─────────────────────────────────────────────────────────────────────
+function updateShiftBadge() {
+  const badge = document.getElementById('shift-badge');
+  if (activeShift) {
+    badge.textContent = 'Shift Buka';
+    badge.className = 'shift-badge shift-open';
+  } else {
+    badge.textContent = 'Shift Tutup';
+    badge.className = 'shift-badge shift-closed';
+  }
+}
+
+document.getElementById('btn-shift').addEventListener('click', showShiftModal);
+
+async function showShiftModal() {
+  const modal = document.getElementById('modal-shift');
+  const body  = document.getElementById('shift-modal-body');
+  const btn   = document.getElementById('btn-shift-action');
+
+  if (activeShift) {
+    const sum = await window.POS.shiftSummary();
+    document.getElementById('shift-modal-title').textContent = 'Tutup Shift';
+    body.innerHTML = `
+      <div style="margin-bottom:12px;font-size:12px;line-height:1.8">
+        <div>Kas Awal: <b>${fmt(sum.shift.opening_cash_actual)}</b></div>
+        <div>Penjualan Tunai: <b>${fmt(sum.cashSales)}</b></div>
+        <div>Penjualan Non-Tunai: <b>${fmt(sum.nonCashSales)}</b></div>
+        <div>Kas Masuk: <b>${fmt(sum.cashIn)}</b></div>
+        <div>Kas Keluar: <b>${fmt(sum.cashOut)}</b></div>
+        <div style="border-top:1px dashed #ccc;margin:6px 0;padding-top:6px">Perkiraan Kas: <b>${fmt(sum.expectedCash)}</b></div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label">Kas Fisik yang Dihitung</label>
+        <input class="form-control" type="number" id="counted-cash" value="${sum.expectedCash}" min="0">
+      </div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label class="form-label">Catatan (Opsional)</label>
+        <input class="form-control" type="text" id="close-notes" placeholder="">
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="showCashModal()">+ Kas Masuk/Keluar</button>
+    `;
+    btn.textContent = 'Tutup Shift';
+    btn.className = 'btn btn-danger';
+    btn.onclick = doCloseShift;
+  } else {
+    const defCash = parseFloat(settings.pos_default_opening_cash) || 0;
+    document.getElementById('shift-modal-title').textContent = 'Buka Shift';
+    body.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Kas Awal (Rp)</label>
+        <input class="form-control" type="number" id="opening-cash" value="${defCash}" min="0">
+      </div>`;
+    btn.textContent = 'Buka Shift';
+    btn.className = 'btn btn-success';
+    btn.onclick = doOpenShift;
+  }
+  modal.hidden = false;
+}
+
+async function doOpenShift() {
+  const cash = parseFloat(document.getElementById('opening-cash').value) || 0;
+  const res  = await window.POS.openShift({ opening_cash_actual: cash });
+  if (res.ok) { activeShift = res.shift; updateShiftBadge(); document.getElementById('modal-shift').hidden = true; }
+  else alert(res.message);
+}
+
+async function doCloseShift() {
+  const counted = parseFloat(document.getElementById('counted-cash').value) || 0;
+  const notes   = document.getElementById('close-notes').value;
+  if (!confirm('Yakin ingin menutup shift?')) return;
+  const res = await window.POS.closeShift({ counted_cash_total: counted, notes });
+  if (res.ok) { activeShift = null; updateShiftBadge(); document.getElementById('modal-shift').hidden = true; }
+  else alert(res.message);
+}
+
+document.getElementById('btn-shift-cancel').addEventListener('click', () => {
+  document.getElementById('modal-shift').hidden = true;
+});
+
+// ── Cash modal ────────────────────────────────────────────────────────────────
+function showCashModal() {
+  document.getElementById('modal-cash').hidden = false;
+  document.getElementById('cash-amount').value = '';
+  document.getElementById('cash-reason').value = '';
+  document.getElementById('cash-notice').className = 'notice';
+}
+function hideCashModal() { document.getElementById('modal-cash').hidden = true; }
+window.showCashModal = showCashModal;
+window.hideCashModal = hideCashModal;
+
+document.getElementById('btn-cash-save').addEventListener('click', async () => {
+  const type   = document.getElementById('cash-type').value;
+  const amount = parseFloat(document.getElementById('cash-amount').value) || 0;
+  const reason = document.getElementById('cash-reason').value.trim();
+  if (!amount) { document.getElementById('cash-notice').textContent = 'Jumlah wajib diisi.'; document.getElementById('cash-notice').className = 'notice show notice-err'; return; }
+  const res = await window.POS.addCash({ movement_type: type, amount, reason });
+  if (res.ok) hideCashModal();
+  else alert(res.message);
+});
+
+// ── Sync ──────────────────────────────────────────────────────────────────────
+document.getElementById('btn-sync').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-sync');
+  btn.disabled = true; btn.textContent = '...';
+  await window.POS.syncManual();
+  btn.disabled = false; btn.textContent = '⟳';
+  products = await window.POS.getProducts();
+  renderProducts(filterProducts());
+});
+
+// ── Logout ────────────────────────────────────────────────────────────────────
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  if (confirm('Keluar dari Adena POS?')) {
+    await window.POS.logout();
+  }
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+init();
+</script>
+</body>
+</html>
