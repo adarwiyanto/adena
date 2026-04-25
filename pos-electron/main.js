@@ -41,6 +41,7 @@ function buildMenu() {
       label: 'Adena POS',
       submenu: [
         { label: 'Sync Manual', accelerator: 'F4', click: () => triggerManualSync() },
+        { label: 'Reset Login Lokal', click: () => resetLocalSession() },
         { label: 'Pengaturan Printer', accelerator: 'Ctrl+Shift+P', click: () => openSettingsWindow() },
         { type: 'separator' },
         { label: 'Keluar', role: 'quit' },
@@ -63,23 +64,20 @@ function createMainWindow() {
     },
   });
 
-  // Cek apakah sudah login
+  // Cek sesi login lokal: wajib current_user + device_token
   const currentUser = dbMod.getSetting('current_user', '');
-  if (currentUser) {
-    loadPOS();
+  const token = dbMod.getSetting('device_token', '');
+  if (currentUser && token) {
+    reloadWithPreload('pos-pre.js', 'pos.html');
+    runStartupSync();
   } else {
+    if (currentUser && !token) {
+      dbMod.setSetting('current_user', '');
+    }
     mainWindow.loadFile(page('login.html'));
   }
 
   mainWindow.on('closed', () => { mainWindow = null; });
-}
-
-function loadPOS() {
-  mainWindow.webPreferences; // read-only, need to recreate with new preload
-  // Ganti preload untuk halaman POS
-  mainWindow.webContents.once('did-finish-load', () => {});
-  mainWindow.loadFile(page('pos.html'));
-  // Inject preload via executeJavaScript tidak bisa — reload window dengan preload baru
 }
 
 // Karena preload tidak bisa diubah setelah window dibuat, kita reuse 1 preload
@@ -107,6 +105,10 @@ function reloadWithPreload(preloadFile, htmlFile) {
 // IPC: navigasi antar halaman
 ipcMain.on('navigate:pos', () => reloadWithPreload('pos-pre.js', 'pos.html'));
 ipcMain.on('navigate:login', () => reloadWithPreload('login-pre.js', 'login.html'));
+ipcMain.handle('session:reset-local', () => {
+  resetLocalSession();
+  return { ok: true };
+});
 
 // ── Payment window ─────────────────────────────────────────────────────────────
 
@@ -299,21 +301,37 @@ function startAutoSync() {
   }, 10 * 60 * 1000); // 10 menit
 }
 
+async function runStartupSync() {
+  const result = await syncMod.runSync(true);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('sync:done', result);
+    if (!result.ok) {
+      mainWindow.webContents.send('sync:warning', 'Sync gagal, memakai data lokal.');
+    }
+  }
+}
+
+function resetLocalSession() {
+  dbMod.setSetting('current_user', '');
+  dbMod.setSetting('device_token', '');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    reloadWithPreload('login-pre.js', 'login.html');
+  }
+}
+
 async function triggerManualSync() {
   if (mainWindow) mainWindow.webContents.send('sync:start');
-  const result = await syncMod.runSync(false);
+  const result = await syncMod.runSync(true);
   if (mainWindow) mainWindow.webContents.send('sync:done', result);
 }
 
-ipcMain.handle('sync:manual', () => syncMod.runSync(false));
+ipcMain.handle('sync:manual', () => syncMod.runSync(true));
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(buildMenu());
   createMainWindow();
-  // Sync saat buka (diam-diam, tidak tampilkan error bila offline)
-  syncMod.runSync(false).catch(() => {});
   startAutoSync();
 });
 

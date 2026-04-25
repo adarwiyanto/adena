@@ -109,16 +109,18 @@ if ($activeShift) {
 }
 
 api_ok([
-    'synced_at'      => date('c'),
-    'user'           => $user,
-    'products'       => array_values($products),
-    'categories'     => array_values($categories),
-    'customers'      => array_values($customers),
-    'loyalty_rewards'=> array_values($loyaltyRewards),
-    'payment_methods'=> array_values($paymentMethods),
-    'qris_banks'     => array_values($banks),
-    'guides'         => array_values($guides),
-    'settings'       => $settingsData,
-    'active_shift'   => $activeShift,
-    'cash_movements' => array_values($cashMovements),
+    'data' => [
+        'synced_at'       => date('c'),
+        'user'            => $user,
+        'products'        => array_values($products),
+        'categories'      => array_values($categories),
+        'customers'       => array_values($customers),
+        'loyalty_rewards' => array_values($loyaltyRewards),
+        'payment_methods' => array_values($paymentMethods),
+        'qris_banks'      => array_values($banks),
+        'guides'          => array_values($guides),
+        'settings'        => $settingsData,
+        'active_shift'    => $activeShift,
+        'cash_movements'  => array_values($cashMovements),
+    ],
 ]);

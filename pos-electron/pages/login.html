@@ -72,7 +72,12 @@
           if (!res.online) {
             document.getElementById('offline-badge').style.display = 'block';
           }
-          window.POS.navigate('pos');
+          if (res.warning) {
+            showNotice(res.warning, 'warn');
+            setTimeout(() => window.POS.navigate('pos'), 700);
+          } else {
+            window.POS.navigate('pos');
+          }
         }
       } catch (err) {
         showNotice('Terjadi kesalahan: ' + err.message, 'err');

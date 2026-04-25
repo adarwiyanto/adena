@@ -151,9 +151,9 @@
       <input type="text" id="search" placeholder="Cari produk...">
       <span id="shift-badge" class="shift-badge shift-closed">Shift Tutup</span>
       <button class="btn btn-ghost btn-sm" id="btn-shift">Shift</button>
-      <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync Manual (F4)">⟳</button>
+      <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync Manual (F4)">Sync Manual</button>
       <span class="user-badge" id="user-name"></span>
-      <button class="btn btn-ghost btn-sm" id="btn-logout">Keluar</button>
+      <button class="btn btn-ghost btn-sm" id="btn-logout">Logout</button>
     </div>
     <div class="product-grid" id="product-grid">
       <div class="product-empty">Memuat produk...</div>
@@ -265,7 +265,7 @@
 
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
-let products = [], categories = [], customers = [], guides = [];
+let products = [], categories = [], customers = [], guides = [], paymentMethods = [], banks = [];
 let settings = {}, activeShift = null;
 let cart = {}; // { productId: { product, qty, discount_amount, discount_type } }
 let currentDiscItemId = null;
@@ -279,11 +279,13 @@ async function init() {
   if (!user) { window.POS.logout(); return; }
   document.getElementById('user-name').textContent = user.name;
 
-  [products, categories, customers, guides, settings, activeShift] = await Promise.all([
+  [products, categories, customers, guides, paymentMethods, banks, settings, activeShift] = await Promise.all([
     window.POS.getProducts(),
     window.POS.getCategories(),
     window.POS.getCustomers(),
     window.POS.getGuides(),
+    window.POS.getPayMethods(),
+    window.POS.getBanks(),
     window.POS.getSettings(),
     window.POS.getActiveShift(),
   ]);
@@ -296,11 +298,10 @@ async function init() {
 
   window.POS.onReset(() => resetCart());
   window.POS.onSyncDone(async (r) => {
-    if (r && r.ok) {
-      products = await window.POS.getProducts();
-      renderProducts(filterProducts());
-    }
+    if (!r) return;
+    if (r.ok) await reloadMasterData();
   });
+  window.POS.onSyncWarning((msg) => { if (msg) alert(msg); });
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -335,7 +336,10 @@ document.getElementById('search').addEventListener('input', () => renderProducts
 // ── Products ──────────────────────────────────────────────────────────────────
 function renderProducts(list) {
   const grid = document.getElementById('product-grid');
-  if (!list.length) { grid.innerHTML = '<div class="product-empty">Tidak ada produk.</div>'; return; }
+  if (!list.length) {
+    grid.innerHTML = '<div class="product-empty">Produk belum tersedia. Klik Sync Manual atau login online ulang.</div>';
+    return;
+  }
   grid.innerHTML = list.map((p) => `
     <div class="product-card${p.is_favorite ? ' fav' : ''}" data-id="${p.id}" onclick="addToCart(${p.id})">
       ${renderProductThumb(p)}
@@ -488,6 +492,7 @@ document.getElementById('btn-remove-disc').addEventListener('click', () => {
 // ── Customers & Guides ────────────────────────────────────────────────────────
 function buildCustomers() {
   const sel = document.getElementById('sel-customer');
+  sel.innerHTML = '<option value="">— Tanpa Customer —</option>';
   customers.forEach((c) => {
     const opt = document.createElement('option');
     opt.value = c.id;
@@ -497,7 +502,9 @@ function buildCustomers() {
 }
 function buildGuides() {
   const sel = document.getElementById('sel-guide');
+  sel.innerHTML = '<option value="">— Tanpa Guide —</option>';
   if (!guides.length) { document.getElementById('guide-wrap').style.display = 'none'; return; }
+  document.getElementById('guide-wrap').style.display = '';
   guides.forEach((g) => {
     const opt = document.createElement('option');
     opt.value = g.name; opt.textContent = g.name;
@@ -643,11 +650,16 @@ document.getElementById('btn-cash-save').addEventListener('click', async () => {
 // ── Sync ──────────────────────────────────────────────────────────────────────
 document.getElementById('btn-sync').addEventListener('click', async () => {
   const btn = document.getElementById('btn-sync');
-  btn.disabled = true; btn.textContent = '...';
-  await window.POS.syncManual();
-  btn.disabled = false; btn.textContent = '⟳';
-  products = await window.POS.getProducts();
-  renderProducts(filterProducts());
+  btn.disabled = true; btn.textContent = 'Sync...';
+  const result = await window.POS.syncManual();
+  btn.disabled = false; btn.textContent = 'Sync Manual';
+  if (result.ok) {
+    await reloadMasterData();
+    const updated = Number(result.pulled || 0) + Number(result.pushed || 0);
+    alert(`Sync berhasil. ${updated} data diperbarui.`);
+  } else {
+    alert(result.message || 'Sync gagal.');
+  }
 });
 
 // ── Logout ────────────────────────────────────────────────────────────────────
@@ -662,6 +674,22 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
 init();
+
+async function reloadMasterData() {
+  [products, categories, customers, guides, paymentMethods, banks] = await Promise.all([
+    window.POS.getProducts(),
+    window.POS.getCategories(),
+    window.POS.getCustomers(),
+    window.POS.getGuides(),
+    window.POS.getPayMethods(),
+    window.POS.getBanks(),
+  ]);
+  document.querySelectorAll('#sidebar .cat-btn:not([data-cat=""])').forEach((el) => el.remove());
+  buildCategories();
+  buildCustomers();
+  buildGuides();
+  renderProducts(filterProducts());
+}
 </script>
 </body>
 </html>
