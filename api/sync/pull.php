@@ -49,10 +49,18 @@ $loyaltyRewards = rows($pdo,
 $paymentMethods = [];
 try {
     $paymentMethods = rows($pdo,
-        "SELECT code, name, is_active, sort_order FROM payment_methods
+        "SELECT code, name, is_active, sort_order, requires_bank FROM payment_methods
          WHERE is_active = 1 ORDER BY sort_order, id"
     );
-} catch (Throwable $_) {}
+} catch (Throwable $_) {
+    // fallback untuk schema server lama tanpa kolom requires_bank
+    try {
+        $paymentMethods = rows($pdo,
+            "SELECT code, name, is_active, sort_order FROM payment_methods
+             WHERE is_active = 1 ORDER BY sort_order, id"
+        );
+    } catch (Throwable $_2) {}
+}
 
 // ── QRIS banks ────────────────────────────────────────────────────────────────
 $banks = [];

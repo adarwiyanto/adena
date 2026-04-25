@@ -35,34 +35,24 @@ function apiRequest(method, path, token, body = null) {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
-        let parsed = null;
         const statusCode = res.statusCode || 0;
-        const isLikelyJson = (res.headers['content-type'] || '').includes('application/json');
-
-        if (data && isLikelyJson) {
-          try {
-            parsed = JSON.parse(data);
-          } catch (_) {
-            parsed = null;
-          }
-        } else if (data) {
-          try {
-            parsed = JSON.parse(data);
-          } catch (_) {
-            parsed = null;
-          }
-        }
+        let parsed = null;
+        try { parsed = data ? JSON.parse(data) : null; } catch (_) { parsed = null; }
 
         if (!parsed) {
-          const snippet = String(data || '').replace(/\s+/g, ' ').trim().slice(0, 180);
-          const debugPart = snippet ? ` (${snippet})` : '';
-          reject(new Error('Response server bukan JSON. Cek URL API atau redirect/HTML error.' + debugPart));
+          const snippet = String(data || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+          const err = new Error('Response server bukan JSON. Kemungkinan endpoint redirect/login/error HTML.');
+          err.type = 'non_json';
+          err.statusCode = statusCode;
+          err.debug = snippet;
+          reject(err);
           return;
         }
 
         if (parsed.ok === false) {
           const message = parsed.message || `Request gagal (HTTP ${statusCode})`;
           const err = new Error(message);
+          err.type = 'json_error';
           err.statusCode = statusCode;
           err.response = parsed;
           reject(err);
@@ -71,6 +61,7 @@ function apiRequest(method, path, token, body = null) {
 
         if (statusCode >= 400) {
           const err = new Error(parsed.message || `HTTP ${statusCode}`);
+          err.type = 'http_error';
           err.statusCode = statusCode;
           err.response = parsed;
           reject(err);
@@ -81,8 +72,18 @@ function apiRequest(method, path, token, body = null) {
       });
     });
 
-    req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
-    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      const err = new Error('Network error: request timeout');
+      err.type = 'network_error';
+      reject(err);
+    });
+    req.on('error', (cause) => {
+      const err = new Error(`Network error: ${cause?.message || 'gagal menghubungi server'}`);
+      err.type = 'network_error';
+      err.cause = cause;
+      reject(err);
+    });
     if (bodyStr) req.write(bodyStr);
     req.end();
   });
@@ -146,24 +147,34 @@ async function pullFromServer(token, fullSync = false) {
     })));
   }
 
-  if (d.payment_methods?.length) {
-    replaceAll('payment_methods', d.payment_methods.map((m) => ({
+  if (Array.isArray(d.payment_methods)) {
+    db().prepare('DELETE FROM payment_methods').run();
+    if (d.payment_methods.length) {
+      replaceAll('payment_methods', d.payment_methods.map((m) => ({
       code: m.code, name: m.name,
+      requires_bank: m.requires_bank ? 1 : 0,
       is_active: m.is_active ? 1 : 0, sort_order: m.sort_order || 0,
-    })));
+      })));
+    }
   }
 
-  if (d.qris_banks?.length) {
-    replaceAll('qris_banks', d.qris_banks.map((b) => ({
+  if (Array.isArray(d.qris_banks)) {
+    db().prepare('DELETE FROM qris_banks').run();
+    if (d.qris_banks.length) {
+      replaceAll('qris_banks', d.qris_banks.map((b) => ({
       id: b.id, name: b.name,
       sort_order: b.sort_order || 0, is_active: b.is_active ? 1 : 0,
-    })));
+      })));
+    }
   }
 
-  if (d.guides?.length) {
-    replaceAll('guides', d.guides.map((g) => ({
+  if (Array.isArray(d.guides)) {
+    db().prepare('DELETE FROM guides').run();
+    if (d.guides.length) {
+      replaceAll('guides', d.guides.map((g) => ({
       id: g.id, name: g.name, is_active: g.is_active ? 1 : 0,
-    })));
+      })));
+    }
   }
 
   if (d.settings) replaceServerSettings(d.settings);
@@ -273,9 +284,9 @@ async function runSync(fullSync = false) {
     setSetting('last_sync_at', new Date().toISOString());
     return { ok: true, pulled, pushed };
   } catch (err) {
-    // Jangan tampilkan error ke user bila offline — hanya log
+    const debug = err?.type === 'non_json' && err?.debug ? ` | ${err.debug}` : '';
     logSync({ direction: 'both', status: 'error', error_message: err.message, records_pulled: pulled, records_pushed: pushed });
-    return { ok: false, silent: true, message: err.message };
+    return { ok: false, silent: false, type: err?.type || 'unknown_error', message: `${err.message}${debug}` };
   }
 }
 

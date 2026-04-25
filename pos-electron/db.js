@@ -72,6 +72,7 @@ function migrate(d) {
     CREATE TABLE IF NOT EXISTS payment_methods (
       code       TEXT PRIMARY KEY,
       name       TEXT NOT NULL,
+      requires_bank INTEGER DEFAULT 0,
       is_active  INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0
     );
@@ -161,6 +162,15 @@ function migrate(d) {
       token         TEXT
     );
   `);
+
+  // additive migrations (aman untuk data existing)
+  const ensureColumn = (table, column, ddl) => {
+    const cols = d.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.some((c) => c.name === column)) {
+      d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    }
+  };
+  ensureColumn('payment_methods', 'requires_bank', 'requires_bank INTEGER DEFAULT 0');
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────

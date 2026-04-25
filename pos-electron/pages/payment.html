@@ -147,7 +147,7 @@ const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
 
 let cart = null, payMethods = [], banks = [];
 let selectedMethod = 'cash';
-const NON_CASH_METHODS = new Set(['qris','edc','transfer','credit_card']);
+const FALLBACK_BANK_METHODS = new Set(['qris','edc','transfer','debit','credit_card','bank_transfer']);
 
 async function init() {
   [cart, payMethods, banks] = await Promise.all([
@@ -190,6 +190,7 @@ function renderSummary() {
 // ── Methods ───────────────────────────────────────────────────────────────────
 function buildMethods() {
   const container = document.getElementById('methods');
+  container.innerHTML = '';
   payMethods.forEach((m) => {
     const btn = document.createElement('button');
     btn.className = 'method-btn' + (m.code === 'cash' ? ' active' : '');
@@ -206,7 +207,7 @@ function selectMethod(code, btn) {
   btn.classList.add('active');
 
   const isCash    = code === 'cash';
-  const needsBank = NON_CASH_METHODS.has(code);
+  const needsBank = methodNeedsBank(code);
 
   document.getElementById('cash-wrap').style.display  = isCash ? '' : 'none';
   document.getElementById('bank-wrap').style.display  = needsBank ? '' : 'none';
@@ -221,12 +222,8 @@ function selectMethod(code, btn) {
 // ── Banks ─────────────────────────────────────────────────────────────────────
 function buildBanks() {
   const sel = document.getElementById('sel-bank');
+  sel.innerHTML = '<option value="">— Pilih —</option>';
   if (!banks.length) {
-    // Fallback manual
-    ['BCA','Mandiri','BNI','BRI','GoPay','OVO','Dana','LinkAja'].forEach((name) => {
-      const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
-      sel.appendChild(opt);
-    });
     return;
   }
   banks.forEach((b) => {
@@ -286,7 +283,7 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
   notice.className = 'notice';
 
   // Validasi
-  if (NON_CASH_METHODS.has(selectedMethod) && !document.getElementById('sel-bank').value) {
+  if (methodNeedsBank(selectedMethod) && !document.getElementById('sel-bank').value) {
     notice.textContent = 'Pilih bank / penyedia pembayaran.';
     notice.className = 'notice show notice-err';
     return;
@@ -345,6 +342,11 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
 document.getElementById('btn-cancel').addEventListener('click', () => window.PAY.cancel());
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function methodNeedsBank(code) {
+  const m = payMethods.find((x) => x.code === code);
+  if (m && m.requires_bank != null) return Number(m.requires_bank) === 1;
+  return FALLBACK_BANK_METHODS.has(String(code || '').toLowerCase());
+}
 
 init();
 </script>

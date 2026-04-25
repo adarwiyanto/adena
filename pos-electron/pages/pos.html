@@ -57,13 +57,38 @@
     }
     .product-card {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 10px 8px; cursor: pointer;
+      border-radius: var(--radius); padding: 8px; cursor: pointer;
       text-align: center; transition: border-color .15s, box-shadow .15s;
       display: flex; flex-direction: column; gap: 4px;
     }
     .product-card:hover { border-color: var(--accent); box-shadow: 0 0 0 2px #e0e7ff; }
     .product-card.fav::after { content: '★'; position: absolute; top: 4px; right: 6px; color: #f59e0b; font-size: 10px; }
     .product-card { position: relative; }
+    .product-thumb-wrap {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 4px;
+    }
+    .product-thumb {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .product-thumb-fallback {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 8px;
+      text-align: center;
+    }
     .product-name { font-size: 12px; font-weight: 600; line-height: 1.3; }
     .product-price { font-size: 13px; color: var(--accent); font-weight: 700; }
     .product-empty { grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px; }
@@ -246,6 +271,7 @@ let cart = {}; // { productId: { product, qty, discount_amount, discount_type } 
 let currentDiscItemId = null;
 
 const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
+const IMAGE_BASE_URL = 'https://adena.co.id';
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -312,9 +338,34 @@ function renderProducts(list) {
   if (!list.length) { grid.innerHTML = '<div class="product-empty">Tidak ada produk.</div>'; return; }
   grid.innerHTML = list.map((p) => `
     <div class="product-card${p.is_favorite ? ' fav' : ''}" data-id="${p.id}" onclick="addToCart(${p.id})">
+      ${renderProductThumb(p)}
       <div class="product-name">${esc(p.name)}</div>
       <div class="product-price">${fmt(p.price)}</div>
     </div>`).join('');
+}
+
+function renderProductThumb(product) {
+  const src = buildProductImageUrl(product.image_path);
+  if (!src) {
+    return '<div class="product-thumb-wrap"><div class="product-thumb-fallback">No Image</div></div>';
+  }
+  return `
+    <div class="product-thumb-wrap">
+      <img class="product-thumb" src="${escAttr(src)}" alt="${escAttr(product.name || 'Produk')}"
+           loading="lazy" onerror="this.closest('.product-thumb-wrap').innerHTML='<div class=&quot;product-thumb-fallback&quot;>No Image</div>';">
+    </div>
+  `;
+}
+
+function buildProductImageUrl(imagePath) {
+  const raw = String(imagePath || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const clean = raw.replace(/^\.?\//, '');
+  if (!clean) return null;
+  if (clean.startsWith('uploads/')) return `${IMAGE_BASE_URL}/${clean}`;
+  return `${IMAGE_BASE_URL}/uploads/${clean}`;
 }
 
 function addToCart(productId) {
@@ -481,6 +532,7 @@ document.getElementById('btn-bayar').addEventListener('click', async () => {
     tx_discount_type: txDiscType,
     total,
     customer_id: parseInt(document.getElementById('sel-customer').value) || null,
+    customer_name: (customers.find((c) => c.id === (parseInt(document.getElementById('sel-customer').value) || 0)) || {}).name || null,
     guide_name: document.getElementById('sel-guide').value || null,
   };
 
@@ -607,6 +659,7 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
 init();
 </script>
