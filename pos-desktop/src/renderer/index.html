@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adena POS Desktop</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <section id="login-view" class="view active">
+    <div class="card login-card">
+      <h1>POS Login</h1>
+      <form id="login-form">
+        <input name="username" placeholder="Username" required />
+        <input name="password" placeholder="Password" type="password" required />
+        <button type="submit">Login</button>
+      </form>
+      <button id="btn-open-api" class="link-btn">Setting API</button>
+    </div>
+  </section>
+
+  <section id="pos-view" class="view">
+    <header class="topbar">
+      <strong id="user-label"></strong>
+      <div>
+        <span id="online-badge">offline</span>
+        <span id="sync-count">Pending: 0</span>
+        <span id="last-sync">Last Sync: -</span>
+      </div>
+      <button id="btn-manual-sync">Manual Sync</button>
+    </header>
+
+    <main class="layout">
+      <aside>
+        <h3>Produk</h3>
+        <input id="product-search" placeholder="Cari produk" />
+        <div id="products" class="products"></div>
+      </aside>
+
+      <section class="cart-panel">
+        <h3>Keranjang</h3>
+        <div id="cart-items"></div>
+
+        <div class="checkout">
+          <select id="guide"></select>
+          <select id="payment-method"></select>
+          <select id="payment-bank"></select>
+          <button id="btn-pay">BAYAR</button>
+          <button id="btn-print" disabled>Print</button>
+          <button id="btn-new-transaction" disabled>Transaksi Baru</button>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <dialog id="api-dialog">
+    <h3>Setting API</h3>
+    <input id="api-base-url" placeholder="Base URL" />
+    <input id="api-token" placeholder="Token statis" />
+    <input id="printer-name" placeholder="Default printer" />
+    <input id="receipt-width" placeholder="Ukuran struk (mm)" type="number" />
+    <input id="receipt-margin" placeholder="Margin (mm)" type="number" />
+    <div class="dialog-actions">
+      <button id="btn-test-api">Test Connection</button>
+      <button id="btn-save-api">Simpan</button>
+      <button id="btn-close-api">Tutup</button>
+    </div>
+    <p id="api-status"></p>
+  </dialog>
+
+  <script src="./renderer.js"></script>
+</body>
+</html>
