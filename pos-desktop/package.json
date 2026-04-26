@@ -1,0 +1,42 @@
+{
+  "name": "adena-pos-desktop",
+  "version": "1.0.0",
+  "description": "Adena POS Desktop offline-first (Electron + SQLite)",
+  "main": "src/main/main.js",
+  "author": "Adena",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis",
+    "lint": "echo 'No lint config yet'"
+  },
+  "build": {
+    "appId": "com.adena.posdesktop",
+    "productName": "Adena POS Desktop",
+    "directories": {
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "better-sqlite3": "^11.9.1",
+    "electron-store": "^10.0.1",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "electron": "^35.2.0",
+    "electron-builder": "^26.0.12"
+  }
+}
