@@ -32,6 +32,14 @@ app.whenReady().then(() => {
   createWindow();
 });
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledPromiseRejection', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('[main] uncaughtException', error);
+});
+
 ipcMain.handle('settings:get', () => store.store);
 ipcMain.handle('settings:set', (_, patch) => {
   Object.entries(patch || {}).forEach(([k, v]) => store.set(k, v));
@@ -73,36 +81,45 @@ ipcMain.handle('pos:state', () => {
 });
 
 ipcMain.handle('history:list', (_, filters = {}) => {
-  const db = initDb();
-  const where = [];
-  const params = [];
-  if (filters.from) {
-    where.push('sold_at >= ?');
-    params.push(filters.from);
+  try {
+    const db = initDb();
+    const where = [];
+    const params = [];
+    if (filters.from) {
+      where.push('sold_at >= ?');
+      params.push(filters.from);
+    }
+    if (filters.to) {
+      where.push('sold_at <= ?');
+      params.push(filters.to);
+    }
+    if (filters.guideName) {
+      where.push('guide_name = ?');
+      params.push(filters.guideName);
+    }
+    if (filters.paymentMethod) {
+      where.push('payment_method = ?');
+      params.push(filters.paymentMethod);
+    }
+    if (filters.syncStatus) {
+      where.push('sync_status = ?');
+      params.push(filters.syncStatus);
+    }
+    const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = db.prepare(`SELECT transaction_code, local_transaction_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, SUM(total) AS total
+      FROM sales ${sqlWhere}
+      GROUP BY local_transaction_id
+      ORDER BY sold_at DESC LIMIT 300`).all(...params);
+    const omzetRow = db.prepare(`SELECT COALESCE(SUM(total),0) AS omzet FROM (SELECT SUM(total) AS total FROM sales ${sqlWhere} GROUP BY local_transaction_id)`).get(...params);
+    const omzet = Number(omzetRow?.omzet || 0);
+    return { ok: true, rows, omzet };
+  } catch (error) {
+    console.error('[history:list] failed', error);
+    return {
+      ok: false,
+      message: error.message
+    };
   }
-  if (filters.to) {
-    where.push('sold_at <= ?');
-    params.push(filters.to);
-  }
-  if (filters.guideName) {
-    where.push('guide_name = ?');
-    params.push(filters.guideName);
-  }
-  if (filters.paymentMethod) {
-    where.push('payment_method = ?');
-    params.push(filters.paymentMethod);
-  }
-  if (filters.syncStatus) {
-    where.push('sync_status = ?');
-    params.push(filters.syncStatus);
-  }
-  const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db.prepare(`SELECT transaction_code, local_transaction_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, SUM(total) total
-    FROM sales ${sqlWhere}
-    GROUP BY local_transaction_id
-    ORDER BY sold_at DESC LIMIT 300`).all(...params);
-  const total = db.prepare(`SELECT COALESCE(SUM(total),0) omzet FROM (SELECT SUM(total) total FROM sales ${sqlWhere} GROUP BY local_transaction_id)`).get(...params).omzet;
-  return { rows, omzet };
 });
 
 ipcMain.handle('history:detail', (_, localTransactionId) => {

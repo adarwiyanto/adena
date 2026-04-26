@@ -12,6 +12,40 @@ const state = {
 };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const $ = (s) => document.querySelector(s);
+let statusTimer;
+let toastTimer;
+
+function showStatus(message, show = true) {
+  const el = $('#app-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.toggle('show', !!show && !!message);
+}
+
+function showToast(message, type = 'error', timeout = 3200) {
+  const el = $('#app-toast');
+  if (!el || !message) return;
+  el.textContent = message;
+  el.classList.add('show');
+  el.classList.toggle('success', type === 'success');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), timeout);
+}
+
+async function withFeedback(label, fn) {
+  clearTimeout(statusTimer);
+  showStatus(`${label}...`, true);
+  try {
+    const result = await fn();
+    showStatus(`${label} selesai`, true);
+    statusTimer = setTimeout(() => showStatus('', false), 1200);
+    return result;
+  } catch (error) {
+    showStatus('', false);
+    showToast(error.message || `${label} gagal`);
+    throw error;
+  }
+}
 
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
@@ -159,6 +193,12 @@ async function loadHistory() {
     paymentMethod: $('#history-payment-filter').value,
     syncStatus: $('#history-sync-filter').value
   });
+  if (!data?.ok) {
+    showToast(data?.message || 'Gagal memuat riwayat');
+    $('#history-list').innerHTML = '';
+    $('#history-omzet').textContent = 'Ringkasan Omzet: Rp 0';
+    return;
+  }
   $('#history-omzet').textContent = `Ringkasan Omzet: ${rupiah(data.omzet)}`;
   $('#history-list').innerHTML = data.rows.map((r) => `<div class='row'><strong>${r.transaction_code}</strong> | ${r.sold_at} | ${r.guide_name || '-'} | ${r.payment_method} ${r.payment_bank || ''} | ${r.sync_status} | ${rupiah(r.total)} <button data-id='${r.local_transaction_id}'>Detail</button></div>`).join('');
   $('#history-list').querySelectorAll('button').forEach((b) => b.onclick = async () => {
@@ -194,7 +234,8 @@ async function bootstrap() {
   if (existingSession?.ok && existingSession.user) {
     state.user = existingSession.user;
     $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
-    try { await window.desktopAPI.syncMaster(); } catch (_) {}
+    const syncResp = await window.desktopAPI.syncMaster();
+    if (!syncResp?.ok) showToast(syncResp?.message || 'Sync master gagal');
     await loadPosState();
     await loadHistory();
     await loadOrders();
@@ -206,19 +247,25 @@ async function bootstrap() {
 
   document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => {
     switchTab(t.dataset.tab);
-    if (t.dataset.tab === 'history') await loadHistory();
-    if (t.dataset.tab === 'orders') await loadOrders();
+    if (t.dataset.tab === 'history') await withFeedback('Muat riwayat', loadHistory);
+    if (t.dataset.tab === 'orders') await withFeedback('Muat order', loadOrders);
   });
 
   $('#btn-open-api').onclick = () => $('#api-dialog').showModal();
   $('#btn-close-api').onclick = () => $('#api-dialog').close();
   $('#btn-save-api').onclick = async () => {
-    await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value, apiToken: $('#api-token').value, printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
-    $('#api-status').textContent = 'Tersimpan';
+    await withFeedback('Simpan setting', async () => {
+      await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value, apiToken: $('#api-token').value, printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
+      $('#api-status').textContent = 'Tersimpan';
+      showToast('Setting tersimpan', 'success');
+    });
   };
   $('#btn-test-api').onclick = async () => {
-    const r = await window.desktopAPI.testConnection();
-    $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal: ${r.message}`;
+    await withFeedback('Test koneksi', async () => {
+      const r = await window.desktopAPI.testConnection();
+      $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal: ${r.message}`;
+      if (!r.ok) showToast(r.message || 'Koneksi gagal');
+    });
   };
 
   $('#login-form').onsubmit = async (e) => {
@@ -228,18 +275,32 @@ async function bootstrap() {
     if (!resp?.ok) return alert(resp.message || 'Login gagal');
     state.user = resp.user;
     $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
-    await window.desktopAPI.syncMaster();
+    const syncResp = await window.desktopAPI.syncMaster();
+    if (!syncResp?.ok) showToast(syncResp?.message || 'Sync master gagal');
     await loadPosState();
+    await loadHistory();
+    await loadOrders();
     $('#login-view').classList.remove('active');
     $('#pos-view').classList.add('active');
   };
 
   $('#payment-method').onchange = updateBankState;
-  $('#btn-pay').onclick = payNow;
+  $('#btn-pay').onclick = async () => withFeedback('Proses pembayaran', payNow);
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = ''; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };
-  $('#btn-manual-sync').onclick = async () => { await window.desktopAPI.syncPending(); await loadPosState(); await loadOrders(); alert('Manual sync selesai'); };
-  $('#btn-load-history').onclick = loadHistory;
+  $('#btn-manual-sync').onclick = async () => {
+    await withFeedback('Manual sync', async () => {
+      const r = await window.desktopAPI.syncPending();
+      if (!r?.ok) showToast(r?.message || 'Sync gagal');
+      await loadPosState();
+      await loadOrders();
+      showToast(r?.ok ? 'Manual sync selesai' : `Manual sync gagal: ${r?.message || '-'}`, r?.ok ? 'success' : 'error');
+    });
+  };
+  $('#btn-load-history').onclick = async () => withFeedback('Muat riwayat', loadHistory);
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('[renderer] bootstrap failed', error);
+  showToast(error.message || 'Inisialisasi aplikasi gagal');
+});
