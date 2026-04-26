@@ -38,7 +38,11 @@ function mapAxiosError(err, context = 'Request API') {
     return { ok: false, message: `${context} gagal: endpoint tidak ditemukan`, detail: apiMessage || err.message, status };
   }
   if (status >= 500) {
-    return { ok: false, message: 'Server error', detail: apiMessage || err.message, status };
+    const endpoint = err.config?.url || '';
+    if (String(endpoint).includes('/api/sync/pull.php')) {
+      return { ok: false, message: 'Sync gagal: server error di api/sync/pull.php', detail: apiMessage || err.message, status, endpoint };
+    }
+    return { ok: false, message: 'Server error', detail: apiMessage || err.message, status, endpoint };
   }
   return { ok: false, message: apiMessage || `${context} gagal`, detail: err.message, status };
 }

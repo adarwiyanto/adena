@@ -1,224 +1,225 @@
 <?php
 /**
  * GET /api/sync/pull.php
- * Download semua data yang dibutuhkan POS Desktop dari server.
- * Param: ?since=2026-01-01T00:00:00 (ISO, opsional — full sync jika kosong)
+ * Download data master untuk POS Desktop.
  */
 require_once __DIR__ . '/../helpers.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'GET') api_err('Method tidak diizinkan.', 405);
-
-$user  = api_verify_token();
-$pdo   = db();
-$since = trim($_GET['since'] ?? '');
-$hasFilter = $since !== '' && strtotime($since) !== false;
-$sinceParam = $hasFilter ? date('Y-m-d H:i:s', strtotime($since)) : null;
-
-// ── Helper ────────────────────────────────────────────────────────────────────
-function rows(PDO $pdo, string $sql, array $params = []): array {
-    $s = $pdo->prepare($sql); $s->execute($params); return $s->fetchAll(PDO::FETCH_ASSOC);
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    api_err('Method tidak diizinkan.', 405);
 }
 
-// ── Products (show_on_pos only) ───────────────────────────────────────────────
-$productSql = "SELECT id, name, price, category, category AS category_id, image_path,
-                      is_favorite, is_best_seller, show_on_pos,
-                      track_stock, base_unit, updated_at
-               FROM products
-               WHERE show_on_pos = 1" .
-              ($hasFilter ? " AND updated_at >= ?" : "") .
-              " ORDER BY is_favorite DESC, name ASC";
-$products = rows($pdo, $productSql, $hasFilter ? [$sinceParam] : []);
+$debugSync = (string)($_SERVER['HTTP_X_DEBUG_SYNC'] ?? '') === '1';
+$debugNotes = [];
 
-// ── Categories ────────────────────────────────────────────────────────────────
-$categories = rows($pdo, "SELECT id, name, image_path FROM product_categories ORDER BY name");
+/**
+ * @param mixed $value
+ */
+function safe_string($value): string {
+    if ($value === null) {
+        return '';
+    }
+    return trim((string)$value);
+}
 
-// ── Customers ─────────────────────────────────────────────────────────────────
-$customerSql = "SELECT id, name, phone, email, loyalty_points, loyalty_remainder, updated_at
-                FROM customers" .
-               ($hasFilter ? " WHERE updated_at >= ?" : "") .
-               " ORDER BY name";
-$customers = rows($pdo, $customerSql, $hasFilter ? [$sinceParam] : []);
+/**
+ * Parse since dari ISO/date string lalu normalisasi ke UTC MySQL datetime.
+ */
+function parse_since_param(string $sinceRaw, array &$debugNotes): ?string {
+    if ($sinceRaw === '') {
+        return null;
+    }
 
-// ── Loyalty rewards ───────────────────────────────────────────────────────────
-$loyaltyRewards = rows($pdo,
-    "SELECT lr.id, lr.product_id, lr.points_required, p.name AS product_name
-     FROM loyalty_rewards lr JOIN products p ON p.id = lr.product_id"
-);
-
-// ── Payment methods ───────────────────────────────────────────────────────────
-$paymentMethods = [];
-try {
-    $paymentMethods = rows($pdo,
-        "SELECT code, name, is_active, sort_order, requires_bank FROM payment_methods
-         WHERE is_active = 1 ORDER BY sort_order, id"
-    );
-} catch (Throwable $_) {
-    // fallback untuk schema server lama tanpa kolom requires_bank
     try {
-        $paymentMethods = rows($pdo,
-            "SELECT code, name, is_active, sort_order FROM payment_methods
-             WHERE is_active = 1 ORDER BY sort_order, id"
-        );
-    } catch (Throwable $_2) {}
+        $dt = new DateTimeImmutable($sinceRaw);
+        return $dt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    } catch (Throwable $e) {
+        $debugNotes[] = [
+            'type' => 'invalid_since',
+            'since' => $sinceRaw,
+            'message' => $e->getMessage(),
+        ];
+        return null;
+    }
 }
 
-// ── QRIS banks ────────────────────────────────────────────────────────────────
-$banks = [];
+/**
+ * Eksekusi query aman: jika tabel/kolom tidak ada, kembalikan array kosong.
+ */
+function safe_rows(PDO $pdo, string $label, string $sql, array $params, array &$debugNotes): array {
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        $debugNotes[] = [
+            'type' => 'query_failed',
+            'label' => $label,
+            'error' => $e->getMessage(),
+            'sql' => $sql,
+            'params' => $params,
+        ];
+        return [];
+    }
+}
+
+/**
+ * Ambil setting tanpa membuat endpoint gagal.
+ */
+function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
+    try {
+        $stmt = $pdo->prepare("SELECT value FROM settings WHERE `key` = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return isset($row['value']) ? (string)$row['value'] : '';
+    } catch (Throwable $e) {
+        $debugNotes[] = [
+            'type' => 'setting_failed',
+            'key' => $key,
+            'error' => $e->getMessage(),
+        ];
+        return '';
+    }
+}
+
 try {
-    $banks = rows($pdo,
+    $user = api_verify_token();
+    $pdo = db();
+
+    $sinceRaw = safe_string($_GET['since'] ?? '');
+    $sinceParam = parse_since_param($sinceRaw, $debugNotes);
+    $hasFilter = $sinceParam !== null;
+
+    $productSql = "SELECT id, name, price, category, category AS category_id, image_path,
+                          is_favorite, is_best_seller, show_on_pos,
+                          track_stock, base_unit, updated_at
+                   FROM products
+                   WHERE show_on_pos = 1" .
+                   ($hasFilter ? " AND updated_at >= ?" : "") .
+                   " ORDER BY is_favorite DESC, name ASC";
+    $products = safe_rows($pdo, 'products', $productSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+
+    $categories = safe_rows(
+        $pdo,
+        'categories',
+        "SELECT id, name, image_path FROM product_categories ORDER BY name",
+        [],
+        $debugNotes
+    );
+
+    $guides = safe_rows(
+        $pdo,
+        'guides',
+        "SELECT id, name, is_active FROM guides WHERE is_active = 1 ORDER BY name",
+        [],
+        $debugNotes
+    );
+
+    $paymentMethods = safe_rows(
+        $pdo,
+        'payment_methods',
+        "SELECT code, name, is_active, sort_order, requires_bank
+         FROM payment_methods
+         WHERE is_active = 1
+         ORDER BY sort_order, id",
+        [],
+        $debugNotes
+    );
+    if (empty($paymentMethods)) {
+        $paymentMethods = safe_rows(
+            $pdo,
+            'payment_methods_fallback',
+            "SELECT code, name, is_active, sort_order
+             FROM payment_methods
+             WHERE is_active = 1
+             ORDER BY sort_order, id",
+            [],
+            $debugNotes
+        );
+    }
+
+    $banks = safe_rows(
+        $pdo,
+        'banks',
         "SELECT id, name, sort_order, is_active
          FROM qris_banks
          WHERE is_active = 1
-         ORDER BY sort_order, name"
+         ORDER BY sort_order, name",
+        [],
+        $debugNotes
     );
-} catch (Throwable $_) {}
 
-// ── Payment channels (opsional, schema baru) ────────────────────────────────
-$paymentChannels = [];
-try {
-    $paymentChannels = rows($pdo,
-        "SELECT id, payment_method, channel_name, bank_name, is_active, sort_order
-         FROM payment_channels
-         WHERE is_active = 1
-         ORDER BY sort_order, id"
-    );
-} catch (Throwable $_) {}
-
-// ── Guides ────────────────────────────────────────────────────────────────────
-$guides = [];
-try {
-    $guides = rows($pdo,
-        "SELECT id, name, is_active
-         FROM guides
-         WHERE is_active = 1
-         ORDER BY name"
-    );
-} catch (Throwable $_) {}
-
-// ── Cashiers/users aktif ─────────────────────────────────────────────────────
-$cashiers = [];
-try {
-    $cashiers = rows($pdo,
-        "SELECT id, username, name,
-                COALESCE(NULLIF(role,''), 'kasir') AS role,
-                1 AS is_active
-         FROM users
-         ORDER BY name ASC"
-    );
-} catch (Throwable $_) {}
-
-// ── Store settings ────────────────────────────────────────────────────────────
-$settingKeys = [
-    'store_name', 'store_subtitle', 'store_address', 'store_phone',
-    'store_logo', 'receipt_footer',
-    'loyalty_point_value', 'loyalty_remainder_mode',
-    'pos_default_opening_cash',
-    'store_intro',
-    'theme_primary',
-    'theme_secondary',
-    'theme_accent',
-    'theme_surface',
-    'theme_sidebar',
-    'theme_header',
-    'theme_text',
-    'theme_muted',
-    'custom_css',
-];
-$settingsData = [];
-foreach ($settingKeys as $k) {
-    $settingsData[$k] = setting($k, '');
-}
-
-// ── Active shift ──────────────────────────────────────────────────────────────
-$activeShift = null;
-try {
-    $s = $pdo->prepare("SELECT * FROM pos_shifts WHERE status = 'open' LIMIT 1");
-    $s->execute(); $activeShift = $s->fetch(PDO::FETCH_ASSOC) ?: null;
-} catch (Throwable $_) {}
-
-// ── Cash movements of active shift ───────────────────────────────────────────
-$cashMovements = [];
-if ($activeShift) {
-    try {
-        $cashMovements = rows($pdo,
-            "SELECT id, shift_id, movement_type, amount, reason, notes,
-                    offline_uuid, created_at
-             FROM pos_cash_movements WHERE shift_id = ? ORDER BY created_at",
-            [$activeShift['id']]
-        );
-    } catch (Throwable $_) {}
-}
-
-// ── Pending landing orders (belanja landing page) ───────────────────────────
-$pendingOrders = [];
-$pendingOrderItems = [];
-try {
-    $pendingOrders = rows($pdo, "
-      SELECT o.id, o.order_code, o.customer_id, o.status, o.created_at, o.updated_at,
-             c.name AS customer_name, COALESCE(c.phone, c.email) AS contact,
-             c.address AS customer_address, o.notes AS customer_note,
-             COALESCE(SUM(oi.qty * p.price),0) AS total
-      FROM orders o
-      LEFT JOIN customers c ON c.id = o.customer_id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      LEFT JOIN products p ON p.id = oi.product_id
-      WHERE o.status = 'pending'
-      GROUP BY o.id
-      ORDER BY o.created_at DESC
-      LIMIT 50
-    ");
-    if (!empty($pendingOrders)) {
-        $orderIds = array_map(static fn($row) => (int)$row['id'], $pendingOrders);
-        $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
-        $pendingOrderItems = rows($pdo, "
-          SELECT oi.order_id, oi.product_id, oi.qty, oi.price_each, oi.subtotal, p.name AS product_name
-          FROM order_items oi
-          LEFT JOIN products p ON p.id = oi.product_id
-          WHERE oi.order_id IN ($placeholders)
-          ORDER BY oi.order_id ASC, oi.id ASC
-        ", $orderIds);
+    $settingKeys = [
+        'store_name', 'store_subtitle', 'store_address', 'store_phone', 'store_logo', 'receipt_footer',
+        'loyalty_point_value', 'loyalty_remainder_mode', 'pos_default_opening_cash', 'store_intro',
+        'theme_primary', 'theme_secondary', 'theme_accent', 'theme_surface', 'theme_sidebar',
+        'theme_header', 'theme_text', 'theme_muted', 'custom_css',
+    ];
+    $settings = [];
+    foreach ($settingKeys as $key) {
+        $settings[$key] = safe_setting($pdo, $key, $debugNotes);
     }
-} catch (Throwable $_) {}
 
-// ── Sales history (desktop import) ──────────────────────────────────────────
-$salesHistory = [];
-try {
-    $salesSql = "
-      SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
-             s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
-             s.guide_id, s.guide_name, s.created_by, s.sold_at,
-             u.name AS cashier_name
-      FROM sales s
-      LEFT JOIN users u ON u.id = s.created_by
-      WHERE (s.return_reason IS NULL OR s.return_reason = '')
-    ";
-    $params = [];
-    if ($hasFilter) {
-        $salesSql .= " AND s.sold_at >= ? ";
-        $params[] = $sinceParam;
+    $shiftsSql = "SELECT id, shift_code, branch_id, opened_at, opened_by, opening_cash_default,
+                         opening_cash_actual, status, closed_at, closed_by, expected_cash_total,
+                         counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
+                         sync_status, created_at, updated_at
+                  FROM pos_shifts" .
+                  ($hasFilter ? " WHERE updated_at >= ?" : "") .
+                  " ORDER BY id DESC LIMIT 100";
+    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+
+    $salesSql = "SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
+                        s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
+                        s.guide_id, s.guide_name, s.created_by, s.sold_at,
+                        u.name AS cashier_name
+                 FROM sales s
+                 LEFT JOIN users u ON u.id = s.created_by
+                 WHERE (s.return_reason IS NULL OR s.return_reason = '')" .
+                 ($hasFilter ? " AND s.sold_at >= ?" : "") .
+                 " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
+    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+
+    $response = [
+        'ok' => true,
+        'server_time' => gmdate('Y-m-d H:i:s'),
+        'data' => [
+            'products' => array_values($products),
+            'categories' => array_values($categories),
+            'guides' => array_values($guides),
+            'banks' => array_values($banks),
+            'payment_methods' => array_values($paymentMethods),
+            'settings' => $settings,
+            'shifts' => array_values($shifts),
+            'sales_history' => array_values($salesHistory),
+        ],
+    ];
+
+    if ($debugSync) {
+        $response['debug'] = [
+            'since_raw' => $sinceRaw,
+            'since_mysql' => $sinceParam,
+            'notes' => $debugNotes,
+        ];
     }
-    $salesSql .= " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
-    $salesHistory = rows($pdo, $salesSql, $params);
-} catch (Throwable $_) {}
 
-api_ok([
-    'data' => [
-        'synced_at'       => date('c'),
-        'user'            => $user,
-        'products'        => array_values($products),
-        'categories'      => array_values($categories),
-        'customers'       => array_values($customers),
-        'loyalty_rewards' => array_values($loyaltyRewards),
-        'payment_methods' => array_values($paymentMethods),
-        'qris_banks'      => array_values($banks),
-        'payment_channels' => array_values($paymentChannels),
-        'guides'          => array_values($guides),
-        'cashiers'        => array_values($cashiers),
-        'settings'        => $settingsData,
-        'active_shift'    => $activeShift,
-        'cash_movements'  => array_values($cashMovements),
-        'pending_orders' => array_values($pendingOrders),
-        'pending_order_items' => array_values($pendingOrderItems),
-        'sales_history' => array_values($salesHistory),
-    ],
-]);
+    api_json($response, 200);
+} catch (Throwable $e) {
+    $payload = [
+        'ok' => false,
+        'message' => 'Sync pull failed',
+        'error' => $e->getMessage(),
+    ];
+
+    if ($debugSync) {
+        $payload['debug'] = [
+            'exception' => get_class($e),
+            'trace' => $e->getTraceAsString(),
+            'notes' => $debugNotes,
+        ];
+    } else {
+        $payload['debug'] = 'Aktifkan header X-Debug-Sync: 1 untuk detail error.';
+    }
+
+    api_json($payload, 500);
+}
