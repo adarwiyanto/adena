@@ -99,6 +99,7 @@ ipcMain.handle('api:test', async (_, overrides) => testConnection(overrides || {
 ipcMain.handle('auth:login', async (_, payload) => {
   const resp = await login(payload?.username, payload?.password);
   if (resp?.ok && resp.user) store.set('sessionUser', resp.user);
+  if (resp?.ok && resp?.device_code) store.set('deviceCode', String(resp.device_code).trim().toUpperCase());
   return resp;
 });
 ipcMain.handle('auth:logout', () => {
@@ -117,7 +118,7 @@ ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload))
 
 ipcMain.handle('pos:state', () => {
   const db = initDb();
-  const products = db.prepare('SELECT id, name, price, category, category_id, category_name, image_path FROM products ORDER BY name').all();
+  const products = db.prepare('SELECT id, name, price, category, category_id, category_name, image_path, local_image_path FROM products ORDER BY name').all();
   const categories = db.prepare('SELECT id, name FROM product_categories ORDER BY name').all();
   const guides = db.prepare('SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name').all();
   const paymentMethods = db.prepare('SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, id').all();

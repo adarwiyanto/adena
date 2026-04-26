@@ -106,7 +106,12 @@ async function login(username, password) {
     if (!res?.data?.ok || !user) {
       return { ok: false, message: res?.data?.message || 'Login gagal', detail: 'invalid login response', status: res?.status || 500 };
     }
-    return { ok: true, user, session: res?.data?.session || null };
+    return {
+      ok: true,
+      user,
+      session: res?.data?.session || null,
+      device_code: res?.data?.token?.device_code || null
+    };
   } catch (err) {
     const mapped = mapAxiosError(err, 'Login');
     if (mapped.status === 401) {

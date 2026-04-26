@@ -1,6 +1,6 @@
 const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
-const SYNC_MODULES = ['Koneksi API', 'Master produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
+const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
 let toastTimer;
 
@@ -50,7 +50,7 @@ function renderProducts(filter = '') {
   wrap.innerHTML = '';
   filtered.forEach((p) => {
     const div = document.createElement('div');
-    const image = toAbsoluteImageUrl(p.image_path || '');
+    const image = p.local_image_path || toAbsoluteImageUrl(p.image_path || '');
     div.className = 'product-card';
     div.innerHTML = `<img src="${image}" alt="${p.name}" onerror="this.src='';this.classList.add('is-placeholder')"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
     div.onclick = () => addToCart(p);
@@ -96,37 +96,58 @@ async function loadOrders() { const data = await window.desktopAPI.getOrders(); 
 function syncModuleList(statusMap = {}) { $('#sync-module-status').innerHTML = SYNC_MODULES.map((m) => `<li>${m}: <strong>${statusMap[m] || 'menunggu'}</strong></li>`).join(''); }
 function setSyncProgress(percent, text) { $('#sync-progress').value = percent; $('#sync-status-text').textContent = text; }
 
-function buildSyncDebug(error, resp) {
+function buildSyncDebug(error, resp, moduleName = 'unknown') {
+  const compactBody = (() => {
+    const payload = resp?.response || resp || null;
+    if (!payload) return null;
+    const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+  })();
+  const token = String($('#api-token').value || '');
+  const maskedToken = token ? `${token.slice(0, 4)}***${token.slice(-2)}` : '';
   return JSON.stringify({
-    time: new Date().toISOString(),
-    error: error ? { message: error.message, stack: error.stack } : null,
-    response: resp || null,
-    settings: { apiBaseUrl: $('#api-base-url').value.trim(), lastSyncAt: null }
+    timestamp: new Date().toISOString(),
+    failed_module: moduleName,
+    endpoint: resp?.endpoint || error?.endpoint || null,
+    http_status: resp?.status || error?.status || null,
+    response_body: compactBody,
+    error_message: error?.message || resp?.message || null,
+    stack_short: (error?.stack || '').split('\n').slice(0, 4).join('\n') || null,
+    token: maskedToken,
+    settings: { apiBaseUrl: $('#api-base-url').value.trim() }
   }, null, 2);
 }
 
 async function runSyncFlow({ allowOffline = false } = {}) {
-  const moduleStatus = {};
-  state.syncSuccess = false;
-  $('#btn-sync-enter-pos').disabled = true;
-  $('#btn-sync-offline').style.display = 'none';
-  try {
+  let attempt = 0;
+  let lastError = null;
+  while (attempt < 3) {
+    attempt += 1;
+    const moduleStatus = {};
+    state.syncSuccess = false;
+    $('#btn-sync-enter-pos').disabled = true;
+    $('#sync-retry-count').textContent = `Percobaan ${attempt}/3`;
+    try {
     showView('sync-view');
     syncModuleList(moduleStatus);
     setSyncProgress(5, 'Cek koneksi API...');
     const conn = await window.desktopAPI.testConnection();
-    if (!conn?.ok) throw new Error(conn?.message || 'Koneksi API gagal');
+    if (!conn?.ok) throw Object.assign(new Error(conn?.message || 'Koneksi API gagal'), { module: 'Koneksi API', resp: conn });
+    if (conn?.token?.device_code) {
+      await window.desktopAPI.setSettings({ deviceCode: String(conn.token.device_code).trim().toUpperCase() });
+    }
     moduleStatus['Koneksi API'] = 'ok';
     syncModuleList(moduleStatus);
 
     setSyncProgress(35, 'Sinkronisasi master data...');
     const syncResp = await window.desktopAPI.syncMaster({ incremental: false });
-    if (!syncResp?.ok) throw new Error(syncResp?.message || 'Sync gagal');
-    moduleStatus['Master produk'] = `ok (${syncResp.counts?.products || 0})`;
+    if (!syncResp?.ok) throw Object.assign(new Error(syncResp?.message || 'Sync gagal'), { module: 'Produk', resp: syncResp });
+    moduleStatus['Produk'] = `ok (${syncResp.counts?.products || 0})`;
     moduleStatus['Kategori'] = `ok (${syncResp.counts?.categories || 0})`;
     moduleStatus['Guide'] = `ok (${syncResp.counts?.guides || 0})`;
     moduleStatus['Bank/payment'] = `ok (${syncResp.counts?.banks || 0}/${syncResp.counts?.payment_methods || 0})`;
     moduleStatus['Setting/theme/logo'] = 'ok';
+    moduleStatus['Thumbnail produk'] = `ok (${syncResp.counts?.thumbnails_downloaded || 0}, gagal ${syncResp.counts?.thumbnails_failed || 0})`;
     moduleStatus['Shift'] = `ok (${syncResp.counts?.shifts || 0})`;
     moduleStatus['Riwayat transaksi'] = `ok (${syncResp.counts?.sales_history || 0})`;
     moduleStatus['Order landing page'] = `ok (${syncResp.counts?.pending_orders || 0})`;
@@ -147,15 +168,16 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     state.syncSuccess = true;
     $('#btn-sync-enter-pos').disabled = false;
     showToast('Sinkronisasi berhasil', 'success');
-  } catch (error) {
-    setSyncProgress(100, `Sinkronisasi gagal: ${error.message}`);
-    $('#sync-debug').value = buildSyncDebug(error);
-    state.syncSuccess = false;
-    state.syncRetry += 1;
-    $('#sync-retry-count').textContent = `Retry: ${state.syncRetry}`;
-    if (allowOffline) $('#btn-sync-offline').style.display = 'inline-block';
-    showToast(error.message || 'Sinkronisasi gagal');
+      return;
+    } catch (error) {
+      lastError = error;
+      setSyncProgress(100, `Sinkronisasi gagal: ${error.message}`);
+      $('#sync-debug').value = buildSyncDebug(error, error.resp || null, error.module || 'Unknown');
+      state.syncSuccess = false;
+      showToast(error.message || 'Sinkronisasi gagal');
+    }
   }
+  if (lastError) $('#sync-debug').value = buildSyncDebug(lastError, lastError.resp || null, lastError.module || 'Unknown');
 }
 
 async function payNow() {
@@ -180,7 +202,7 @@ function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.cl
 function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div><button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); }; }
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = s.apiToken || ''; }
-async function initPrinterDialog() { const s = await window.desktopAPI.getSettings(); $('#receipt-width').value = s.receiptWidthMm || 58; $('#receipt-margin').value = s.receiptMarginMm || 2; $('#device-code').value = (s.deviceCode || '').toUpperCase(); const printers = await window.desktopAPI.getPrinters(); $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`; $('#printer-name').value = s.printerName || ''; }
+async function initPrinterDialog() { const s = await window.desktopAPI.getSettings(); $('#receipt-width').value = s.receiptWidthMm || 58; $('#receipt-margin').value = s.receiptMarginMm || 2; $('#current-device-code').textContent = s.deviceCode || '-'; const printers = await window.desktopAPI.getPrinters(); $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`; $('#printer-name').value = s.printerName || ''; }
 
 async function bootstrap() {
   await initApiDialog(); await initPrinterDialog(); showView('login-view');
@@ -192,9 +214,7 @@ async function bootstrap() {
   $('#btn-save-api').onclick = async () => { await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value.trim(), apiToken: $('#api-token').value.trim() }); showToast('Setting API tersimpan', 'success'); };
   $('#btn-test-api').onclick = async () => { const r = await window.desktopAPI.testConnection({ baseURL: $('#api-base-url').value.trim(), token: $('#api-token').value.trim() }); $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal: ${r.message}`; };
   $('#btn-save-printer').onclick = async () => {
-    const deviceCode = String($('#device-code').value || '').trim().toUpperCase().replace(/\s+/g, '');
-    if (deviceCode && !/^[A-Z0-9]+$/.test(deviceCode)) return alert('Kode POS/Device hanya huruf dan angka tanpa spasi.');
-    await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2), deviceCode });
+    await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
     showToast('Setting printer/program tersimpan', 'success');
   };
 
@@ -211,7 +231,6 @@ async function bootstrap() {
   $('#btn-sync-retry').onclick = async () => runSyncFlow({ allowOffline: true });
   $('#btn-sync-copy-debug').onclick = async () => { await navigator.clipboard.writeText($('#sync-debug').value || ''); showToast('Debug dicopy', 'success'); };
   $('#btn-sync-enter-pos').onclick = async () => { if (!state.syncSuccess) return; showView('pos-view'); };
-  $('#btn-sync-offline').onclick = async () => { await loadPosState(); await loadHistory(); await loadOrders(); showView('pos-view'); };
 
   $('#btn-logout').onclick = async () => {
     const result = await window.desktopAPI.logoutWithPrompt();
