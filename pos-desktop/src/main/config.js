@@ -1,4 +1,5 @@
-const Store = require('electron-store');
+const ElectronStore = require('electron-store');
+const Store = ElectronStore.default || ElectronStore;
 
 const store = new Store({
   name: 'settings',
