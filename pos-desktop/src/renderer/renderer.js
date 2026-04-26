@@ -8,7 +8,8 @@ const state = {
   cart: [],
   latestReceipt: null,
   paying: false,
-  activeCategory: ''
+  activeCategory: '',
+  theme: {}
 };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const $ = (s) => document.querySelector(s);
@@ -54,26 +55,66 @@ function switchTab(name) {
 
 function rupiah(v) { return `Rp ${Number(v || 0).toLocaleString('id-ID')}`; }
 
+function applyTheme(settings = {}) {
+  const root = document.documentElement;
+  const theme = {
+    '--desktop-primary': settings.theme_primary || '#0f172a',
+    '--desktop-secondary': settings.theme_secondary || '#111827',
+    '--desktop-accent': settings.theme_accent || '#1d4ed8',
+    '--desktop-surface': settings.theme_surface || '#ffffff',
+    '--desktop-sidebar': settings.theme_sidebar || '#f8fafc',
+    '--desktop-header': settings.theme_header || settings.theme_primary || '#0f172a',
+    '--desktop-text': settings.theme_text || '#0f172a',
+    '--desktop-muted': settings.theme_muted || '#64748b'
+  };
+  Object.entries(theme).forEach(([k, v]) => root.style.setProperty(k, v));
+  const logo = settings.store_logo || '';
+  $('#brand-logo').src = logo ? toAbsoluteImageUrl(logo) : '';
+  $('#brand-logo').classList.toggle('hidden', !logo);
+}
+
+function toAbsoluteImageUrl(path) {
+  const p = String(path || '').trim();
+  if (!p) return '';
+  if (/^https?:\/\//i.test(p) || p.startsWith('data:')) return p;
+  const baseUrl = String($('#api-base-url').value || '').trim().replace(/\/$/, '');
+  if (!baseUrl) return p;
+  return `${baseUrl}/${p.replace(/^\//, '')}`;
+}
+
 function renderCategories() {
   const wrap = $('#categories');
   wrap.innerHTML = state.categories.map((c) => `<button class="category ${String(c.id) === state.activeCategory ? 'active' : ''}" data-category-id="${c.id}">${c.name}</button>`).join('');
-  wrap.querySelectorAll('button').forEach((b) => b.onclick = () => { state.activeCategory = b.dataset.categoryId; renderProducts($('#product-search').value); renderCategories(); });
+  wrap.querySelectorAll('button').forEach((b) => b.onclick = () => { state.activeCategory = b.dataset.categoryId; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.remove('active'); });
+}
+
+function matchesCategory(product, activeCategory) {
+  if (!activeCategory) return true;
+  const pCat = product.category_id ?? product.category;
+  return String(pCat ?? '') === String(activeCategory);
 }
 
 function renderProducts(filter = '') {
   const wrap = $('#products');
   const q = filter.toLowerCase();
+  const filtered = state.products
+    .filter((p) => matchesCategory(p, state.activeCategory))
+    .filter((p) => p.name.toLowerCase().includes(q));
+
+  if (!filtered.length) {
+    wrap.innerHTML = `<div class="empty">${state.activeCategory ? 'Tidak ada produk pada kategori ini.' : 'Tidak ada produk tersedia.'}</div>`;
+    return;
+  }
+
   wrap.innerHTML = '';
-  state.products
-    .filter((p) => (!state.activeCategory || String(p.category || '') === String(state.activeCategory)))
-    .filter((p) => p.name.toLowerCase().includes(q))
-    .forEach((p) => {
-      const div = document.createElement('div');
-      div.className = 'product-card';
-      div.innerHTML = `<img src="${p.image_path || ''}" onerror="this.style.display='none'"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
-      div.onclick = () => addToCart(p);
-      wrap.appendChild(div);
-    });
+  filtered.forEach((p) => {
+    const div = document.createElement('div');
+    div.className = 'product-card';
+    const image = toAbsoluteImageUrl(p.image_path || '');
+    div.innerHTML = `<img src="${image}" alt="${p.name}" onerror="this.src='';this.classList.add('is-placeholder')"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
+    div.onclick = () => addToCart(p);
+    wrap.appendChild(div);
+  });
 }
 
 function addToCart(product) {
@@ -111,7 +152,9 @@ async function loadPosState() {
   state.guides = pos.guides || [];
   state.paymentMethods = pos.paymentMethods || [];
   state.banks = pos.banks || [];
-  $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0}`;
+  state.theme = pos.syncedSettings || {};
+  applyTheme(state.theme);
+  $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0} | Shift: ${pos.pendingShiftSync || 0}`;
   const shiftActive = !!pos.activeShift;
   $('#shift-status').textContent = shiftActive ? `Shift aktif: ${pos.activeShift.shift_code || pos.activeShift.id}` : 'Shift: tidak aktif';
   $('#btn-shift-toggle').textContent = shiftActive ? 'Tutup Shift' : 'Buka Shift';
@@ -120,7 +163,7 @@ async function loadPosState() {
   renderPaymentOptions();
 }
 
-function renderReceipt() {
+function renderReceipt() { /* unchanged core */
   const w = $('#receipt-wrap');
   if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
   w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3>
@@ -139,19 +182,11 @@ function renderReceipt() {
     try {
       await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true });
       alert('Print sukses');
-    } catch (e) {
-      alert(`Print gagal: ${e.message}`);
-    }
+    } catch (e) { alert(`Print gagal: ${e.message}`); }
   };
   $('#btn-new-transaction').onclick = () => {
-    state.cart = [];
-    state.latestReceipt = null;
-    renderCart();
-    $('#guide').value = '';
-    $('#payment-bank').value = '';
-    $('#payment-method').selectedIndex = 0;
-    updateBankState();
-    switchTab('pos');
+    state.cart = []; state.latestReceipt = null; renderCart();
+    $('#guide').value = ''; $('#payment-bank').value = ''; $('#payment-method').selectedIndex = 0; updateBankState(); switchTab('pos');
   };
 }
 
@@ -162,111 +197,85 @@ async function payNow() {
   const bankId = $('#payment-bank').value;
   if (bankRequiredCodes.has(paymentMethod) && !bankId) return alert('Bank wajib dipilih untuk non tunai');
 
-  state.paying = true;
-  $('#btn-pay').disabled = true;
+  state.paying = true; $('#btn-pay').disabled = true;
   try {
     const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
     const bank = state.banks.find((b) => String(b.id) === bankId) || null;
     const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null }, items: state.cart });
-    state.latestReceipt = {
-      transactionCode: localSave.transactionCode,
-      soldAt: localSave.soldAt,
-      paymentMethod,
-      paymentBank: bank?.name || '',
-      guideName: guide?.name || '',
-      items: [...state.cart],
-      total: state.cart.reduce((a, b) => a + b.qty * b.price_each, 0)
-    };
+    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: [...state.cart], total: state.cart.reduce((a, b) => a + b.qty * b.price_each, 0) };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
-    switchTab('receipt');
-    renderReceipt();
-    await loadPosState();
-  } finally {
-    state.paying = false;
-    $('#btn-pay').disabled = false;
-  }
+    switchTab('receipt'); renderReceipt(); await loadPosState();
+  } finally { state.paying = false; $('#btn-pay').disabled = false; }
 }
 
-async function loadHistory() {
-  const data = await window.desktopAPI.getHistory({
-    from: $('#history-from').value.trim(),
-    to: $('#history-to').value.trim(),
-    guideName: $('#history-guide-filter').value,
-    paymentMethod: $('#history-payment-filter').value,
-    syncStatus: $('#history-sync-filter').value
-  });
-  if (!data?.ok) {
-    showToast(data?.message || 'Gagal memuat riwayat');
-    $('#history-list').innerHTML = '';
-    $('#history-omzet').textContent = 'Ringkasan Omzet: Rp 0';
-    return;
-  }
+async function loadHistory() { /* unchanged */
+  const data = await window.desktopAPI.getHistory({ from: $('#history-from').value.trim(), to: $('#history-to').value.trim(), guideName: $('#history-guide-filter').value, paymentMethod: $('#history-payment-filter').value, syncStatus: $('#history-sync-filter').value });
+  if (!data?.ok) { showToast(data?.message || 'Gagal memuat riwayat'); $('#history-list').innerHTML = ''; $('#history-omzet').textContent = 'Ringkasan Omzet: Rp 0'; return; }
   $('#history-omzet').textContent = `Ringkasan Omzet: ${rupiah(data.omzet)}`;
   $('#history-list').innerHTML = data.rows.map((r) => `<div class='row'><strong>${r.transaction_code}</strong> | ${r.sold_at} | ${r.guide_name || '-'} | ${r.payment_method} ${r.payment_bank || ''} | ${r.sync_status} | ${rupiah(r.total)} <button data-id='${r.transaction_group_id}'>Detail</button></div>`).join('');
-  $('#history-list').querySelectorAll('button').forEach((b) => b.onclick = async () => {
-    const d = await window.desktopAPI.getHistoryDetail(b.dataset.id);
-    alert(d.items.map((i) => `${i.product_name} x${i.qty} ${rupiah(i.total)}`).join('\n'));
-  });
+  $('#history-list').querySelectorAll('button').forEach((b) => b.onclick = async () => { const d = await window.desktopAPI.getHistoryDetail(b.dataset.id); alert(d.items.map((i) => `${i.product_name} x${i.qty} ${rupiah(i.total)}`).join('\n')); });
 }
 
 async function loadOrders() {
   const data = await window.desktopAPI.getOrders();
   const grouped = new Map();
-  (data.items || []).forEach((i) => {
-    if (!grouped.has(i.order_id)) grouped.set(i.order_id, []);
-    grouped.get(i.order_id).push(i);
-  });
+  (data.items || []).forEach((i) => { if (!grouped.has(i.order_id)) grouped.set(i.order_id, []); grouped.get(i.order_id).push(i); });
   $('#orders-list').innerHTML = (data.orders || []).map((o) => `<div class='row'><strong>${o.order_code}</strong> | ${o.created_at} | ${o.customer_name || '-'} | ${o.customer_contact || '-'} | ${o.status}<br/>${(grouped.get(o.id) || []).map((x) => `${x.product_name} x${x.qty}`).join(', ')}</div>`).join('') || 'Belum ada order masuk.';
 }
 
-async function initSettingsDialog() {
+async function initApiDialog() {
   const s = await window.desktopAPI.getSettings();
   $('#api-base-url').value = s.apiBaseUrl || '';
   $('#api-token').value = s.apiToken || '';
+  $('#api-status').textContent = '';
+}
+
+async function initPrinterDialog() {
+  const s = await window.desktopAPI.getSettings();
   $('#receipt-width').value = s.receiptWidthMm || 58;
   $('#receipt-margin').value = s.receiptMarginMm || 2;
   const printers = await window.desktopAPI.getPrinters();
   $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`;
   $('#printer-name').value = s.printerName || '';
+  $('#printer-status').textContent = '';
 }
 
 async function bootstrap() {
-  await initSettingsDialog();
+  await initApiDialog();
+  await initPrinterDialog();
   $('#login-view').classList.add('active');
   $('#pos-view').classList.remove('active');
   $('#online-badge').textContent = navigator.onLine ? 'online' : 'offline';
   $('#online-badge').classList.toggle('online', navigator.onLine);
 
-  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => {
-    switchTab(t.dataset.tab);
-    if (t.dataset.tab === 'history') await withFeedback('Muat riwayat', loadHistory);
-    if (t.dataset.tab === 'orders') await withFeedback('Muat order', loadOrders);
-  });
+  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => { switchTab(t.dataset.tab); if (t.dataset.tab === 'history') await withFeedback('Muat riwayat', loadHistory); if (t.dataset.tab === 'orders') await withFeedback('Muat order', loadOrders); });
 
-  const openSettingDialog = async (label) => {
-    try {
-      await initSettingsDialog();
-      $('#api-dialog').showModal();
-      showToast(`${label} dibuka`, 'success', 1200);
-    } catch (error) {
-      showToast(error.message || `${label} gagal dibuka`);
-    }
-  };
-  $('#btn-open-api').onclick = () => openSettingDialog('Setting API');
-  $('#btn-open-program').onclick = () => openSettingDialog('Setting Program');
+  $('#btn-open-api').onclick = async () => { await initApiDialog(); $('#api-dialog').showModal(); };
+  $('#btn-open-printer').onclick = async () => { await initPrinterDialog(); $('#printer-dialog').showModal(); };
   $('#btn-close-api').onclick = () => $('#api-dialog').close();
+  $('#btn-close-printer').onclick = () => $('#printer-dialog').close();
+
   $('#btn-save-api').onclick = async () => {
-    await withFeedback('Simpan setting', async () => {
-      await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value, apiToken: $('#api-token').value, printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
+    await withFeedback('Simpan setting API', async () => {
+      await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value.trim(), apiToken: $('#api-token').value.trim() });
       $('#api-status').textContent = 'Tersimpan';
-      showToast('Setting tersimpan', 'success');
+      showToast('Setting API tersimpan', 'success');
     });
   };
+
   $('#btn-test-api').onclick = async () => {
-    await withFeedback('Test koneksi', async () => {
-      const r = await window.desktopAPI.testConnection();
-      $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal: ${r.message}`;
-      if (!r.ok) showToast(r.message || 'Koneksi gagal');
+    await withFeedback('Test koneksi API', async () => {
+      const r = await window.desktopAPI.testConnection({ baseURL: $('#api-base-url').value.trim(), token: $('#api-token').value.trim() });
+      $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal (${r.status || 0}): ${r.message}`;
+      if (!r.ok) showToast(`${r.message}${r.detail ? ` (${r.detail})` : ''}`);
+    });
+  };
+
+  $('#btn-save-printer').onclick = async () => {
+    await withFeedback('Simpan printer', async () => {
+      await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
+      $('#printer-status').textContent = 'Tersimpan';
+      showToast('Setting printer tersimpan', 'success');
     });
   };
 
@@ -278,24 +287,13 @@ async function bootstrap() {
     state.user = resp.user;
     $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
     const syncResp = await window.desktopAPI.syncMaster();
-    if (!syncResp?.ok) showToast(syncResp?.message || 'Sync master gagal');
-    await loadPosState();
-    await loadHistory();
-    await loadOrders();
-    $('#login-view').classList.remove('active');
-    $('#pos-view').classList.add('active');
+    if (!syncResp?.ok) showToast(`${syncResp?.message || 'Sync master gagal'}${syncResp?.endpoint ? ` (${syncResp.endpoint})` : ''}`);
+    await window.desktopAPI.retryPendingShift();
+    await loadPosState(); await loadHistory(); await loadOrders();
+    $('#login-view').classList.remove('active'); $('#pos-view').classList.add('active');
   };
 
-  $('#btn-logout').onclick = async () => {
-    await window.desktopAPI.logout();
-    state.user = null;
-    state.cart = [];
-    state.latestReceipt = null;
-    $('#login-form').reset();
-    $('#login-view').classList.add('active');
-    $('#pos-view').classList.remove('active');
-    showToast('Logout berhasil', 'success');
-  };
+  $('#btn-logout').onclick = async () => { await window.desktopAPI.logout(); state.user = null; state.cart = []; state.latestReceipt = null; $('#login-form').reset(); $('#login-view').classList.add('active'); $('#pos-view').classList.remove('active'); showToast('Logout berhasil', 'success'); };
 
   $('#btn-shift-toggle').onclick = async () => {
     await withFeedback('Update shift', async () => {
@@ -305,11 +303,12 @@ async function bootstrap() {
       const actionResp = hasShift
         ? await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: 0, notes: 'Closed from POS Desktop' })
         : await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: 0 });
-      if (!actionResp?.ok) throw new Error(actionResp?.message || actionResp?.error || 'Gagal update shift');
+      if (!actionResp?.ok && actionResp?.sync_status !== 'pending') throw new Error(actionResp?.message || actionResp?.error || 'Gagal update shift');
+      if (actionResp?.sync_status === 'pending') showToast(`Shift pending sync: ${actionResp.message}`, 'error', 4500);
       const syncResp = await window.desktopAPI.syncMaster();
       if (!syncResp?.ok) showToast(syncResp?.message || 'Sync master gagal');
       await loadPosState();
-      showToast(hasShift ? 'Shift ditutup' : 'Shift dibuka', 'success');
+      showToast(hasShift ? 'Tutup shift diproses' : 'Buka shift diproses', 'success');
     });
   };
 
@@ -321,8 +320,8 @@ async function bootstrap() {
     await withFeedback('Manual sync', async () => {
       const r = await window.desktopAPI.syncPending();
       if (!r?.ok) showToast(r?.message || 'Sync gagal');
-      await loadPosState();
-      await loadOrders();
+      await window.desktopAPI.retryPendingShift();
+      await loadPosState(); await loadOrders();
       showToast(r?.ok ? 'Manual sync selesai' : `Manual sync gagal: ${r?.message || '-'}`, r?.ok ? 'success' : 'error');
     });
   };

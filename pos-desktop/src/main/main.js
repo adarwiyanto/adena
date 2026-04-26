@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
 const { initDb } = require('./db');
 const { store } = require('./config');
 const { testConnection, login, shiftAction } = require('./api');
+const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions } = require('./sync');
 const { saveSaleLocally } = require('./transactions');
 const { printReceipt } = require('./print');
@@ -52,7 +53,7 @@ ipcMain.handle('settings:printers', async () => {
   return printers.map((p) => ({ name: p.name, displayName: p.displayName || p.name, isDefault: !!p.isDefault }));
 });
 
-ipcMain.handle('api:test', async () => testConnection());
+ipcMain.handle('api:test', async (_, overrides) => testConnection(overrides || {}));
 ipcMain.handle('auth:login', async (_, payload) => {
   const resp = await login(payload?.username, payload?.password);
   if (resp?.ok && resp.user) {
@@ -70,14 +71,17 @@ ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload))
 
 ipcMain.handle('pos:state', () => {
   const db = initDb();
-  const products = db.prepare('SELECT id, name, price, category, image_path FROM products ORDER BY name').all();
+  const products = db.prepare('SELECT id, name, price, category, category_id, image_path FROM products ORDER BY name').all();
   const categories = db.prepare('SELECT id, name FROM product_categories ORDER BY name').all();
   const guides = db.prepare('SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name').all();
   const paymentMethods = db.prepare('SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, id').all();
   const banks = db.prepare('SELECT id, name FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, id').all();
   const activeShift = db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY id DESC LIMIT 1").get() || null;
   const pendingSyncCount = db.prepare("SELECT COUNT(DISTINCT local_transaction_id) as c FROM sales WHERE sync_status IN ('pending','failed')").get().c;
-  return { products, categories, guides, paymentMethods, banks, activeShift, pendingSyncCount, lastSyncAt: store.get('lastSyncAt') };
+  const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
+  const settingsRows = db.prepare('SELECT key, value FROM settings').all();
+  const syncedSettings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
+  return { products, categories, guides, paymentMethods, banks, activeShift, pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: store.get('lastSyncAt') };
 });
 
 ipcMain.handle('history:list', (_, filters = {}) => {
@@ -140,8 +144,9 @@ ipcMain.handle('orders:list', () => {
 
 ipcMain.handle('print:receipt', async (_, payload) => printReceipt(payload));
 ipcMain.handle('shift:status', async () => shiftAction('status'));
-ipcMain.handle('shift:open', async (_, payload) => shiftAction('open', payload));
-ipcMain.handle('shift:close', async (_, payload) => shiftAction('close', payload));
+ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
+ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));
+ipcMain.handle('shift:retryPending', async () => retryPendingShiftSync());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

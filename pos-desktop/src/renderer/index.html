@@ -19,7 +19,7 @@
       <p id="login-error" class="login-error"></p>
       <div class="login-actions">
         <button id="btn-open-api" class="link-btn">Setting API</button>
-        <button id="btn-open-program" class="link-btn">Setting Program/Printer</button>
+        <button id="btn-open-printer" class="link-btn">Setting Printer</button>
       </div>
     </div>
   </section>
@@ -27,6 +27,7 @@
   <section id="pos-view" class="view">
     <header class="topbar">
       <div>
+        <img id="brand-logo" class="brand-logo hidden" alt="logo" />
         <strong id="user-label"></strong>
         <div id="shift-status">Shift: tidak aktif</div>
       </div>
@@ -101,19 +102,28 @@
   <div id="app-toast" class="app-toast" aria-live="assertive"></div>
 
   <dialog id="api-dialog">
-    <h3>Setting Program</h3>
+    <h3>Setting API</h3>
     <input id="api-base-url" placeholder="Base URL" />
-    <input id="api-token" placeholder="Token statis" />
-    <label>Printer Windows</label>
-    <select id="printer-name"></select>
-    <input id="receipt-width" placeholder="Ukuran struk (mm)" type="number" value="58" />
-    <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
+    <input id="api-token" placeholder="Static API token" />
     <div class="dialog-actions">
       <button id="btn-test-api">Test Connection</button>
-      <button id="btn-save-api">Simpan</button>
+      <button id="btn-save-api">Save API Setting</button>
       <button id="btn-close-api">Tutup</button>
     </div>
     <p id="api-status"></p>
+  </dialog>
+
+  <dialog id="printer-dialog">
+    <h3>Setting Printer</h3>
+    <label>Printer Windows</label>
+    <select id="printer-name"></select>
+    <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
+    <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
+    <div class="dialog-actions">
+      <button id="btn-save-printer">Save Printer Setting</button>
+      <button id="btn-close-printer">Tutup</button>
+    </div>
+    <p id="printer-status"></p>
   </dialog>
 
   <script src="./renderer.js"></script>
