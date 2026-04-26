@@ -10,6 +10,7 @@ const {
   getActiveShift, openShift, closeShift,
   addCashMovement, getShiftMovements,
   saveTransaction, addCustomerLoyaltyPoints,
+  getTransactionByOfflineUuid,
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
   db, getSyncDebugLogs, getPendingTransactionsDebug, getLatestApiRequest, getDbDiagnostics,
 } = db_module;
@@ -41,6 +42,7 @@ ipcMain.handle('auth:test-api-config', async (_, { base_url, token }) => {
 ipcMain.handle('auth:get-api-config', () => ({
   base_url: getSetting('api_base_url', ''),
   token: getSetting('device_token', ''),
+  local_device_id: db_module.getOrCreateDeviceId(),
 }));
 
 ipcMain.handle('auth:logout-full', () => {
@@ -59,7 +61,7 @@ ipcMain.handle('auth:bootstrap', async () => {
   const baseUrl = String(getSetting('api_base_url', '') || '').trim();
   if (!token || !baseUrl) return { ok: false, needs_login: true, message: 'Silakan isi Setting API terlebih dahulu.' };
   const validation = await sync_module.validateToken(token);
-  if (!validation.ok) return { ok: false, needs_login: true, message: 'API Token tidak valid. Silakan cek Setting API.' };
+  if (!validation.ok) return { ok: false, needs_login: true, message: 'API Token tidak valid. Buka Setting API di kiri bawah halaman login.' };
   return { ok: true, needs_login: !getSetting('current_user', '') };
 });
 
@@ -148,6 +150,8 @@ ipcMain.handle('sync:debug-status', async () => {
     device_id: db_module.getOrCreateDeviceId(),
     current_user: currentUser ? `${currentUser.name || currentUser.username || '-'} (#${currentUser.id || '-'})` : '-',
     last_sync_at: getSetting('last_sync_at', ''),
+    last_sync_status: latestLog?.error_message ? 'error' : 'ok',
+    total_local_transactions: Number(dbDiag.transaction_count || 0),
     pending_sync_count: pendingRows.filter((r) => String(r.sync_status) !== 'sync_failed').length,
     sync_failed_count: failedRows.length,
     latest_failed_transaction: latestFailed,
@@ -157,6 +161,7 @@ ipcMain.handle('sync:debug-status', async () => {
     last_server_response: latestLog?.response_summary || '',
     last_api_call_at: latestApi?.synced_at || latestLog?.created_at || '',
     db_diag: dbDiag,
+    recent_transactions: dbDiag.recent_transactions || [],
     logs,
     pending_payload_summary: pendingRows.map((r) => ({
       offline_uuid: r.offline_uuid,
@@ -322,8 +327,14 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
   const shift = getActiveShift();
   if (!shift) return { ok: false, message: 'Tidak ada shift aktif.' };
 
-  const selectedMethod = String(paymentData.payment_method || 'cash');
+  console.log('[CHECKOUT] payment confirmed');
+  const selectedMethod = String(paymentData.payment_method || '').trim();
   const selectedBank = (paymentData.payment_bank || '').trim();
+  const items = Array.isArray(cart.items) ? cart.items : [];
+  const total = Number(cart.total || 0);
+  if (!items.length) return { ok: false, message: 'Item transaksi kosong.' };
+  if (total <= 0) return { ok: false, message: 'Total transaksi harus lebih dari 0.' };
+  if (!selectedMethod) return { ok: false, message: 'Metode pembayaran wajib dipilih.' };
   if (requiresBank(selectedMethod) && !selectedBank) {
     return { ok: false, message: 'Metode pembayaran ini wajib memilih bank / penyedia.' };
   }
@@ -345,46 +356,55 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
     payment_channel_id: paymentData.payment_channel_id || null,
     payment_channel_name: paymentData.payment_channel_name || selectedBank || null,
     payment_bank: selectedBank || null,
-    items_json: JSON.stringify(cart.items),
+    items_json: JSON.stringify(items),
     subtotal: cart.subtotal || 0,
     tx_discount_amount: cart.tx_discount_amount || 0,
     tx_discount_type: cart.tx_discount_type || 'fixed',
-    total: cart.total || 0,
-    paid_amount: paymentData.paid_amount || cart.total,
+    total,
+    paid_amount: paymentData.paid_amount || total,
     change_amount: paymentData.change_amount || 0,
     loyalty_points_earned: 0,
     sold_at: now,
     created_by: currentUser?.id || 0,
-    local_transaction_id: txUuid,
+    local_transaction_id: paymentData.local_transaction_id || txUuid,
     local_device_id: db_module.getOrCreateDeviceId(),
   };
 
   // Hitung loyalty points
   if (paymentData.customer_id && loyaltyVal > 0) {
-    txData.loyalty_points_earned = Math.floor(cart.total / loyaltyVal);
+    txData.loyalty_points_earned = Math.floor(total / loyaltyVal);
     if (txData.loyalty_points_earned > 0) {
       addCustomerLoyaltyPoints(paymentData.customer_id, txData.loyalty_points_earned);
     }
   }
 
+  console.log('[CHECKOUT] payload', txData);
+  console.log('[DB] saveTransaction start');
+  let result;
+  try {
+    result = saveTransaction(txData);
+    console.log('[DB] saveTransaction result', result);
+  } catch (error) {
+    console.error('[DB] saveTransaction error', error);
+    return { ok: false, message: 'Gagal menyimpan transaksi lokal' };
+  }
+  const savedRow = getTransactionByOfflineUuid(txData.offline_uuid);
+  if (!savedRow) {
+    console.error('[DB] saveTransaction error', new Error('Row not found after insert'));
+    return { ok: false, message: 'Gagal menyimpan transaksi lokal' };
+  }
   console.info('[checkout] payload', {
     offline_uuid: txData.offline_uuid,
     total: txData.total,
     payment_method: txData.payment_method,
     payment_channel: txData.payment_channel_name || txData.payment_bank || null,
-    items_count: cart.items.length,
+    items_count: items.length,
   });
-  try {
-    saveTransaction(txData);
-  } catch (err) {
-    console.error('[checkout] sqlite insert failed', err);
-    return { ok: false, message: 'Gagal menyimpan transaksi lokal. Silakan cek database lokal.' };
-  }
   console.info('[checkout] sqlite insert success', { offline_uuid: txData.offline_uuid, sync_status: 'pending_sync' });
   _pendingCheckout = null;
 
   // Build receipt payload
-  const receipt = buildReceiptPayload(cart, paymentData, currentUser, txUuid);
+  const receipt = buildReceiptPayload(cart, paymentData, currentUser, txUuid, txData);
 
   return { ok: true, receipt, offline_uuid: txData.offline_uuid, sync_status: 'pending_sync' };
 });
@@ -442,20 +462,30 @@ ipcMain.handle('landing:load-order', (_, { order_id }) => {
 });
 
 function requiresBank(methodCode) {
-  const code = String(methodCode || '').toLowerCase();
+  const code = String(methodCode || '').toLowerCase().trim();
+  if (isCashMethod(code)) return false;
   const row = db().prepare('SELECT requires_bank FROM payment_methods WHERE code = ? LIMIT 1').get(code);
   if (row && row.requires_bank != null) return Number(row.requires_bank) === 1;
   return new Set(['qris', 'edc', 'transfer', 'debit', 'credit_card', 'bank_transfer']).has(code);
 }
 
-function buildReceiptPayload(cart, payment, user, txId) {
-  const storeName = getServerSetting('store_name', 'Adena POS');
+function isCashMethod(methodCode) {
+  const code = String(methodCode || '').toLowerCase();
+  if (code === 'cash' || code === 'tunai') return true;
+  const byCode = db().prepare('SELECT name FROM payment_methods WHERE lower(code) = ? LIMIT 1').get(code);
+  const label = String(byCode?.name || code).toLowerCase();
+  return label.includes('cash') || label.includes('tunai');
+}
+
+function buildReceiptPayload(cart, payment, user, txId, txData = {}) {
+  const storeName = getServerSetting('store_name', 'Adena');
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const timeStr = `${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
   return {
-    receipt_id: 'TRX-' + txId.substring(0, 8).toUpperCase(),
+    receipt_id: txData.transaction_code || txData.offline_uuid || ('TRX-' + txId.substring(0, 8).toUpperCase()),
+    offline_uuid: txData.offline_uuid || txId,
     tanggal_jam: timeStr,
     cashier: user?.name || '-',
     guide: payment.guide_name || null,
@@ -463,6 +493,7 @@ function buildReceiptPayload(cart, payment, user, txId) {
     store_subtitle: getServerSetting('store_subtitle', ''),
     store_address: getServerSetting('store_address', ''),
     store_phone: getServerSetting('store_phone', ''),
+    store_logo: getServerSetting('store_logo', '') || getServerSetting('company_logo', '') || getSetting('store_logo', ''),
     footer: getServerSetting('receipt_footer', ''),
     payment_method: payment.payment_method?.toUpperCase() + (payment.payment_bank ? ' - ' + payment.payment_bank : ''),
     items: cart.items,

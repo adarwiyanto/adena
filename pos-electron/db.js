@@ -409,7 +409,7 @@ function getShiftMovements(shiftId) {
 // ── Transactions ──────────────────────────────────────────────────────────────
 
 function saveTransaction(data) {
-  db().prepare(`
+  return db().prepare(`
     INSERT INTO transactions
       (offline_uuid, transaction_group_uuid, shift_id, shift_offline_uuid,
        local_transaction_id, local_device_id,
@@ -427,6 +427,10 @@ function saveTransaction(data) {
        @total, @paid_amount, @change_amount, @loyalty_points_earned,
        @sold_at, @created_by, 'pending_sync')
   `).run(data);
+}
+
+function getTransactionByOfflineUuid(offlineUuid) {
+  return db().prepare('SELECT * FROM transactions WHERE offline_uuid = ? LIMIT 1').get(offlineUuid) || null;
 }
 
 function getPendingTransactions() {
@@ -631,6 +635,7 @@ module.exports = {
   getActiveShift, openShift, closeShift, upsertServerShift,
   addCashMovement, getShiftMovements,
   saveTransaction, getPendingTransactions, markTransactionSynced,
+  getTransactionByOfflineUuid,
   markTransactionFailed,
   getPendingShifts, markShiftSynced,
   getPendingMovements, markMovementSynced,
