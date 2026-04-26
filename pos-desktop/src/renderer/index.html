@@ -19,7 +19,7 @@
       <p id="login-error" class="login-error"></p>
       <div class="login-actions">
         <button id="btn-open-api" class="link-btn">Setting API</button>
-        <button id="btn-open-printer" class="link-btn">Setting Printer</button>
+        <button id="btn-open-printer" class="link-btn">Setting Printer/Program</button>
       </div>
     </div>
   </section>
@@ -30,12 +30,11 @@
       <progress id="sync-progress" max="100" value="0"></progress>
       <p id="sync-status-text">Menunggu sinkronisasi...</p>
       <ul id="sync-module-status" class="sync-module-status"></ul>
-      <p id="sync-retry-count">Retry: 0</p>
+      <p id="sync-retry-count">Percobaan 0/3</p>
       <textarea id="sync-debug" rows="8" readonly placeholder="Debug sync akan muncul di sini jika gagal."></textarea>
       <div class="sync-actions">
         <button id="btn-sync-retry">Coba Lagi</button>
         <button id="btn-sync-copy-debug">Copy Debug</button>
-        <button id="btn-sync-offline" class="link-btn">Masuk Mode Offline</button>
         <button id="btn-sync-enter-pos">Masuk POS</button>
       </div>
     </div>
@@ -108,12 +107,12 @@
   </dialog>
 
   <dialog id="printer-dialog">
-    <h3>Setting Printer</h3>
+    <h3>Setting Printer/Program</h3>
     <label>Printer Windows</label>
     <select id="printer-name"></select>
     <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
     <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
-    <input id="device-code" placeholder="Kode POS / Kode Device (contoh: TJQ)" />
+    <p>Kode POS/Device dari web: <strong id="current-device-code">-</strong></p>
     <div class="dialog-actions"><button id="btn-save-printer">Save Printer Setting</button><button id="btn-close-printer">Tutup</button></div>
     <p id="printer-status"></p>
   </dialog>

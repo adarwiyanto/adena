@@ -15,7 +15,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     api_err('Method tidak diizinkan.', 405);
 }
 
-require_api_token();
+$token = require_api_token();
 $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
@@ -57,4 +57,5 @@ api_ok([
         'role' => $roleKey,
         'role_name' => (string)($u['role_name'] ?? $roleKey),
     ],
+    'token' => $token,
 ]);

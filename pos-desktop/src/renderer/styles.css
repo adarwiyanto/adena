@@ -57,4 +57,3 @@ dialog { border: none; border-radius: 12px; width: 420px; }
 .sync-module-status { columns: 2; padding-left: 20px; }
 .sync-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
 #sync-debug { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-#btn-sync-offline { display: none; }

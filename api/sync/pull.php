@@ -180,6 +180,44 @@ try {
                  " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
     $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
 
+    $pendingOrders = safe_rows(
+        $pdo,
+        'pending_orders',
+        "SELECT id, order_code, customer_id, status, created_at, completed_at, customer_name, customer_contact AS contact,
+                customer_address, customer_note, total_amount
+         FROM orders
+         ORDER BY created_at DESC
+         LIMIT 500",
+        [],
+        $debugNotes
+    );
+
+    $pendingOrderItems = safe_rows(
+        $pdo,
+        'pending_order_items',
+        "SELECT id, order_id, product_id, qty, price_each, subtotal, product_name
+         FROM order_items
+         ORDER BY id DESC
+         LIMIT 3000",
+        [],
+        $debugNotes
+    );
+
+    $activeShiftRows = safe_rows(
+        $pdo,
+        'active_shift',
+        "SELECT id, shift_code, branch_id, opened_at, opened_by, opening_cash_default,
+                opening_cash_actual, status, closed_at, closed_by, expected_cash_total,
+                counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
+                sync_status, created_at, updated_at
+         FROM pos_shifts
+         WHERE status = 'open'
+         ORDER BY id DESC
+         LIMIT 1",
+        [],
+        $debugNotes
+    );
+
     $response = [
         'ok' => true,
         'server_time' => gmdate('Y-m-d H:i:s'),
@@ -192,6 +230,14 @@ try {
             'settings' => $settings,
             'shifts' => array_values($shifts),
             'sales_history' => array_values($salesHistory),
+            'pending_orders' => array_values($pendingOrders),
+            'pending_order_items' => array_values($pendingOrderItems),
+            'active_shift' => $activeShiftRows[0] ?? null,
+        ],
+        'token' => [
+            'id' => (int)($user['id'] ?? 0),
+            'name' => (string)($user['name'] ?? ''),
+            'device_code' => strtoupper(trim((string)($user['device_code'] ?? ''))),
         ],
     ];
 

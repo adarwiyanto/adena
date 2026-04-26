@@ -2,6 +2,11 @@ const { initDb } = require('./db');
 const { pullMaster, pushTransactions } = require('./api');
 const { store } = require('./config');
 const { localDateTimeString } = require('./time');
+const { app } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const axios = require('axios');
 
 const PAYMENT_METHOD_FALLBACK = [
   { code: 'cash', name: 'Cash', is_active: 1, sort_order: 1, requires_bank: 0 },
@@ -35,7 +40,46 @@ function getBanks(data = {}) {
   return Array.isArray(data.banks) ? data.banks : (data.qris_banks || []);
 }
 
-function saveMasterData(data, { fullSync = false } = {}) {
+function toAbsoluteImageUrl(imagePath) {
+  const raw = String(imagePath || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  const baseURL = String(store.get('apiBaseUrl') || '').trim().replace(/\/$/, '');
+  return baseURL ? `${baseURL}/${raw.replace(/^\//, '')}` : '';
+}
+
+async function downloadProductImage(productId, imagePath, previousRow) {
+  const normalizedPath = String(imagePath || '').trim();
+  if (!normalizedPath) {
+    return { local_image_path: null, image_downloaded_at: null };
+  }
+  const currentLocalPath = String(previousRow?.local_image_path || '').replace(/^file:\/\//, '');
+  const previousImagePath = String(previousRow?.image_path || '');
+  if (currentLocalPath && previousImagePath === normalizedPath && fs.existsSync(currentLocalPath)) {
+    return { local_image_path: `file://${currentLocalPath}`, image_downloaded_at: previousRow?.image_downloaded_at || localDateTimeString() };
+  }
+
+  const imageURL = toAbsoluteImageUrl(normalizedPath);
+  if (!imageURL) return { local_image_path: null, image_downloaded_at: null };
+  const imagesDir = path.join(app.getPath('userData'), 'product-images');
+  fs.mkdirSync(imagesDir, { recursive: true });
+
+  const hash = crypto.createHash('md5').update(`${productId}-${normalizedPath}`).digest('hex').slice(0, 12);
+  const extensionFromUrl = (new URL(imageURL)).pathname.split('.').pop();
+  const ext = extensionFromUrl && /^[a-zA-Z0-9]{2,5}$/.test(extensionFromUrl) ? extensionFromUrl.toLowerCase() : 'jpg';
+  const filename = `product_${productId}_${hash}.${ext}`;
+  const localFile = path.join(imagesDir, filename);
+
+  if (fs.existsSync(localFile) && previousImagePath === normalizedPath) {
+    return { local_image_path: `file://${localFile}`, image_downloaded_at: previousRow?.image_downloaded_at || localDateTimeString() };
+  }
+
+  const response = await axios.get(imageURL, { responseType: 'arraybuffer', timeout: 20000 });
+  fs.writeFileSync(localFile, response.data);
+  return { local_image_path: `file://${localFile}`, image_downloaded_at: localDateTimeString() };
+}
+
+function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}) {
   const db = initDb();
   const tx = db.transaction(() => {
     if (fullSync) {
@@ -43,14 +87,14 @@ function saveMasterData(data, { fullSync = false } = {}) {
         .forEach((table) => db.prepare(`DELETE FROM ${table}`).run());
     }
 
-    const upsertProduct = db.prepare(`INSERT INTO products (id, name, price, category, category_id, category_name, image_path, is_favorite, is_best_seller, show_on_pos, track_stock, updated_at)
-      VALUES (@id, @name, @price, @category, @category_id, @category_name, @image_path, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @updated_at)
+    const upsertProduct = db.prepare(`INSERT INTO products (id, name, price, category, category_id, category_name, image_path, local_image_path, image_downloaded_at, is_favorite, is_best_seller, show_on_pos, track_stock, updated_at)
+      VALUES (@id, @name, @price, @category, @category_id, @category_name, @image_path, @local_image_path, @image_downloaded_at, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, price=excluded.price, category=excluded.category, category_id=excluded.category_id,
-        category_name=excluded.category_name, image_path=excluded.image_path, is_favorite=excluded.is_favorite,
+        category_name=excluded.category_name, image_path=excluded.image_path, local_image_path=excluded.local_image_path, image_downloaded_at=excluded.image_downloaded_at, is_favorite=excluded.is_favorite,
         is_best_seller=excluded.is_best_seller, show_on_pos=excluded.show_on_pos, track_stock=excluded.track_stock,
         updated_at=excluded.updated_at`);
-    (data.products || []).forEach((r) => upsertProduct.run(normalizeProduct(r)));
+    normalizedProducts.forEach((r) => upsertProduct.run(r));
 
     const upsertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=excluded.image_path');
     (data.categories || []).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
@@ -123,10 +167,35 @@ async function syncMaster(options = {}) {
     if (!resp?.ok) return { ...resp, endpoint: '/api/sync/pull.php', fullSync };
 
     const payload = resp.data || {};
-    saveMasterData(payload, { fullSync });
+    const db = initDb();
+    const existingProduct = db.prepare('SELECT id, image_path, local_image_path, image_downloaded_at FROM products WHERE id = ?');
+    const normalizedProducts = [];
+    let thumbnailDownloaded = 0;
+    let thumbnailFailed = 0;
+
+    for (const record of (payload.products || [])) {
+      const normalized = normalizeProduct(record);
+      const prev = existingProduct.get(normalized.id);
+      if (normalized.image_path) {
+        try {
+          const imageState = await downloadProductImage(normalized.id, normalized.image_path, prev);
+          normalized.local_image_path = imageState.local_image_path;
+          normalized.image_downloaded_at = imageState.image_downloaded_at;
+          if (normalized.local_image_path) thumbnailDownloaded += 1;
+        } catch (_) {
+          thumbnailFailed += 1;
+          normalized.local_image_path = prev?.local_image_path || null;
+          normalized.image_downloaded_at = prev?.image_downloaded_at || null;
+        }
+      }
+      normalizedProducts.push(normalized);
+    }
+
+    saveMasterData(payload, { fullSync, normalizedProducts });
 
     if (resp.server_time) store.set('lastSyncAt', resp.server_time);
     if (allowIncremental) store.delete('allowIncrementalSyncOnce');
+    if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
 
     return {
       ...resp,
@@ -139,8 +208,11 @@ async function syncMaster(options = {}) {
         payment_methods: (payload.payment_methods || []).length,
         shifts: (payload.shifts || []).length,
         sales_history: (payload.sales_history || []).length,
-        pending_orders: (payload.pending_orders || []).length
-      }
+        pending_orders: (payload.pending_orders || []).length,
+        thumbnails_downloaded: thumbnailDownloaded,
+        thumbnails_failed: thumbnailFailed
+      },
+      device_code: resp?.token?.device_code || null
     };
   } catch (error) {
     console.error('[sync:master] failed', error);

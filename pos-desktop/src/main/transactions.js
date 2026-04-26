@@ -6,7 +6,7 @@ const { localDateTimeString } = require('./time');
 function ensureDeviceCode() {
   const raw = String(store.get('deviceCode') || '').trim().toUpperCase();
   if (!/^[A-Z0-9]+$/.test(raw)) {
-    return { ok: false, message: 'Kode POS/Device belum disetting.' };
+    return { ok: false, message: 'Kode POS/Device belum disetting di Kasir Desktop.' };
   }
   return { ok: true, value: raw };
 }

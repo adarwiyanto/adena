@@ -29,12 +29,18 @@ function ensure_api_tokens_table(): void {
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         token_hash VARCHAR(255) NOT NULL,
+        device_code VARCHAR(20) NULL,
         is_active TINYINT(1) NOT NULL DEFAULT 1,
         last_used_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         revoked_at DATETIME NULL,
         INDEX idx_api_tokens_active (is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    try {
+        $pdo->exec("ALTER TABLE api_tokens ADD COLUMN device_code VARCHAR(20) NULL AFTER token_hash");
+    } catch (Throwable $e) {
+        // additive migration, abaikan jika kolom sudah ada
+    }
 }
 
 function api_get_bearer_token(): ?string {
@@ -54,7 +60,7 @@ function require_api_token(): array {
     }
 
     $pdo = db();
-    $rows = $pdo->query('SELECT id, name, token_hash FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
+    $rows = $pdo->query('SELECT id, name, token_hash, device_code FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
                 ->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $row) {
@@ -63,6 +69,7 @@ function require_api_token(): array {
             return [
                 'id' => (int)$row['id'],
                 'name' => (string)$row['name'],
+                'device_code' => strtoupper(trim((string)($row['device_code'] ?? ''))),
             ];
         }
     }

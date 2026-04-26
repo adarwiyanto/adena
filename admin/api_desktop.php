@@ -18,6 +18,10 @@ ensure_api_tokens_table();
 $err = '';
 $ok = '';
 $generatedToken = '';
+function normalize_device_code(string $code): string {
+  $normalized = strtoupper(trim($code));
+  return preg_replace('/\s+/', '', $normalized) ?? '';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
@@ -26,12 +30,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   if ($action === 'generate') {
     $name = trim((string)($_POST['name'] ?? ''));
+    $deviceCode = normalize_device_code((string)($_POST['device_code'] ?? ''));
     if ($name === '') {
       $err = 'Nama device wajib diisi.';
+    } elseif ($deviceCode !== '' && !preg_match('/^[A-Z0-9]+$/', $deviceCode)) {
+      $err = 'Kode POS/Device hanya boleh huruf dan angka (uppercase, tanpa spasi).';
     } else {
       $generatedToken = bin2hex(random_bytes(24));
-      db()->prepare('INSERT INTO api_tokens (name, token_hash, is_active, created_at) VALUES (?, ?, 1, NOW())')
-        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT)]);
+      db()->prepare('INSERT INTO api_tokens (name, token_hash, device_code, is_active, created_at) VALUES (?, ?, ?, 1, NOW())')
+        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $deviceCode !== '' ? $deviceCode : null]);
       $ok = 'Token berhasil dibuat. Salin sekarang karena hanya tampil sekali.';
     }
   } elseif ($action === 'revoke' && $id > 0) {
@@ -40,19 +47,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ok = 'Token berhasil direvoke.';
   } elseif ($action === 'regenerate' && $id > 0) {
     $name = trim((string)($_POST['name'] ?? ''));
+    $deviceCode = normalize_device_code((string)($_POST['device_code'] ?? ''));
     if ($name === '') {
-      $name = 'POS Desktop';
+      $name = 'Kasir Desktop';
     }
-    db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW() WHERE id = ?')
-      ->execute([$id]);
-    $generatedToken = bin2hex(random_bytes(24));
-    db()->prepare('INSERT INTO api_tokens (name, token_hash, is_active, created_at) VALUES (?, ?, 1, NOW())')
-      ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT)]);
-    $ok = 'Token digenerate ulang. Salin token baru sekarang.';
+    if ($deviceCode !== '' && !preg_match('/^[A-Z0-9]+$/', $deviceCode)) {
+      $err = 'Kode POS/Device hanya boleh huruf dan angka (uppercase, tanpa spasi).';
+    } else {
+      db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW() WHERE id = ?')
+        ->execute([$id]);
+      $generatedToken = bin2hex(random_bytes(24));
+      db()->prepare('INSERT INTO api_tokens (name, token_hash, device_code, is_active, created_at) VALUES (?, ?, ?, 1, NOW())')
+        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $deviceCode !== '' ? $deviceCode : null]);
+      $ok = 'Token digenerate ulang. Salin token baru sekarang.';
+    }
   }
 }
 
-$tokens = db()->query('SELECT id, name, is_active, last_used_at, created_at, revoked_at FROM api_tokens ORDER BY id DESC')
+$tokens = db()->query('SELECT id, name, device_code, is_active, last_used_at, created_at, revoked_at FROM api_tokens ORDER BY id DESC')
   ->fetchAll(PDO::FETCH_ASSOC);
 $customCss = setting('custom_css', '');
 ?>
@@ -61,7 +73,7 @@ $customCss = setting('custom_css', '');
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>API Desktop</title>
+  <title>Kasir Desktop</title>
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
@@ -73,7 +85,7 @@ $customCss = setting('custom_css', '');
     <div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
     <div class="content">
       <div class="card">
-        <h3 style="margin-top:0">API Desktop</h3>
+        <h3 style="margin-top:0">Kasir Desktop</h3>
         <p><small>Token dipakai POS desktop melalui header Authorization Bearer.</small></p>
         <?php if ($err): ?><div class="card" style="border-color:#fca5a5;background:#fef2f2"><?php echo e($err); ?></div><?php endif; ?>
         <?php if ($ok): ?><div class="card" style="border-color:#86efac;background:#ecfdf5"><?php echo e($ok); ?></div><?php endif; ?>
@@ -92,6 +104,10 @@ $customCss = setting('custom_css', '');
             <label>Nama Device</label>
             <input type="text" name="name" required maxlength="100" placeholder="Contoh: POS Kasir 1">
           </div>
+          <div class="row">
+            <label>Kode POS/Device</label>
+            <input type="text" name="device_code" maxlength="20" placeholder="Contoh: TJQ">
+          </div>
           <button class="btn" type="submit">Generate Token</button>
         </form>
       </div>
@@ -99,11 +115,12 @@ $customCss = setting('custom_css', '');
       <div class="card" style="margin-top:16px">
         <h3 style="margin-top:0">Daftar Token</h3>
         <div class="table-wrap"><table>
-          <thead><tr><th>Nama</th><th>Status</th><th>Last Used</th><th>Dibuat</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Nama</th><th>Kode POS</th><th>Status</th><th>Last Used</th><th>Dibuat</th><th>Aksi</th></tr></thead>
           <tbody>
           <?php foreach ($tokens as $t): ?>
             <tr>
               <td><?php echo e($t['name']); ?></td>
+              <td><?php echo e((string)($t['device_code'] ?? '-')); ?></td>
               <td><?php echo ((int)$t['is_active'] === 1) ? '<span style="color:#22c55e">Aktif</span>' : '<span style="opacity:.6">Nonaktif</span>'; ?></td>
               <td><?php echo e($t['last_used_at'] ?: '-'); ?></td>
               <td><?php echo e($t['created_at']); ?></td>
@@ -121,6 +138,7 @@ $customCss = setting('custom_css', '');
                   <input type="hidden" name="action" value="regenerate">
                   <input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>">
                   <input type="hidden" name="name" value="<?php echo e((string)$t['name']); ?>">
+                  <input type="hidden" name="device_code" value="<?php echo e((string)($t['device_code'] ?? '')); ?>">
                   <button class="btn" type="submit">Generate Ulang</button>
                 </form>
               </td>

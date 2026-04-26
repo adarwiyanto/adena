@@ -264,6 +264,8 @@ function initDb() {
     try { db.exec(sql); } catch (_) {}
   };
   safeExec('ALTER TABLE products ADD COLUMN image_path TEXT');
+  safeExec('ALTER TABLE products ADD COLUMN local_image_path TEXT');
+  safeExec('ALTER TABLE products ADD COLUMN image_downloaded_at TEXT');
   safeExec('ALTER TABLE products ADD COLUMN category_id INTEGER');
   safeExec('ALTER TABLE products ADD COLUMN category_name TEXT');
   safeExec('ALTER TABLE product_categories ADD COLUMN image_path TEXT');
