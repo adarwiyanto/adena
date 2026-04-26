@@ -27,6 +27,18 @@ $incomingShifts = (array)($body['shifts'] ?? []);
 $incomingMovements = (array)($body['cash_movements'] ?? []);
 $incomingTransactions = (array)($body['transactions'] ?? []);
 
+if (count($incomingShifts) === 0 && count($incomingMovements) === 0 && count($incomingTransactions) === 0) {
+    api_json([
+        'ok' => false,
+        'message' => 'Payload sync kosong. Tidak ada shifts/cash_movements/transactions.',
+        'received_transactions' => 0,
+        'inserted_transactions' => 0,
+        'duplicate_transactions' => 0,
+        'failed_transactions' => 0,
+        'errors' => ['payload_empty'],
+    ], 422);
+}
+
 $results = ['shifts' => [], 'cash_movements' => [], 'transactions' => []];
 $summary = ['received' => count($incomingTransactions), 'inserted' => 0, 'failed' => 0, 'exists' => 0];
 $debug = [
@@ -327,6 +339,14 @@ $response = [
     'ok' => true,
     'results' => $results,
     'summary' => $summary,
+    'received_transactions' => (int)$summary['received'],
+    'inserted_transactions' => (int)$summary['inserted'],
+    'duplicate_transactions' => (int)$summary['exists'],
+    'failed_transactions' => (int)$summary['failed'],
+    'errors' => array_values(array_filter(array_map(
+        static fn($row) => is_array($row) ? ($row['message'] ?? null) : null,
+        $results['transactions']
+    ))),
 ];
 if ($debugMode) {
     $response['debug'] = $debug;

@@ -50,4 +50,5 @@ contextBridge.exposeInMainWorld('POS', {
   onSyncWarning:  (cb)   => ipcRenderer.on('sync:warning', (_, msg) => cb(msg)),
   onReset:        (cb)   => ipcRenderer.on('pos:reset', cb),
   onCheckoutFinished: (cb) => ipcRenderer.on('pos:checkout-finished', (_, payload) => cb(payload)),
+  onCheckoutStatus: (cb) => ipcRenderer.on('checkout:status', (_, payload) => cb(payload)),
 });

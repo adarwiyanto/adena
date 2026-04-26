@@ -4,6 +4,7 @@ const { app } = require('electron');
 const Database = require('better-sqlite3');
 
 let _db = null;
+let _dbLogged = false;
 
 function getDbPath() {
   return path.join(app.getPath('userData'), 'adena-pos.db');
@@ -12,6 +13,10 @@ function getDbPath() {
 function db() {
   if (_db) return _db;
   _db = new Database(getDbPath());
+  if (!_dbLogged) {
+    _dbLogged = true;
+    console.info(`[db] Active SQLite path: ${getDbPath()}`);
+  }
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
   migrate(_db);
@@ -549,6 +554,43 @@ function getPendingTransactionsDebug() {
   `).all();
 }
 
+function getDbDiagnostics() {
+  const d = db();
+  const dbPath = getDbPath();
+  const tableCountRow = d.prepare("SELECT COUNT(*) AS total FROM sqlite_master WHERE type = 'table'").get() || {};
+  const transactionCountRow = d.prepare('SELECT COUNT(*) AS total FROM transactions').get() || {};
+  const pendingCountRow = d.prepare("SELECT COUNT(*) AS total FROM transactions WHERE sync_status IN ('pending', 'pending_sync', 'sync_failed')").get() || {};
+  const recentTransactions = d.prepare(`
+    SELECT
+      offline_uuid,
+      COALESCE(transaction_code, '-') AS transaction_code,
+      total,
+      payment_method,
+      COALESCE(payment_channel_name, payment_bank, '-') AS payment_channel,
+      sync_status,
+      sold_at
+    FROM transactions
+    ORDER BY id DESC
+    LIMIT 20
+  `).all();
+
+  let dbSizeBytes = 0;
+  try {
+    dbSizeBytes = require('fs').statSync(dbPath).size;
+  } catch (_) {
+    dbSizeBytes = 0;
+  }
+
+  return {
+    db_path: dbPath,
+    db_size_bytes: dbSizeBytes,
+    table_count: Number(tableCountRow.total || 0),
+    transaction_count: Number(transactionCountRow.total || 0),
+    pending_transaction_count: Number(pendingCountRow.total || 0),
+    recent_transactions: recentTransactions,
+  };
+}
+
 function getLatestApiRequest() {
   return db().prepare(`
     SELECT endpoint, status_code, error_message, synced_at
@@ -581,7 +623,7 @@ function getSyncQueueStats() {
 }
 
 module.exports = {
-  db, getSetting, setSetting, getServerSetting,
+  db, getDbPath, getSetting, setSetting, getServerSetting,
   getOrCreateDeviceId,
   saveLocalUser, getLocalUser, setLocalPasswordHash,
   replaceCashiers,
@@ -596,4 +638,5 @@ module.exports = {
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
   logSync, getLastSyncAt, getSyncQueueStats,
   logApiRequest, logSyncDebug, getSyncDebugLogs, getPendingTransactionsDebug, getLatestApiRequest,
+  getDbDiagnostics,
 };

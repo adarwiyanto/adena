@@ -125,6 +125,11 @@
     .cart-line { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
     .cart-total { font-size: 16px; font-weight: 800; }
     .cart-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .checkout-status-box {
+      margin-top: 8px; padding: 10px; border: 1px solid var(--border);
+      border-radius: var(--radius); background: #f8fafc; font-size: 12px;
+    }
+    .checkout-status-line { font-weight: 700; color: var(--accent); }
 
     /* ── Modals ── */
     .modal-sm { max-width: 380px; }
@@ -199,6 +204,10 @@
       <div class="cart-line cart-total"><span>TOTAL</span><span id="total-val">Rp 0</span></div>
       <div class="cart-actions">
         <button class="btn btn-success btn-full btn-lg" id="btn-bayar">BAYAR</button>
+        <button class="btn btn-primary btn-full btn-lg" id="btn-transaksi-baru" style="display:none">Transaksi Baru</button>
+      </div>
+      <div class="checkout-status-box" id="checkout-status-box" style="display:none">
+        <div class="checkout-status-line" id="checkout-status-line">-</div>
       </div>
     </div>
   </aside>
@@ -284,7 +293,7 @@
     <div class="modal-footer" style="flex-wrap:wrap;gap:6px">
       <button class="btn btn-ghost btn-sm" id="btn-debug-test-token">Test API Token</button>
       <button class="btn btn-ghost btn-sm" id="btn-debug-pull-master">Pull Master Data</button>
-      <button class="btn btn-ghost btn-sm" id="btn-debug-push-pending">Push Pending Transactions</button>
+      <button class="btn btn-ghost btn-sm" id="btn-debug-push-pending">Force Sync Pending</button>
       <button class="btn btn-primary btn-sm" id="btn-debug-sync-now">Sync Now</button>
       <button class="btn btn-success btn-sm" id="btn-debug-copy">Copy Debug Log</button>
       <button class="btn btn-ghost btn-sm" id="btn-debug-close">Tutup</button>
@@ -299,6 +308,7 @@ let settings = {}, activeShift = null;
 let cart = {}; // { productId: { product, qty, discount_amount, discount_type } }
 let currentDiscItemId = null;
 let latestDebugState = null;
+let awaitingNewTransaction = false;
 
 const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
 const IMAGE_BASE_URL = 'https://adena.co.id';
@@ -328,16 +338,16 @@ async function init() {
   await refreshSyncStatus();
 
   window.POS.onReset(() => resetCart());
+  window.POS.onCheckoutStatus((payload) => {
+    const msg = String(payload?.text || '').trim();
+    if (msg) showCheckoutStatus(msg);
+  });
   window.POS.onCheckoutFinished((payload) => {
-    const syncWarning = payload && payload.synced === false && payload.syncMessage
-      ? `\nCatatan sync: ${payload.syncMessage}`
-      : '';
-    const lanjutBaru = confirm(`Transaksi selesai dicetak. Mulai transaksi baru?${syncWarning}`);
-    if (lanjutBaru) {
-      const searchInput = document.getElementById('search');
-      searchInput.value = '';
-      searchInput.focus();
-      renderProducts(filterProducts());
+    awaitingNewTransaction = true;
+    document.getElementById('btn-bayar').style.display = 'none';
+    document.getElementById('btn-transaksi-baru').style.display = '';
+    if (payload && payload.synced === false && payload.syncMessage) {
+      showCheckoutStatus('Sinkronisasi gagal, transaksi disimpan pending');
     }
   });
   window.POS.onSyncDone(async (r) => {
@@ -514,6 +524,10 @@ function resetCart() {
   document.getElementById('sel-customer').value = '';
   document.getElementById('guide-name').value = '';
   renderCart();
+  awaitingNewTransaction = false;
+  document.getElementById('btn-bayar').style.display = '';
+  document.getElementById('btn-transaksi-baru').style.display = 'none';
+  hideCheckoutStatus();
 }
 
 function loadCartFromExternal(cartData) {
@@ -589,6 +603,7 @@ function buildGuides() {
 
 // ── Bayar ─────────────────────────────────────────────────────────────────────
 document.getElementById('btn-bayar').addEventListener('click', async () => {
+  if (awaitingNewTransaction) return;
   if (!activeShift) { alert('Buka shift terlebih dahulu.'); return; }
   const items = Object.values(cart).filter((i) => i.qty > 0);
   if (!items.length) { alert('Keranjang masih kosong.'); return; }
@@ -622,7 +637,15 @@ document.getElementById('btn-bayar').addEventListener('click', async () => {
   if (selectedGuide && !cartData.guide_name) cartData.guide_name = selectedGuide.name;
 
   await window.POS.setPendingCart(cartData);
+  showCheckoutStatus('Menyimpan transaksi...');
   window.POS.openPayment();
+});
+document.getElementById('btn-transaksi-baru').addEventListener('click', () => {
+  resetCart();
+  const searchInput = document.getElementById('search');
+  searchInput.value = '';
+  searchInput.focus();
+  renderProducts(filterProducts());
 });
 
 // ── Shift ─────────────────────────────────────────────────────────────────────
@@ -847,6 +870,7 @@ async function refreshDebugSyncPanel(infoMessage = '') {
   const st = await window.POS.syncDebugStatus();
   latestDebugState = st;
   const logs = Array.isArray(st.logs) ? st.logs.slice(0, 5) : [];
+  const recentTransactions = Array.isArray(st.db_diag?.recent_transactions) ? st.db_diag.recent_transactions : [];
   const logHtml = logs.length
     ? logs.map((row) => `
       <div style="padding:6px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
@@ -855,6 +879,32 @@ async function refreshDebugSyncPanel(infoMessage = '') {
         <div>Error: ${esc(row.error_message || '-')}</div>
       </div>`).join('')
     : '<div class="cart-empty">Belum ada sync_debug_logs.</div>';
+  const recentRows = recentTransactions.length
+    ? `<table style="width:100%;border-collapse:collapse;margin-top:6px">
+        <thead>
+          <tr>
+            <th style="text-align:left;border-bottom:1px solid #ddd">offline_uuid</th>
+            <th style="text-align:left;border-bottom:1px solid #ddd">trx_code</th>
+            <th style="text-align:right;border-bottom:1px solid #ddd">total</th>
+            <th style="text-align:left;border-bottom:1px solid #ddd">metode/channel</th>
+            <th style="text-align:left;border-bottom:1px solid #ddd">status</th>
+            <th style="text-align:left;border-bottom:1px solid #ddd">sold_at</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recentTransactions.map((row) => `
+            <tr>
+              <td style="border-bottom:1px solid #f1f5f9">${esc(row.offline_uuid || '-')}</td>
+              <td style="border-bottom:1px solid #f1f5f9">${esc(row.transaction_code || '-')}</td>
+              <td style="text-align:right;border-bottom:1px solid #f1f5f9">${fmt(row.total || 0)}</td>
+              <td style="border-bottom:1px solid #f1f5f9">${esc(row.payment_method || '-')} / ${esc(row.payment_channel || '-')}</td>
+              <td style="border-bottom:1px solid #f1f5f9">${esc(row.sync_status || '-')}</td>
+              <td style="border-bottom:1px solid #f1f5f9">${esc(row.sold_at || '-')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`
+    : '<div class="cart-empty">Belum ada transaksi lokal.</div>';
 
   document.getElementById('debug-sync-body').innerHTML = `
     ${infoMessage ? `<div class="notice show" style="margin-bottom:8px">${esc(infoMessage)}</div>` : ''}
@@ -870,6 +920,14 @@ async function refreshDebugSyncPanel(infoMessage = '') {
     <div><b>HTTP status terakhir:</b> ${Number(st.last_http_status || 0)}</div>
     <div><b>Response server terakhir:</b> <pre style="white-space:pre-wrap">${esc((st.last_server_response || '-').slice(0, 1200))}</pre></div>
     <div><b>Waktu sync terakhir:</b> ${esc(st.last_sync_at || '-')}</div>
+    <hr>
+    <div><b>DB Path aktif:</b> ${esc(st.db_diag?.db_path || '-')}</div>
+    <div><b>DB file size:</b> ${Number(st.db_diag?.db_size_bytes || 0)} bytes</div>
+    <div><b>Jumlah tabel SQLite:</b> ${Number(st.db_diag?.table_count || 0)}</div>
+    <div><b>Jumlah transaksi lokal:</b> ${Number(st.db_diag?.transaction_count || 0)}</div>
+    <div><b>Jumlah pending transaksi:</b> ${Number(st.db_diag?.pending_transaction_count || 0)}</div>
+    <div><b>20 transaksi terakhir:</b></div>
+    ${recentRows}
     <hr>
     <div><b>5 Log terakhir</b></div>
     ${logHtml}
@@ -890,6 +948,11 @@ function buildDebugLogText(st) {
     `Last HTTP Status: ${Number(st?.last_http_status || 0)}`,
     `Last Response: ${String(st?.last_server_response || '-').slice(0, 800)}`,
     `Last Sync At: ${st?.last_sync_at || '-'}`,
+    `DB Path: ${st?.db_diag?.db_path || '-'}`,
+    `DB Size: ${Number(st?.db_diag?.db_size_bytes || 0)} bytes`,
+    `SQLite Tables: ${Number(st?.db_diag?.table_count || 0)}`,
+    `Local Transactions: ${Number(st?.db_diag?.transaction_count || 0)}`,
+    `Pending Transactions (DB): ${Number(st?.db_diag?.pending_transaction_count || 0)}`,
     'Pending Payload Summary:',
   ];
   const pendingRows = Array.isArray(st?.pending_payload_summary) ? st.pending_payload_summary : [];
@@ -901,6 +964,15 @@ function buildDebugLogText(st) {
     lines.push(`- [${row.created_at}] ${row.direction} ${row.endpoint} -> HTTP ${row.http_status} ${row.error_message ? '| ' + row.error_message : ''}`);
   });
   return lines.join('\\n');
+}
+
+function showCheckoutStatus(message) {
+  document.getElementById('checkout-status-box').style.display = '';
+  document.getElementById('checkout-status-line').textContent = message;
+}
+
+function hideCheckoutStatus() {
+  document.getElementById('checkout-status-box').style.display = 'none';
 }
 
 init();
