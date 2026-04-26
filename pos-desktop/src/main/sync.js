@@ -97,7 +97,13 @@ async function syncMaster() {
   try {
     const since = store.get('lastSyncAt');
     const resp = await pullMaster(since);
-    if (!resp?.ok) return { ...resp, endpoint: '/api/sync/pull.php' };
+    if (!resp?.ok) {
+      const status = Number(resp?.status || 0);
+      if (status >= 500) {
+        return { ...resp, message: 'Sync gagal: server error di api/sync/pull.php', endpoint: '/api/sync/pull.php' };
+      }
+      return { ...resp, endpoint: '/api/sync/pull.php' };
+    }
     saveMasterData(resp.data || {});
     store.set('lastSyncAt', localDateTimeString());
     return resp;
@@ -105,7 +111,9 @@ async function syncMaster() {
     console.error('[sync:master] failed', error);
     return {
       ok: false,
-      message: 'Sync gagal',
+      message: (error?.status || 500) >= 500
+        ? 'Sync gagal: server error di api/sync/pull.php'
+        : 'Sync gagal',
       status: error?.status || 500,
       endpoint: '/api/sync/pull.php'
     };
