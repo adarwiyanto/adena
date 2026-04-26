@@ -13,8 +13,10 @@
       <form id="login-form">
         <input name="username" placeholder="Username" required />
         <input name="password" placeholder="Password" type="password" required />
-        <button type="submit">Login</button>
+        <button id="btn-login" type="submit">Login</button>
       </form>
+      <p id="login-status" class="login-status" aria-live="polite"></p>
+      <p id="login-error" class="login-error" aria-live="assertive"></p>
       <button id="btn-open-api" class="link-btn">Setting API</button>
     </div>
   </section>

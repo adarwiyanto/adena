@@ -6,6 +6,9 @@ body { font-family: Inter, Segoe UI, sans-serif; margin: 0; background: #f7f8fb;
 input, select, button { width: 100%; padding: 10px; margin: 6px 0; border-radius: 10px; border: 1px solid #d3dae6; }
 button { background: #3b82f6; color: #fff; border: 0; cursor: pointer; font-weight: 600; }
 .link-btn { background: transparent; color: #3b82f6; text-align: left; padding: 0; margin-top: 8px; }
+.login-status { min-height: 20px; margin: 6px 0 0; color: #334155; font-size: 13px; }
+.login-error { min-height: 20px; margin: 4px 0 0; color: #dc2626; font-size: 13px; }
+.login-error:empty, .login-status:empty { display: none; }
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #fff; border-bottom: 1px solid #e8ecf3; }
 .layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; padding: 12px; }
 .products { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 78vh; overflow: auto; }

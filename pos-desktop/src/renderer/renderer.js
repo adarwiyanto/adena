@@ -13,6 +13,53 @@ const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 
 const $ = (s) => document.querySelector(s);
 
+function setLoginStatus(message) {
+  $('#login-status').textContent = message || '';
+}
+
+function setLoginError(message) {
+  $('#login-error').textContent = message || '';
+}
+
+function setLoginBusy(isBusy) {
+  const btn = $('#btn-login');
+  btn.disabled = !!isBusy;
+  btn.textContent = isBusy ? 'Memproses login...' : 'Login';
+}
+
+function validateLoginInput({ username, password, settings }) {
+  if (!String(username || '').trim()) return 'Username wajib diisi';
+  if (!String(password || '').trim()) return 'Password wajib diisi';
+  const baseUrl = String(settings.apiBaseUrl || '').trim();
+  if (!baseUrl) return 'Base URL API belum disetting';
+  const token = String(settings.apiToken || '').trim();
+  if (!token) return 'Token API belum disetting';
+
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch (_) {
+    return 'Base URL API tidak valid. Gunakan http:// atau https://';
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return 'Protocol salah. Gunakan https://adena.co.id';
+  }
+  return '';
+}
+
+function mapLoginError(errObj) {
+  const status = Number(errObj?.status || 0);
+  const detail = String(errObj?.detail || '').toLowerCase();
+  const message = String(errObj?.message || '');
+
+  if (message) return message;
+  if (status === 401 && detail.includes('token')) return 'Token tidak valid';
+  if (status === 401) return 'Username/password salah';
+  if (status === 404) return 'Endpoint login tidak ditemukan';
+  if (status === 0) return 'Server tidak dapat dihubungi';
+  return 'Login gagal. Silakan coba lagi.';
+}
+
 async function initSettingsDialog() {
   const s = await window.desktopAPI.getSettings();
   $('#api-base-url').value = s.apiBaseUrl || '';
@@ -148,6 +195,19 @@ async function payNow() {
 
 async function bootstrap() {
   await initSettingsDialog();
+  const existingSession = await window.desktopAPI.getSession();
+  if (existingSession?.ok && existingSession.user) {
+    state.user = existingSession.user;
+    $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
+    try {
+      await window.desktopAPI.syncMaster();
+    } catch (e) {
+      console.warn('[login] sync master skipped:', e?.message || e);
+    }
+    await loadPosState();
+    $('#login-view').classList.remove('active');
+    $('#pos-view').classList.add('active');
+  }
   setOnlineBadge();
   window.addEventListener('online', async () => { setOnlineBadge(); await window.desktopAPI.syncPending(); await loadPosState(); });
   window.addEventListener('offline', setOnlineBadge);
@@ -176,14 +236,52 @@ async function bootstrap() {
 
   $('#login-form').onsubmit = async (e) => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    const resp = await window.desktopAPI.login({ username: fd.get('username'), password: fd.get('password') });
-    state.user = resp.data.user;
-    $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
-    await window.desktopAPI.syncMaster();
-    await loadPosState();
-    $('#login-view').classList.remove('active');
-    $('#pos-view').classList.add('active');
+    console.log('[login] clicked');
+    setLoginError('');
+    setLoginStatus('');
+    setLoginBusy(true);
+
+    try {
+      const fd = new FormData(e.target);
+      const payload = {
+        username: String(fd.get('username') || '').trim(),
+        password: String(fd.get('password') || '')
+      };
+      const settings = await window.desktopAPI.getSettings();
+      const validationMessage = validateLoginInput({ ...payload, settings });
+      if (validationMessage) {
+        setLoginError(validationMessage);
+        setLoginStatus('API belum disetting / data login belum lengkap');
+        return;
+      }
+
+      setLoginStatus('Sedang login...');
+      const resp = await window.desktopAPI.login(payload);
+      if (!resp?.ok) {
+        const msg = mapLoginError(resp);
+        setLoginError(msg);
+        setLoginStatus('Gagal login');
+        return;
+      }
+
+      state.user = resp.user;
+      $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
+      setLoginStatus('Login sukses');
+      try {
+        await window.desktopAPI.syncMaster();
+      } catch (syncErr) {
+        console.warn('[login] sync master failed:', syncErr?.message || syncErr);
+      }
+      await loadPosState();
+      $('#login-view').classList.remove('active');
+      $('#pos-view').classList.add('active');
+    } catch (err) {
+      console.error('[login] renderer error:', err?.message || err);
+      setLoginError(err?.message || 'Server tidak dapat dihubungi');
+      setLoginStatus('Gagal login');
+    } finally {
+      setLoginBusy(false);
+    }
   };
 
   $('#payment-method').onchange = updateBankState;
