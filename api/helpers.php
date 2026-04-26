@@ -75,7 +75,7 @@ function api_verify_token(): array {
 }
 
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Authorization, Content-Type');
+header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Debug-Sync');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     http_response_code(204);

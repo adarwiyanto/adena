@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('POS', {
   // Sync
   syncManual:     ()     => ipcRenderer.invoke('sync:run', { full: true }),
   syncStatus:     ()     => ipcRenderer.invoke('sync:status'),
+  syncTestToken:  ()     => ipcRenderer.invoke('sync:test-token'),
+  syncPullMaster: ()     => ipcRenderer.invoke('sync:pull-master'),
+  syncPushPending:()     => ipcRenderer.invoke('sync:push-pending'),
+  syncDebugStatus:()     => ipcRenderer.invoke('sync:debug-status'),
   resetLocalLogin:()     => ipcRenderer.invoke('session:reset-local'),
 
   // Events dari main

@@ -244,6 +244,17 @@ function migrate(d) {
       records_failed  INTEGER DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS sync_debug_logs (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      direction        TEXT,
+      endpoint         TEXT,
+      http_status      INTEGER,
+      request_summary  TEXT,
+      response_summary TEXT,
+      error_message    TEXT,
+      created_at       TEXT DEFAULT (datetime('now','localtime'))
+    );
+
   `);
 
   // additive migrations (aman untuk data existing)
@@ -501,6 +512,52 @@ function logApiRequest(entry) {
   });
 }
 
+function logSyncDebug(entry) {
+  db().prepare(`
+    INSERT INTO sync_debug_logs
+      (direction, endpoint, http_status, request_summary, response_summary, error_message)
+    VALUES
+      (@direction, @endpoint, @http_status, @request_summary, @response_summary, @error_message)
+  `).run({
+    direction: entry.direction || '-',
+    endpoint: entry.endpoint || '-',
+    http_status: Number(entry.http_status || 0),
+    request_summary: entry.request_summary ? String(entry.request_summary).slice(0, 5000) : null,
+    response_summary: entry.response_summary ? String(entry.response_summary).slice(0, 5000) : null,
+    error_message: entry.error_message ? String(entry.error_message).slice(0, 2000) : null,
+  });
+}
+
+function getSyncDebugLogs(limit = 50) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50)));
+  return db().prepare(`
+    SELECT id, direction, endpoint, http_status, request_summary, response_summary, error_message, created_at
+    FROM sync_debug_logs
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(safeLimit);
+}
+
+function getPendingTransactionsDebug() {
+  return db().prepare(`
+    SELECT offline_uuid, sync_status, sync_error, total, payment_method,
+           COALESCE(payment_channel_name, payment_bank, '') AS payment_channel,
+           sold_at, created_by
+    FROM transactions
+    WHERE sync_status IN ('pending', 'pending_sync', 'sync_failed')
+    ORDER BY id ASC
+  `).all();
+}
+
+function getLatestApiRequest() {
+  return db().prepare(`
+    SELECT endpoint, status_code, error_message, synced_at
+    FROM api_request_log
+    ORDER BY id DESC
+    LIMIT 1
+  `).get() || null;
+}
+
 function getLastSyncAt() {
   const row = db().prepare(
     "SELECT synced_at FROM sync_log WHERE status = 'ok' ORDER BY id DESC LIMIT 1"
@@ -511,7 +568,7 @@ function getLastSyncAt() {
 function getSyncQueueStats() {
   const tx = db().prepare(`
     SELECT
-      SUM(CASE WHEN sync_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+      SUM(CASE WHEN sync_status IN ('pending', 'pending_sync') THEN 1 ELSE 0 END) AS pending_count,
       SUM(CASE WHEN sync_status = 'sync_failed' THEN 1 ELSE 0 END) AS failed_count,
       MAX(CASE WHEN sync_status = 'sync_failed' THEN COALESCE(sync_error, '') ELSE NULL END) AS last_error
     FROM transactions
@@ -538,5 +595,5 @@ module.exports = {
   addCustomerLoyaltyPoints,
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
   logSync, getLastSyncAt, getSyncQueueStats,
-  logApiRequest,
+  logApiRequest, logSyncDebug, getSyncDebugLogs, getPendingTransactionsDebug, getLatestApiRequest,
 };
