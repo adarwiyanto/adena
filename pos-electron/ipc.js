@@ -110,16 +110,46 @@ ipcMain.handle('auth:current', () => {
   try { return JSON.parse(raw); } catch (_) { return null; }
 });
 
+ipcMain.handle('auth:bootstrap', async () => {
+  const token = getSetting('device_token', '');
+  const userRaw = getSetting('current_user', '');
+  if (!token || !userRaw) return { ok: false, needs_login: true };
+  const validation = await sync_module.validateToken(token);
+  if (!validation.ok) {
+    setSetting('device_token', '');
+    setSetting('current_user', '');
+    setSetting('current_user_info', '');
+    return { ok: false, needs_login: true, message: 'Sesi desktop tidak valid, silakan login ulang.' };
+  }
+  return { ok: true, needs_login: false };
+});
+
 // ── Sync ──────────────────────────────────────────────────────────────────────
 
 ipcMain.handle('sync:run', async (_, { full = false } = {}) => {
-  return sync_module.runSync(full);
+  const result = await sync_module.runSync(full);
+  if (!result.ok && result.type === 'auth_error') {
+    return {
+      ...result,
+      requires_login: true,
+      message: 'Sesi desktop tidak valid. Login ulang diperlukan agar transaksi tersinkron.',
+    };
+  }
+  if (!result.ok && result.type === 'network_error') {
+    return {
+      ...result,
+      message: 'Transaksi tersimpan lokal dan akan disinkronkan saat koneksi tersedia.',
+    };
+  }
+  return result;
 });
 
 ipcMain.handle('sync:status', () => {
+  const queue = db_module.getSyncQueueStats();
   return {
     last_sync_at: getSetting('last_sync_at', null),
     token: !!getSetting('device_token', ''),
+    ...queue,
   };
 });
 
@@ -153,7 +183,18 @@ ipcMain.handle('data:payment-methods', () => {
 });
 
 ipcMain.handle('data:banks', () => {
-  return db().prepare("SELECT * FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, name").all();
+  const channels = db().prepare(`
+    SELECT id,
+           COALESCE(payment_method, '') AS payment_method,
+           COALESCE(channel_name, bank_name) AS name,
+           sort_order,
+           is_active
+    FROM payment_channels
+    WHERE is_active = 1
+    ORDER BY sort_order, name
+  `).all().filter((row) => String(row.name || '').trim() !== '');
+  if (channels.length) return channels;
+  return db().prepare("SELECT id, '' AS payment_method, name, sort_order, is_active FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, name").all();
 });
 
 ipcMain.handle('data:guides', () => {

@@ -90,6 +90,15 @@ function migrate(d) {
       is_active INTEGER DEFAULT 1
     );
 
+    CREATE TABLE IF NOT EXISTS payment_channels (
+      id             INTEGER PRIMARY KEY,
+      payment_method TEXT,
+      channel_name   TEXT,
+      bank_name      TEXT,
+      is_active      INTEGER DEFAULT 1,
+      sort_order     INTEGER DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS landing_orders (
       id            INTEGER PRIMARY KEY,
       order_code    TEXT,
@@ -160,7 +169,8 @@ function migrate(d) {
       loyalty_points_earned INTEGER DEFAULT 0,
       sold_at               TEXT,
       created_by            INTEGER,
-      sync_status           TEXT DEFAULT 'pending'
+      sync_status           TEXT DEFAULT 'pending',
+      sync_error            TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sync_log (
@@ -191,6 +201,7 @@ function migrate(d) {
     }
   };
   ensureColumn('payment_methods', 'requires_bank', 'requires_bank INTEGER DEFAULT 0');
+  ensureColumn('transactions', 'sync_error', 'sync_error TEXT');
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -320,17 +331,23 @@ function saveTransaction(data) {
 }
 
 function getPendingTransactions() {
-  return db().prepare("SELECT * FROM transactions WHERE sync_status = 'pending'").all();
+  return db().prepare("SELECT * FROM transactions WHERE sync_status IN ('pending', 'sync_failed')").all();
 }
 
 function markTransactionSynced(offlineUuid, txCode) {
   db().prepare(
-    "UPDATE transactions SET sync_status = 'synced', transaction_code = ? WHERE offline_uuid = ?"
+    "UPDATE transactions SET sync_status = 'synced', transaction_code = ?, sync_error = NULL WHERE offline_uuid = ?"
   ).run(txCode, offlineUuid);
 }
 
+function markTransactionFailed(offlineUuid, reason) {
+  db().prepare(
+    "UPDATE transactions SET sync_status = 'sync_failed', sync_error = ? WHERE offline_uuid = ?"
+  ).run((reason || '').slice(0, 500), offlineUuid);
+}
+
 function getPendingShifts() {
-  return db().prepare("SELECT * FROM pos_shifts WHERE sync_status = 'pending'").all();
+  return db().prepare("SELECT * FROM pos_shifts WHERE sync_status IN ('pending', 'sync_failed')").all();
 }
 
 function markShiftSynced(offlineUuid, serverId) {
@@ -340,7 +357,7 @@ function markShiftSynced(offlineUuid, serverId) {
 }
 
 function getPendingMovements() {
-  return db().prepare("SELECT * FROM cash_movements WHERE sync_status = 'pending'").all();
+  return db().prepare("SELECT * FROM cash_movements WHERE sync_status IN ('pending', 'sync_failed')").all();
 }
 
 function markMovementSynced(offlineUuid, serverId) {
@@ -396,6 +413,21 @@ function getLastSyncAt() {
   return row ? row.synced_at : null;
 }
 
+function getSyncQueueStats() {
+  const tx = db().prepare(`
+    SELECT
+      SUM(CASE WHEN sync_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+      SUM(CASE WHEN sync_status = 'sync_failed' THEN 1 ELSE 0 END) AS failed_count,
+      MAX(CASE WHEN sync_status = 'sync_failed' THEN COALESCE(sync_error, '') ELSE NULL END) AS last_error
+    FROM transactions
+  `).get() || {};
+  return {
+    pending_count: Number(tx.pending_count || 0),
+    failed_count: Number(tx.failed_count || 0),
+    last_error: tx.last_error || '',
+  };
+}
+
 module.exports = {
   db, getSetting, setSetting, getServerSetting,
   saveLocalUser, getLocalUser, setLocalPasswordHash,
@@ -403,9 +435,10 @@ module.exports = {
   getActiveShift, openShift, closeShift, upsertServerShift,
   addCashMovement, getShiftMovements,
   saveTransaction, getPendingTransactions, markTransactionSynced,
+  markTransactionFailed,
   getPendingShifts, markShiftSynced,
   getPendingMovements, markMovementSynced,
   addCustomerLoyaltyPoints,
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
-  logSync, getLastSyncAt,
+  logSync, getLastSyncAt, getSyncQueueStats,
 };

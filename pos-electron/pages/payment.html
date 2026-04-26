@@ -248,7 +248,11 @@ function buildBanks() {
 function renderBankOptions(methodCode) {
   const sel = document.getElementById('sel-bank');
   const current = sel.value;
-  const dynamicOptions = banks.map((b) => String(b.name || '').trim()).filter(Boolean);
+  const normalizedMethod = String(methodCode || '').toLowerCase();
+  const dynamicOptions = banks
+    .filter((b) => !b.payment_method || String(b.payment_method).toLowerCase() === normalizedMethod)
+    .map((b) => String(b.name || '').trim())
+    .filter(Boolean);
   const fallbackOptions = FALLBACK_BANK_OPTIONS[String(methodCode || '').toLowerCase()] || [];
   const options = [...new Set([...dynamicOptions, ...fallbackOptions])];
 

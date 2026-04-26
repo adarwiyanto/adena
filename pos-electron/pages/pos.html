@@ -153,6 +153,7 @@
       <button class="btn btn-ghost btn-sm" id="btn-shift">Shift</button>
       <button class="btn btn-ghost btn-sm" id="btn-landing">Belanja Landing</button>
       <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync Manual (F4)">Sync Manual</button>
+      <span class="user-badge" id="sync-status">Sync: -</span>
       <span class="user-badge" id="user-name"></span>
       <button class="btn btn-ghost btn-sm" id="btn-logout">Logout</button>
     </div>
@@ -306,6 +307,7 @@ async function init() {
   buildGuides();
   renderProducts(products);
   updateShiftBadge();
+  await refreshSyncStatus();
 
   window.POS.onReset(() => resetCart());
   window.POS.onCheckoutFinished((payload) => {
@@ -323,8 +325,18 @@ async function init() {
   window.POS.onSyncDone(async (r) => {
     if (!r) return;
     if (r.ok) await reloadMasterData();
+    await refreshSyncStatus();
   });
-  window.POS.onSyncWarning((msg) => { if (msg) alert(msg); });
+  window.POS.onSyncWarning(async (msg) => { if (msg) alert(msg); await refreshSyncStatus(); });
+}
+
+async function refreshSyncStatus() {
+  const st = await window.POS.syncStatus();
+  const pending = Number(st?.pending_count || 0);
+  const failed = Number(st?.failed_count || 0);
+  const err = String(st?.last_error || '').trim();
+  const label = `Sync: Pending ${pending} | Gagal ${failed}${err ? ` | ${err.slice(0, 48)}` : ''}`;
+  document.getElementById('sync-status').textContent = label;
 }
 
 // ── Categories ────────────────────────────────────────────────────────────────
@@ -705,7 +717,12 @@ document.getElementById('btn-sync').addEventListener('click', async () => {
     alert(`Sync berhasil. ${updated} data diperbarui.`);
   } else {
     alert(result.message || 'Sync gagal.');
+    if (result.requires_login) {
+      await window.POS.logout();
+      return;
+    }
   }
+  await refreshSyncStatus();
 });
 
 // ── Landing orders ───────────────────────────────────────────────────────────
