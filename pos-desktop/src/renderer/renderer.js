@@ -112,7 +112,9 @@ async function loadPosState() {
   state.paymentMethods = pos.paymentMethods || [];
   state.banks = pos.banks || [];
   $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0}`;
-  $('#shift-status').textContent = pos.activeShift ? `Shift aktif: ${pos.activeShift.shift_code || pos.activeShift.id}` : 'Shift: tidak aktif';
+  const shiftActive = !!pos.activeShift;
+  $('#shift-status').textContent = shiftActive ? `Shift aktif: ${pos.activeShift.shift_code || pos.activeShift.id}` : 'Shift: tidak aktif';
+  $('#btn-shift-toggle').textContent = shiftActive ? 'Tutup Shift' : 'Buka Shift';
   renderCategories();
   renderProducts();
   renderPaymentOptions();
@@ -200,7 +202,7 @@ async function loadHistory() {
     return;
   }
   $('#history-omzet').textContent = `Ringkasan Omzet: ${rupiah(data.omzet)}`;
-  $('#history-list').innerHTML = data.rows.map((r) => `<div class='row'><strong>${r.transaction_code}</strong> | ${r.sold_at} | ${r.guide_name || '-'} | ${r.payment_method} ${r.payment_bank || ''} | ${r.sync_status} | ${rupiah(r.total)} <button data-id='${r.local_transaction_id}'>Detail</button></div>`).join('');
+  $('#history-list').innerHTML = data.rows.map((r) => `<div class='row'><strong>${r.transaction_code}</strong> | ${r.sold_at} | ${r.guide_name || '-'} | ${r.payment_method} ${r.payment_bank || ''} | ${r.sync_status} | ${rupiah(r.total)} <button data-id='${r.transaction_group_id}'>Detail</button></div>`).join('');
   $('#history-list').querySelectorAll('button').forEach((b) => b.onclick = async () => {
     const d = await window.desktopAPI.getHistoryDetail(b.dataset.id);
     alert(d.items.map((i) => `${i.product_name} x${i.qty} ${rupiah(i.total)}`).join('\n'));
@@ -230,18 +232,8 @@ async function initSettingsDialog() {
 
 async function bootstrap() {
   await initSettingsDialog();
-  const existingSession = await window.desktopAPI.getSession();
-  if (existingSession?.ok && existingSession.user) {
-    state.user = existingSession.user;
-    $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
-    const syncResp = await window.desktopAPI.syncMaster();
-    if (!syncResp?.ok) showToast(syncResp?.message || 'Sync master gagal');
-    await loadPosState();
-    await loadHistory();
-    await loadOrders();
-    $('#login-view').classList.remove('active');
-    $('#pos-view').classList.add('active');
-  }
+  $('#login-view').classList.add('active');
+  $('#pos-view').classList.remove('active');
   $('#online-badge').textContent = navigator.onLine ? 'online' : 'offline';
   $('#online-badge').classList.toggle('online', navigator.onLine);
 
@@ -251,7 +243,17 @@ async function bootstrap() {
     if (t.dataset.tab === 'orders') await withFeedback('Muat order', loadOrders);
   });
 
-  $('#btn-open-api').onclick = () => $('#api-dialog').showModal();
+  const openSettingDialog = async (label) => {
+    try {
+      await initSettingsDialog();
+      $('#api-dialog').showModal();
+      showToast(`${label} dibuka`, 'success', 1200);
+    } catch (error) {
+      showToast(error.message || `${label} gagal dibuka`);
+    }
+  };
+  $('#btn-open-api').onclick = () => openSettingDialog('Setting API');
+  $('#btn-open-program').onclick = () => openSettingDialog('Setting Program');
   $('#btn-close-api').onclick = () => $('#api-dialog').close();
   $('#btn-save-api').onclick = async () => {
     await withFeedback('Simpan setting', async () => {
@@ -282,6 +284,33 @@ async function bootstrap() {
     await loadOrders();
     $('#login-view').classList.remove('active');
     $('#pos-view').classList.add('active');
+  };
+
+  $('#btn-logout').onclick = async () => {
+    await window.desktopAPI.logout();
+    state.user = null;
+    state.cart = [];
+    state.latestReceipt = null;
+    $('#login-form').reset();
+    $('#login-view').classList.add('active');
+    $('#pos-view').classList.remove('active');
+    showToast('Logout berhasil', 'success');
+  };
+
+  $('#btn-shift-toggle').onclick = async () => {
+    await withFeedback('Update shift', async () => {
+      const status = await window.desktopAPI.shiftStatus();
+      if (!status?.ok) throw new Error(status?.message || 'Gagal memuat status shift');
+      const hasShift = !!(status?.shift || status?.has_active_shift);
+      const actionResp = hasShift
+        ? await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: 0, notes: 'Closed from POS Desktop' })
+        : await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: 0 });
+      if (!actionResp?.ok) throw new Error(actionResp?.message || actionResp?.error || 'Gagal update shift');
+      const syncResp = await window.desktopAPI.syncMaster();
+      if (!syncResp?.ok) showToast(syncResp?.message || 'Sync master gagal');
+      await loadPosState();
+      showToast(hasShift ? 'Shift ditutup' : 'Shift dibuka', 'success');
+    });
   };
 
   $('#payment-method').onchange = updateBankState;

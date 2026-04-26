@@ -2,7 +2,7 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
 const { initDb } = require('./db');
 const { store } = require('./config');
-const { testConnection, login } = require('./api');
+const { testConnection, login, shiftAction } = require('./api');
 const { syncMaster, syncPendingTransactions } = require('./sync');
 const { saveSaleLocally } = require('./transactions');
 const { printReceipt } = require('./print');
@@ -29,6 +29,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   initDb();
+  store.delete('sessionUser');
   createWindow();
 });
 
@@ -59,10 +60,9 @@ ipcMain.handle('auth:login', async (_, payload) => {
   }
   return resp;
 });
-ipcMain.handle('auth:session', () => {
-  const user = store.get('sessionUser');
-  if (!user) return { ok: false, user: null };
-  return { ok: true, user };
+ipcMain.handle('auth:logout', () => {
+  store.delete('sessionUser');
+  return { ok: true };
 });
 ipcMain.handle('sync:master', async () => syncMaster());
 ipcMain.handle('sync:pending', async () => syncPendingTransactions());
@@ -106,11 +106,11 @@ ipcMain.handle('history:list', (_, filters = {}) => {
       params.push(filters.syncStatus);
     }
     const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const rows = db.prepare(`SELECT transaction_code, local_transaction_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, SUM(total) AS total
+    const rows = db.prepare(`SELECT transaction_code, COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS transaction_group_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, SUM(total) AS total
       FROM sales ${sqlWhere}
-      GROUP BY local_transaction_id
+      GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)
       ORDER BY sold_at DESC LIMIT 300`).all(...params);
-    const omzetRow = db.prepare(`SELECT COALESCE(SUM(total),0) AS omzet FROM (SELECT SUM(total) AS total FROM sales ${sqlWhere} GROUP BY local_transaction_id)`).get(...params);
+    const omzetRow = db.prepare(`SELECT COALESCE(SUM(total),0) AS omzet FROM (SELECT SUM(total) AS total FROM sales ${sqlWhere} GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code))`).get(...params);
     const omzet = Number(omzetRow?.omzet || 0);
     return { ok: true, rows, omzet };
   } catch (error) {
@@ -122,10 +122,12 @@ ipcMain.handle('history:list', (_, filters = {}) => {
   }
 });
 
-ipcMain.handle('history:detail', (_, localTransactionId) => {
+ipcMain.handle('history:detail', (_, transactionGroupId) => {
   const db = initDb();
   const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.qty, s.price_each, s.total, p.name AS product_name
-    FROM sales s LEFT JOIN products p ON p.id = s.product_id WHERE s.local_transaction_id = ? ORDER BY s.id`).all(localTransactionId);
+    FROM sales s LEFT JOIN products p ON p.id = s.product_id
+    WHERE COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code) = ?
+    ORDER BY s.id`).all(transactionGroupId);
   return { items };
 });
 
@@ -137,6 +139,9 @@ ipcMain.handle('orders:list', () => {
 });
 
 ipcMain.handle('print:receipt', async (_, payload) => printReceipt(payload));
+ipcMain.handle('shift:status', async () => shiftAction('status'));
+ipcMain.handle('shift:open', async (_, payload) => shiftAction('open', payload));
+ipcMain.handle('shift:close', async (_, payload) => shiftAction('close', payload));
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

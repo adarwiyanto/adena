@@ -34,6 +34,46 @@ function saveMasterData(data) {
     const insertOi = db.prepare('INSERT INTO order_items (order_id,product_id,qty,price_each,subtotal,product_name) VALUES (?,?,?,?,?,?)');
     (data.pending_order_items || []).forEach((r) => insertOi.run(r.order_id, r.product_id, r.qty, r.price_each || 0, r.subtotal || 0, r.product_name || ''));
 
+    const wipeShift = db.prepare('DELETE FROM pos_shifts');
+    wipeShift.run();
+    if (data.active_shift) {
+      const s = data.active_shift;
+      db.prepare(`INSERT INTO pos_shifts
+        (id, shift_code, branch_id, opened_at, opened_by, opening_cash_default, opening_cash_actual, status, closed_at, closed_by, expected_cash_total, counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid, sync_status, created_at, updated_at)
+        VALUES (@id, @shift_code, @branch_id, @opened_at, @opened_by, @opening_cash_default, @opening_cash_actual, @status, @closed_at, @closed_by, @expected_cash_total, @counted_cash_total, @cash_difference, @notes, @offline_open_uuid, @offline_close_uuid, 'synced', @created_at, @updated_at)`)
+        .run(s);
+    }
+
+    const hasWebSale = db.prepare('SELECT 1 FROM sales WHERE web_sale_id = ? LIMIT 1');
+    const hasGroupItem = db.prepare('SELECT 1 FROM sales WHERE transaction_group_uuid = ? AND product_id = ? AND sold_at = ? LIMIT 1');
+    const insertImportedSale = db.prepare(`INSERT INTO sales
+      (web_sale_id, transaction_code, transaction_group_uuid, product_id, qty, price_each, total, payment_method, payment_bank, guide_id, guide_name, created_by, sold_at, local_device_id, local_transaction_id, sync_status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    (data.sales_history || []).forEach((r, idx) => {
+      const groupId = String(r.transaction_group_uuid || r.offline_uuid || r.transaction_code || `web-${r.web_sale_id || idx}`);
+      const webSaleId = Number(r.web_sale_id || 0);
+      if (webSaleId > 0 && hasWebSale.get(webSaleId)) return;
+      if (hasGroupItem.get(groupId, r.product_id, r.sold_at)) return;
+      insertImportedSale.run(
+        webSaleId || null,
+        r.transaction_code || groupId,
+        groupId,
+        r.product_id,
+        r.qty || 0,
+        r.price_each || 0,
+        r.total || 0,
+        r.payment_method || '',
+        r.payment_bank || null,
+        r.guide_id || null,
+        r.guide_name || null,
+        r.created_by || null,
+        r.sold_at || localDateTimeString(),
+        'web',
+        `${groupId}-${idx + 1}`,
+        'imported_from_web'
+      );
+    });
+
     const upsertSetting = db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
     Object.entries(data.settings || {}).forEach(([k, v]) => upsertSetting.run(k, String(v ?? '')));
   });
