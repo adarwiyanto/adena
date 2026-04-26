@@ -5,8 +5,11 @@ body { font-family: Inter, Segoe UI, sans-serif; margin: 0; background: #f3f4f6;
 .login-card { width: 360px; margin: 10vh auto; }
 input, select, button { width: 100%; padding: 10px; margin: 6px 0; border-radius: 10px; border: 1px solid #d1d5db; }
 button { background: #111827; color: #fff; border: 0; cursor: pointer; }
+.link-btn { background: #1f2937; }
+.login-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .topbar { display: flex; justify-content: space-between; align-items: center; background: #0f172a; color: #fff; padding: 12px 16px; }
 .topbar-right { display: flex; gap: 10px; align-items: center; }
+.topbar-right button { width: auto; margin: 0; padding: 8px 12px; }
 .tabbar { display: flex; gap: 8px; padding: 8px 12px; background: #fff; border-bottom: 1px solid #e5e7eb; }
 .tab { width: auto; background: #e5e7eb; color: #111827; padding: 8px 14px; }
 .tab.active { background: #111827; color: #fff; }

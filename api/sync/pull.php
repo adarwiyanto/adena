@@ -170,6 +170,27 @@ try {
     }
 } catch (Throwable $_) {}
 
+// ── Sales history (desktop import) ──────────────────────────────────────────
+$salesHistory = [];
+try {
+    $salesSql = "
+      SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
+             s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
+             s.guide_id, s.guide_name, s.created_by, s.sold_at,
+             u.name AS cashier_name
+      FROM sales s
+      LEFT JOIN users u ON u.id = s.created_by
+      WHERE (s.return_reason IS NULL OR s.return_reason = '')
+    ";
+    $params = [];
+    if ($hasFilter) {
+        $salesSql .= " AND s.sold_at >= ? ";
+        $params[] = $sinceParam;
+    }
+    $salesSql .= " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
+    $salesHistory = rows($pdo, $salesSql, $params);
+} catch (Throwable $_) {}
+
 api_ok([
     'data' => [
         'synced_at'       => date('c'),
@@ -188,5 +209,6 @@ api_ok([
         'cash_movements'  => array_values($cashMovements),
         'pending_orders' => array_values($pendingOrders),
         'pending_order_items' => array_values($pendingOrderItems),
+        'sales_history' => array_values($salesHistory),
     ],
 ]);

@@ -150,6 +150,7 @@ function initDb() {
 
     CREATE TABLE IF NOT EXISTS sales (
       id INTEGER PRIMARY KEY,
+      web_sale_id INTEGER,
       transaction_code TEXT,
       transaction_group_uuid TEXT,
       offline_uuid TEXT,
@@ -246,6 +247,8 @@ function initDb() {
   safeExec('ALTER TABLE orders ADD COLUMN customer_note TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN total_amount REAL DEFAULT 0');
   safeExec('ALTER TABLE order_items ADD COLUMN product_name TEXT');
+  safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
+  safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
 
   return db;
 }

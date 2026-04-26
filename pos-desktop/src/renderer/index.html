@@ -17,7 +17,10 @@
       </form>
       <p id="login-status" class="login-status"></p>
       <p id="login-error" class="login-error"></p>
-      <button id="btn-open-api" class="link-btn">Setting Program</button>
+      <div class="login-actions">
+        <button id="btn-open-api" class="link-btn">Setting API</button>
+        <button id="btn-open-program" class="link-btn">Setting Program/Printer</button>
+      </div>
     </div>
   </section>
 
@@ -28,6 +31,8 @@
         <div id="shift-status">Shift: tidak aktif</div>
       </div>
       <div class="topbar-right">
+        <button id="btn-shift-toggle">Buka Shift</button>
+        <button id="btn-logout">Log Out</button>
         <span id="online-badge">offline</span>
         <span id="sync-count">Pending: 0</span>
         <button id="btn-manual-sync">Manual Sync</button>
@@ -79,7 +84,7 @@
           <input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" />
           <select id="history-guide-filter"><option value="">Semua guide</option></select>
           <select id="history-payment-filter"><option value="">Semua pembayaran</option></select>
-          <select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option></select>
+          <select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select>
           <button id="btn-load-history">Filter</button>
         </div>
         <div id="history-omzet"></div>

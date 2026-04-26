@@ -109,4 +109,15 @@ async function pushTransactions(payload) {
   }
 }
 
-module.exports = { testConnection, login, pullMaster, pushTransactions };
+async function shiftAction(action, payload = {}) {
+  const apiClient = client();
+  if (!apiClient.post) return apiClient;
+  try {
+    const res = await apiClient.post('/api/sync/shift.php', { action, ...payload });
+    return res.data;
+  } catch (err) {
+    return mapAxiosError(err);
+  }
+}
+
+module.exports = { testConnection, login, pullMaster, pushTransactions, shiftAction };
