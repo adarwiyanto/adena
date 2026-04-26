@@ -1,6 +1,7 @@
 const { initDb } = require('./db');
 const { pullMaster, pushTransactions } = require('./api');
 const { store } = require('./config');
+const { localDateTimeString } = require('./time');
 
 function saveMasterData(data) {
   const db = initDb();
@@ -12,8 +13,8 @@ function saveMasterData(data) {
       VALUES (@id, @name, @price, @category, @image_path, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @updated_at)`);
     (data.products || []).forEach((r) => insertProduct.run(r));
 
-    const insertCategory = db.prepare('INSERT INTO product_categories (id,name) VALUES (?,?)');
-    (data.categories || []).forEach((r) => insertCategory.run(r.id, r.name));
+    const insertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?)');
+    (data.categories || []).forEach((r) => insertCategory.run(r.id, r.name, r.image_path || null));
 
     const insertPm = db.prepare('INSERT INTO payment_methods (code,name,is_active,sort_order) VALUES (?,?,?,?)');
     (data.payment_methods || []).forEach((r) => insertPm.run(r.code, r.name, r.is_active ?? 1, r.sort_order ?? 0));
@@ -27,11 +28,11 @@ function saveMasterData(data) {
     const insertUser = db.prepare('INSERT INTO users (id,username,name,role) VALUES (?,?,?,?)');
     (data.cashiers || []).forEach((r) => insertUser.run(r.id, r.username, r.name, r.role));
 
-    const insertOrder = db.prepare('INSERT INTO orders (id,order_code,customer_id,status,created_at,completed_at) VALUES (?,?,?,?,?,?)');
-    (data.pending_orders || []).forEach((r) => insertOrder.run(r.id, r.order_code, r.customer_id, r.status, r.created_at, r.completed_at || null));
+    const insertOrder = db.prepare('INSERT INTO orders (id,order_code,customer_id,status,created_at,completed_at,customer_name,customer_contact,customer_address,customer_note,total_amount) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+    (data.pending_orders || []).forEach((r) => insertOrder.run(r.id, r.order_code, r.customer_id, r.status, r.created_at, r.completed_at || null, r.customer_name || '', r.contact || '', r.customer_address || '', r.customer_note || '', r.total || 0));
 
-    const insertOi = db.prepare('INSERT INTO order_items (order_id,product_id,qty,price_each,subtotal) VALUES (?,?,?,?,?)');
-    (data.pending_order_items || []).forEach((r) => insertOi.run(r.order_id, r.product_id, r.qty, 0, 0));
+    const insertOi = db.prepare('INSERT INTO order_items (order_id,product_id,qty,price_each,subtotal,product_name) VALUES (?,?,?,?,?,?)');
+    (data.pending_order_items || []).forEach((r) => insertOi.run(r.order_id, r.product_id, r.qty, r.price_each || 0, r.subtotal || 0, r.product_name || ''));
 
     const upsertSetting = db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
     Object.entries(data.settings || {}).forEach(([k, v]) => upsertSetting.run(k, String(v ?? '')));
@@ -43,7 +44,7 @@ async function syncMaster() {
   const since = store.get('lastSyncAt');
   const resp = await pullMaster(since);
   saveMasterData(resp.data || {});
-  store.set('lastSyncAt', new Date().toISOString());
+  store.set('lastSyncAt', localDateTimeString());
   return resp;
 }
 
@@ -91,7 +92,7 @@ async function syncPendingTransactions() {
       db.prepare('UPDATE sales SET sync_status = ?, sync_error = ?, last_synced_at = CURRENT_TIMESTAMP WHERE offline_uuid = ?')
         .run(isSuccess ? 'synced' : 'failed', isSuccess ? null : (result.message || 'sync failed'), uuid);
       db.prepare('INSERT INTO pos_sync_queue_log (entity_type, offline_uuid, payload_json, processed_at, status, message) VALUES (?,?,?,?,?,?)')
-        .run('sale', uuid, JSON.stringify(result), new Date().toISOString(), isSuccess ? 'success' : 'failed', result.message || null);
+        .run('sale', uuid, JSON.stringify(result), localDateTimeString(), isSuccess ? 'success' : 'failed', result.message || null);
     }
   });
   tx();

@@ -30,7 +30,7 @@ $productSql = "SELECT id, name, price, category, image_path,
 $products = rows($pdo, $productSql, $hasFilter ? [$sinceParam] : []);
 
 // ── Categories ────────────────────────────────────────────────────────────────
-$categories = rows($pdo, "SELECT id, name FROM product_categories ORDER BY name");
+$categories = rows($pdo, "SELECT id, name, image_path FROM product_categories ORDER BY name");
 
 // ── Customers ─────────────────────────────────────────────────────────────────
 $customerSql = "SELECT id, name, phone, email, loyalty_points, loyalty_remainder, updated_at
@@ -145,10 +145,15 @@ $pendingOrderItems = [];
 try {
     $pendingOrders = rows($pdo, "
       SELECT o.id, o.order_code, o.customer_id, o.status, o.created_at, o.updated_at,
-             c.name AS customer_name, COALESCE(c.phone, c.email) AS contact
+             c.name AS customer_name, COALESCE(c.phone, c.email) AS contact,
+             c.address AS customer_address, o.notes AS customer_note,
+             COALESCE(SUM(oi.qty * p.price),0) AS total
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN order_items oi ON oi.order_id = o.id
+      LEFT JOIN products p ON p.id = oi.product_id
       WHERE o.status = 'pending'
+      GROUP BY o.id
       ORDER BY o.created_at DESC
       LIMIT 50
     ");
@@ -156,7 +161,7 @@ try {
         $orderIds = array_map(static fn($row) => (int)$row['id'], $pendingOrders);
         $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
         $pendingOrderItems = rows($pdo, "
-          SELECT oi.order_id, oi.product_id, oi.qty, p.name AS product_name
+          SELECT oi.order_id, oi.product_id, oi.qty, oi.price_each, oi.subtotal, p.name AS product_name
           FROM order_items oi
           LEFT JOIN products p ON p.id = oi.product_id
           WHERE oi.order_id IN ($placeholders)

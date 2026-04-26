@@ -15,53 +15,91 @@
         <input name="password" placeholder="Password" type="password" required />
         <button id="btn-login" type="submit">Login</button>
       </form>
-      <p id="login-status" class="login-status" aria-live="polite"></p>
-      <p id="login-error" class="login-error" aria-live="assertive"></p>
-      <button id="btn-open-api" class="link-btn">Setting API</button>
+      <p id="login-status" class="login-status"></p>
+      <p id="login-error" class="login-error"></p>
+      <button id="btn-open-api" class="link-btn">Setting Program</button>
     </div>
   </section>
 
   <section id="pos-view" class="view">
     <header class="topbar">
-      <strong id="user-label"></strong>
       <div>
+        <strong id="user-label"></strong>
+        <div id="shift-status">Shift: tidak aktif</div>
+      </div>
+      <div class="topbar-right">
         <span id="online-badge">offline</span>
         <span id="sync-count">Pending: 0</span>
-        <span id="last-sync">Last Sync: -</span>
+        <button id="btn-manual-sync">Manual Sync</button>
       </div>
-      <button id="btn-manual-sync">Manual Sync</button>
     </header>
 
-    <main class="layout">
-      <aside>
-        <h3>Produk</h3>
-        <input id="product-search" placeholder="Cari produk" />
-        <div id="products" class="products"></div>
-      </aside>
+    <nav class="tabbar">
+      <button class="tab active" data-tab="pos">POS</button>
+      <button class="tab" data-tab="receipt">Receipt/Print</button>
+      <button class="tab" data-tab="history">Riwayat</button>
+      <button class="tab" data-tab="orders">Order Masuk</button>
+    </nav>
 
-      <section class="cart-panel">
-        <h3>Keranjang</h3>
-        <div id="cart-items"></div>
+    <section class="tab-panel active" data-panel="pos">
+      <main class="layout">
+        <aside class="category-pane">
+          <h3>Kategori</h3>
+          <button class="category active" data-category="">Semua Produk</button>
+          <div id="categories"></div>
+        </aside>
+        <aside>
+          <h3>Produk</h3>
+          <input id="product-search" placeholder="Cari produk" />
+          <div id="products" class="products"></div>
+        </aside>
 
-        <div class="checkout">
-          <select id="guide"></select>
-          <select id="payment-method"></select>
-          <select id="payment-bank"></select>
-          <button id="btn-pay">BAYAR</button>
-          <button id="btn-print" disabled>Print</button>
-          <button id="btn-new-transaction" disabled>Transaksi Baru</button>
+        <section class="cart-panel">
+          <h3>Keranjang</h3>
+          <div id="cart-items"></div>
+          <div id="cart-total" class="cart-total">Total: Rp 0</div>
+          <div class="checkout">
+            <label>Guide</label><select id="guide"></select>
+            <label>Metode Bayar</label><select id="payment-method"></select>
+            <label>Bank</label><select id="payment-bank"></select>
+            <button id="btn-pay">Bayar</button>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <section class="tab-panel" data-panel="receipt">
+      <div id="receipt-wrap" class="card"></div>
+    </section>
+
+    <section class="tab-panel" data-panel="history">
+      <div class="card">
+        <div class="filters">
+          <input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" />
+          <input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" />
+          <select id="history-guide-filter"><option value="">Semua guide</option></select>
+          <select id="history-payment-filter"><option value="">Semua pembayaran</option></select>
+          <select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option></select>
+          <button id="btn-load-history">Filter</button>
         </div>
-      </section>
-    </main>
+        <div id="history-omzet"></div>
+        <div id="history-list"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-panel="orders">
+      <div class="card" id="orders-list"></div>
+    </section>
   </section>
 
   <dialog id="api-dialog">
-    <h3>Setting API</h3>
+    <h3>Setting Program</h3>
     <input id="api-base-url" placeholder="Base URL" />
     <input id="api-token" placeholder="Token statis" />
-    <input id="printer-name" placeholder="Default printer" />
-    <input id="receipt-width" placeholder="Ukuran struk (mm)" type="number" />
-    <input id="receipt-margin" placeholder="Margin (mm)" type="number" />
+    <label>Printer Windows</label>
+    <select id="printer-name"></select>
+    <input id="receipt-width" placeholder="Ukuran struk (mm)" type="number" value="58" />
+    <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
     <div class="dialog-actions">
       <button id="btn-test-api">Test Connection</button>
       <button id="btn-save-api">Simpan</button>
