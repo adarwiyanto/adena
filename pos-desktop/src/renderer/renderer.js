@@ -245,7 +245,12 @@ async function bootstrap() {
   $('#btn-pay').onclick = payNow;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = null; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };
-  $('#btn-manual-sync').onclick = async () => { await window.desktopAPI.syncPending(); await window.desktopAPI.retryPendingShift(); await loadPosState(); };
+  $('#btn-manual-sync').onclick = async () => {
+    await window.desktopAPI.syncPending();
+    await window.desktopAPI.retryPendingShift();
+    await window.desktopAPI.syncMaster({ incremental: false });
+    await loadPosState();
+  };
   $('#btn-load-history').onclick = loadHistory;
 }
 
