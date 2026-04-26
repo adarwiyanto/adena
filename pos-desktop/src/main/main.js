@@ -37,13 +37,17 @@ ipcMain.handle('settings:set', (_, patch) => {
   Object.entries(patch || {}).forEach(([k, v]) => store.set(k, v));
   return store.store;
 });
+ipcMain.handle('settings:printers', async () => {
+  if (!mainWindow) return [];
+  const printers = await mainWindow.webContents.getPrintersAsync();
+  return printers.map((p) => ({ name: p.name, displayName: p.displayName || p.name, isDefault: !!p.isDefault }));
+});
 
 ipcMain.handle('api:test', async () => testConnection());
 ipcMain.handle('auth:login', async (_, payload) => {
   const resp = await login(payload?.username, payload?.password);
   if (resp?.ok && resp.user) {
     store.set('sessionUser', resp.user);
-    store.set('sessionAt', new Date().toISOString());
   }
   return resp;
 });
@@ -59,11 +63,60 @@ ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload))
 ipcMain.handle('pos:state', () => {
   const db = initDb();
   const products = db.prepare('SELECT id, name, price, category, image_path FROM products ORDER BY name').all();
+  const categories = db.prepare('SELECT id, name FROM product_categories ORDER BY name').all();
   const guides = db.prepare('SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name').all();
   const paymentMethods = db.prepare('SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, id').all();
   const banks = db.prepare('SELECT id, name FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, id').all();
+  const activeShift = db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY id DESC LIMIT 1").get() || null;
   const pendingSyncCount = db.prepare("SELECT COUNT(DISTINCT local_transaction_id) as c FROM sales WHERE sync_status IN ('pending','failed')").get().c;
-  return { products, guides, paymentMethods, banks, pendingSyncCount, lastSyncAt: store.get('lastSyncAt') };
+  return { products, categories, guides, paymentMethods, banks, activeShift, pendingSyncCount, lastSyncAt: store.get('lastSyncAt') };
+});
+
+ipcMain.handle('history:list', (_, filters = {}) => {
+  const db = initDb();
+  const where = [];
+  const params = [];
+  if (filters.from) {
+    where.push('sold_at >= ?');
+    params.push(filters.from);
+  }
+  if (filters.to) {
+    where.push('sold_at <= ?');
+    params.push(filters.to);
+  }
+  if (filters.guideName) {
+    where.push('guide_name = ?');
+    params.push(filters.guideName);
+  }
+  if (filters.paymentMethod) {
+    where.push('payment_method = ?');
+    params.push(filters.paymentMethod);
+  }
+  if (filters.syncStatus) {
+    where.push('sync_status = ?');
+    params.push(filters.syncStatus);
+  }
+  const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const rows = db.prepare(`SELECT transaction_code, local_transaction_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, SUM(total) total
+    FROM sales ${sqlWhere}
+    GROUP BY local_transaction_id
+    ORDER BY sold_at DESC LIMIT 300`).all(...params);
+  const total = db.prepare(`SELECT COALESCE(SUM(total),0) omzet FROM (SELECT SUM(total) total FROM sales ${sqlWhere} GROUP BY local_transaction_id)`).get(...params).omzet;
+  return { rows, omzet };
+});
+
+ipcMain.handle('history:detail', (_, localTransactionId) => {
+  const db = initDb();
+  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.qty, s.price_each, s.total, p.name AS product_name
+    FROM sales s LEFT JOIN products p ON p.id = s.product_id WHERE s.local_transaction_id = ? ORDER BY s.id`).all(localTransactionId);
+  return { items };
+});
+
+ipcMain.handle('orders:list', () => {
+  const db = initDb();
+  const orders = db.prepare('SELECT id, order_code, status, created_at, customer_name, customer_contact, customer_address, customer_note, total_amount FROM orders ORDER BY created_at DESC LIMIT 200').all();
+  const items = db.prepare('SELECT order_id, product_name, qty, subtotal FROM order_items ORDER BY id').all();
+  return { orders, items };
 });
 
 ipcMain.handle('print:receipt', async (_, payload) => printReceipt(payload));

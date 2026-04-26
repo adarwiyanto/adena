@@ -1,13 +1,14 @@
 const { v4: uuidv4 } = require('uuid');
 const { initDb } = require('./db');
 const { store } = require('./config');
+const { localDateTimeString } = require('./time');
 
 function saveSaleLocally({ user, guide, payment, items }) {
   const db = initDb();
   const localTransactionId = uuidv4();
   const offlineUuid = uuidv4();
   const transactionCode = `TRX-${Date.now()}`;
-  const now = new Date().toISOString();
+  const nowLocal = localDateTimeString();
 
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
@@ -30,7 +31,7 @@ function saveSaleLocally({ user, guide, payment, items }) {
         guide?.id || null,
         guide?.name || null,
         user.id,
-        now,
+        nowLocal,
         store.get('deviceId'),
         localTransactionId,
         'pending'
@@ -39,7 +40,7 @@ function saveSaleLocally({ user, guide, payment, items }) {
   });
 
   tx();
-  return { localTransactionId, offlineUuid, transactionCode, soldAt: now };
+  return { localTransactionId, offlineUuid, transactionCode, soldAt: nowLocal };
 }
 
 module.exports = { saveSaleLocally };

@@ -184,7 +184,12 @@ function initDb() {
       customer_id INTEGER,
       status TEXT,
       created_at TEXT,
-      completed_at TEXT
+      completed_at TEXT,
+      customer_name TEXT,
+      customer_contact TEXT,
+      customer_address TEXT,
+      customer_note TEXT,
+      total_amount REAL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS order_items (
@@ -193,7 +198,8 @@ function initDb() {
       product_id INTEGER,
       qty INTEGER,
       price_each REAL,
-      subtotal REAL
+      subtotal REAL,
+      product_name TEXT
     );
 
     CREATE TABLE IF NOT EXISTS stock_ledger (
@@ -227,6 +233,19 @@ function initDb() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_local_id ON sales(local_device_id, local_transaction_id);
     CREATE INDEX IF NOT EXISTS idx_sales_sync_status ON sales(sync_status);
   `);
+
+
+  const safeExec = (sql) => {
+    try { db.exec(sql); } catch (_) {}
+  };
+  safeExec('ALTER TABLE products ADD COLUMN image_path TEXT');
+  safeExec('ALTER TABLE product_categories ADD COLUMN image_path TEXT');
+  safeExec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
+  safeExec('ALTER TABLE orders ADD COLUMN customer_contact TEXT');
+  safeExec('ALTER TABLE orders ADD COLUMN customer_address TEXT');
+  safeExec('ALTER TABLE orders ADD COLUMN customer_note TEXT');
+  safeExec('ALTER TABLE orders ADD COLUMN total_amount REAL DEFAULT 0');
+  safeExec('ALTER TABLE order_items ADD COLUMN product_name TEXT');
 
   return db;
 }

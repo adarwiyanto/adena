@@ -1,85 +1,45 @@
 const state = {
   user: null,
   products: [],
+  categories: [],
   guides: [],
   paymentMethods: [],
   banks: [],
   cart: [],
   latestReceipt: null,
-  paying: false
+  paying: false,
+  activeCategory: ''
 };
-
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
-
 const $ = (s) => document.querySelector(s);
 
-function setLoginStatus(message) {
-  $('#login-status').textContent = message || '';
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name));
 }
 
-function setLoginError(message) {
-  $('#login-error').textContent = message || '';
-}
+function rupiah(v) { return `Rp ${Number(v || 0).toLocaleString('id-ID')}`; }
 
-function setLoginBusy(isBusy) {
-  const btn = $('#btn-login');
-  btn.disabled = !!isBusy;
-  btn.textContent = isBusy ? 'Memproses login...' : 'Login';
-}
-
-function validateLoginInput({ username, password, settings }) {
-  if (!String(username || '').trim()) return 'Username wajib diisi';
-  if (!String(password || '').trim()) return 'Password wajib diisi';
-  const baseUrl = String(settings.apiBaseUrl || '').trim();
-  if (!baseUrl) return 'Base URL API belum disetting';
-  const token = String(settings.apiToken || '').trim();
-  if (!token) return 'Token API belum disetting';
-
-  let parsed;
-  try {
-    parsed = new URL(baseUrl);
-  } catch (_) {
-    return 'Base URL API tidak valid. Gunakan http:// atau https://';
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return 'Protocol salah. Gunakan https://adena.co.id';
-  }
-  return '';
-}
-
-function mapLoginError(errObj) {
-  const status = Number(errObj?.status || 0);
-  const detail = String(errObj?.detail || '').toLowerCase();
-  const message = String(errObj?.message || '');
-
-  if (message) return message;
-  if (status === 401 && detail.includes('token')) return 'Token tidak valid';
-  if (status === 401) return 'Username/password salah';
-  if (status === 404) return 'Endpoint login tidak ditemukan';
-  if (status === 0) return 'Server tidak dapat dihubungi';
-  return 'Login gagal. Silakan coba lagi.';
-}
-
-async function initSettingsDialog() {
-  const s = await window.desktopAPI.getSettings();
-  $('#api-base-url').value = s.apiBaseUrl || '';
-  $('#api-token').value = s.apiToken || '';
-  $('#printer-name').value = s.printerName || '';
-  $('#receipt-width').value = s.receiptWidthMm || 58;
-  $('#receipt-margin').value = s.receiptMarginMm || 2;
+function renderCategories() {
+  const wrap = $('#categories');
+  wrap.innerHTML = state.categories.map((c) => `<button class="category ${String(c.id) === state.activeCategory ? 'active' : ''}" data-category-id="${c.id}">${c.name}</button>`).join('');
+  wrap.querySelectorAll('button').forEach((b) => b.onclick = () => { state.activeCategory = b.dataset.categoryId; renderProducts($('#product-search').value); renderCategories(); });
 }
 
 function renderProducts(filter = '') {
   const wrap = $('#products');
   const q = filter.toLowerCase();
   wrap.innerHTML = '';
-  state.products.filter((p) => p.name.toLowerCase().includes(q)).forEach((p) => {
-    const div = document.createElement('div');
-    div.className = 'product-card';
-    div.innerHTML = `<strong>${p.name}</strong><div>Rp ${Number(p.price).toLocaleString('id-ID')}</div>`;
-    div.onclick = () => addToCart(p);
-    wrap.appendChild(div);
-  });
+  state.products
+    .filter((p) => (!state.activeCategory || String(p.category || '') === String(state.activeCategory)))
+    .filter((p) => p.name.toLowerCase().includes(q))
+    .forEach((p) => {
+      const div = document.createElement('div');
+      div.className = 'product-card';
+      div.innerHTML = `<img src="${p.image_path || ''}" onerror="this.style.display='none'"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
+      div.onclick = () => addToCart(p);
+      wrap.appendChild(div);
+    });
 }
 
 function addToCart(product) {
@@ -91,13 +51,16 @@ function addToCart(product) {
 
 function renderCart() {
   const wrap = $('#cart-items');
-  wrap.innerHTML = state.cart.map((i) => `<div class="cart-row"><span>${i.name} x${i.qty}</span><span>Rp ${(i.qty*i.price_each).toLocaleString('id-ID')}</span></div>`).join('');
+  wrap.innerHTML = state.cart.map((i) => `<div class="cart-row"><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('');
+  $('#cart-total').textContent = `Total: ${rupiah(state.cart.reduce((a, b) => a + b.qty * b.price_each, 0))}`;
 }
 
 function renderPaymentOptions() {
   $('#guide').innerHTML = `<option value="">Pilih Guide</option>${state.guides.map((g) => `<option value="${g.id}">${g.name}</option>`).join('')}`;
   $('#payment-method').innerHTML = state.paymentMethods.map((m) => `<option value="${m.code}">${m.name}</option>`).join('');
   $('#payment-bank').innerHTML = `<option value="">Pilih Bank</option>${state.banks.map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}`;
+  $('#history-guide-filter').innerHTML = `<option value="">Semua guide</option>${state.guides.map((g) => `<option value="${g.name}">${g.name}</option>`).join('')}`;
+  $('#history-payment-filter').innerHTML = `<option value="">Semua pembayaran</option>${state.paymentMethods.map((m) => `<option value="${m.code}">${m.name}</option>`).join('')}`;
   updateBankState();
 }
 
@@ -110,50 +73,55 @@ function updateBankState() {
 async function loadPosState() {
   const pos = await window.desktopAPI.getPosState();
   state.products = pos.products || [];
+  state.categories = pos.categories || [];
   state.guides = pos.guides || [];
   state.paymentMethods = pos.paymentMethods || [];
   state.banks = pos.banks || [];
   $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0}`;
-  $('#last-sync').textContent = `Last Sync: ${pos.lastSyncAt || '-'}`;
+  $('#shift-status').textContent = pos.activeShift ? `Shift aktif: ${pos.activeShift.shift_code || pos.activeShift.id}` : 'Shift: tidak aktif';
+  renderCategories();
   renderProducts();
   renderPaymentOptions();
 }
 
-function setOnlineBadge() {
-  $('#online-badge').textContent = navigator.onLine ? 'online' : 'offline';
-  $('#online-badge').classList.toggle('online', navigator.onLine);
-}
-
-function resetTransaction() {
-  state.cart = [];
-  renderCart();
-  $('#payment-method').selectedIndex = 0;
-  $('#payment-bank').value = '';
-  $('#guide').value = '';
-  updateBankState();
-  $('#btn-print').disabled = true;
-  $('#btn-new-transaction').disabled = true;
-}
-
-function buildReceiptHtml(meta) {
-  return `<html><body>
-    <h3>${meta.storeName || 'Store'}</h3>
-    <div>No: ${meta.transactionCode}</div>
-    <div>Tanggal: ${meta.soldAt}</div>
-    <div>Kasir: ${state.user.name}</div>
-    <hr/>
-    ${state.latestReceipt.items.map((i) => `<div>${i.name} x${i.qty} - Rp ${(i.qty*i.price_each).toLocaleString('id-ID')}</div>`).join('')}
-    <hr/>
-    <div>Total: Rp ${state.latestReceipt.total.toLocaleString('id-ID')}</div>
-    <div>Metode: ${meta.paymentMethod}</div>
-    <div>Bank: ${meta.paymentBank || '-'}</div>
-  </body></html>`;
+function renderReceipt() {
+  const w = $('#receipt-wrap');
+  if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
+  w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3>
+  <div>Waktu lokal: ${state.latestReceipt.soldAt}</div>
+  <div>Kasir: ${state.user?.name || '-'}</div>
+  <div>Guide: ${state.latestReceipt.guideName || '-'}</div>
+  <div>Metode: ${state.latestReceipt.paymentMethod}</div>
+  <div>Bank: ${state.latestReceipt.paymentBank || '-'}</div>
+  <hr/>
+  ${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}
+  <div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>
+  <button id='btn-print'>Print</button>
+  <button id='btn-new-transaction'>Transaksi Baru</button>`;
+  $('#btn-print').onclick = async () => {
+    const settings = await window.desktopAPI.getSettings();
+    try {
+      await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true });
+      alert('Print sukses');
+    } catch (e) {
+      alert(`Print gagal: ${e.message}`);
+    }
+  };
+  $('#btn-new-transaction').onclick = () => {
+    state.cart = [];
+    state.latestReceipt = null;
+    renderCart();
+    $('#guide').value = '';
+    $('#payment-bank').value = '';
+    $('#payment-method').selectedIndex = 0;
+    updateBankState();
+    switchTab('pos');
+  };
 }
 
 async function payNow() {
   if (state.paying) return;
   if (!state.cart.length) return alert('Keranjang kosong');
-
   const paymentMethod = $('#payment-method').value;
   const bankId = $('#payment-bank').value;
   if (bankRequiredCodes.has(paymentMethod) && !bankId) return alert('Bank wajib dipilih untuk non tunai');
@@ -163,34 +131,61 @@ async function payNow() {
   try {
     const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
     const bank = state.banks.find((b) => String(b.id) === bankId) || null;
-    const localSave = await window.desktopAPI.saveSaleLocal({
-      user: state.user,
-      guide,
-      payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null },
-      items: state.cart
-    });
-
+    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null }, items: state.cart });
     state.latestReceipt = {
       transactionCode: localSave.transactionCode,
       soldAt: localSave.soldAt,
       paymentMethod,
       paymentBank: bank?.name || '',
+      guideName: guide?.name || '',
       items: [...state.cart],
       total: state.cart.reduce((a, b) => a + b.qty * b.price_each, 0)
     };
-
-    if (navigator.onLine) {
-      try { await window.desktopAPI.syncPending(); } catch (_) {}
-    }
-
-    $('#btn-print').disabled = false;
-    $('#btn-new-transaction').disabled = false;
+    try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
+    switchTab('receipt');
+    renderReceipt();
     await loadPosState();
-    alert('Transaksi tersimpan lokal. Sync dijalankan otomatis.');
   } finally {
     state.paying = false;
     $('#btn-pay').disabled = false;
   }
+}
+
+async function loadHistory() {
+  const data = await window.desktopAPI.getHistory({
+    from: $('#history-from').value.trim(),
+    to: $('#history-to').value.trim(),
+    guideName: $('#history-guide-filter').value,
+    paymentMethod: $('#history-payment-filter').value,
+    syncStatus: $('#history-sync-filter').value
+  });
+  $('#history-omzet').textContent = `Ringkasan Omzet: ${rupiah(data.omzet)}`;
+  $('#history-list').innerHTML = data.rows.map((r) => `<div class='row'><strong>${r.transaction_code}</strong> | ${r.sold_at} | ${r.guide_name || '-'} | ${r.payment_method} ${r.payment_bank || ''} | ${r.sync_status} | ${rupiah(r.total)} <button data-id='${r.local_transaction_id}'>Detail</button></div>`).join('');
+  $('#history-list').querySelectorAll('button').forEach((b) => b.onclick = async () => {
+    const d = await window.desktopAPI.getHistoryDetail(b.dataset.id);
+    alert(d.items.map((i) => `${i.product_name} x${i.qty} ${rupiah(i.total)}`).join('\n'));
+  });
+}
+
+async function loadOrders() {
+  const data = await window.desktopAPI.getOrders();
+  const grouped = new Map();
+  (data.items || []).forEach((i) => {
+    if (!grouped.has(i.order_id)) grouped.set(i.order_id, []);
+    grouped.get(i.order_id).push(i);
+  });
+  $('#orders-list').innerHTML = (data.orders || []).map((o) => `<div class='row'><strong>${o.order_code}</strong> | ${o.created_at} | ${o.customer_name || '-'} | ${o.customer_contact || '-'} | ${o.status}<br/>${(grouped.get(o.id) || []).map((x) => `${x.product_name} x${x.qty}`).join(', ')}</div>`).join('') || 'Belum ada order masuk.';
+}
+
+async function initSettingsDialog() {
+  const s = await window.desktopAPI.getSettings();
+  $('#api-base-url').value = s.apiBaseUrl || '';
+  $('#api-token').value = s.apiToken || '';
+  $('#receipt-width').value = s.receiptWidthMm || 58;
+  $('#receipt-margin').value = s.receiptMarginMm || 2;
+  const printers = await window.desktopAPI.getPrinters();
+  $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`;
+  $('#printer-name').value = s.printerName || '';
 }
 
 async function bootstrap() {
@@ -199,116 +194,52 @@ async function bootstrap() {
   if (existingSession?.ok && existingSession.user) {
     state.user = existingSession.user;
     $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
-    try {
-      await window.desktopAPI.syncMaster();
-    } catch (e) {
-      console.warn('[login] sync master skipped:', e?.message || e);
-    }
+    try { await window.desktopAPI.syncMaster(); } catch (_) {}
     await loadPosState();
+    await loadHistory();
+    await loadOrders();
     $('#login-view').classList.remove('active');
     $('#pos-view').classList.add('active');
   }
-  setOnlineBadge();
-  window.addEventListener('online', async () => { setOnlineBadge(); await window.desktopAPI.syncPending(); await loadPosState(); });
-  window.addEventListener('offline', setOnlineBadge);
+  $('#online-badge').textContent = navigator.onLine ? 'online' : 'offline';
+  $('#online-badge').classList.toggle('online', navigator.onLine);
+
+  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => {
+    switchTab(t.dataset.tab);
+    if (t.dataset.tab === 'history') await loadHistory();
+    if (t.dataset.tab === 'orders') await loadOrders();
+  });
 
   $('#btn-open-api').onclick = () => $('#api-dialog').showModal();
   $('#btn-close-api').onclick = () => $('#api-dialog').close();
   $('#btn-save-api').onclick = async () => {
-    await window.desktopAPI.setSettings({
-      apiBaseUrl: $('#api-base-url').value,
-      apiToken: $('#api-token').value,
-      printerName: $('#printer-name').value,
-      receiptWidthMm: Number($('#receipt-width').value || 58),
-      receiptMarginMm: Number($('#receipt-margin').value || 2)
-    });
+    await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value, apiToken: $('#api-token').value, printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
     $('#api-status').textContent = 'Tersimpan';
   };
-
   $('#btn-test-api').onclick = async () => {
-    try {
-      const r = await window.desktopAPI.testConnection();
-      $('#api-status').textContent = `OK: ${r.message || 'connected'}`;
-    } catch (e) {
-      $('#api-status').textContent = `Gagal: ${e.message}`;
-    }
+    const r = await window.desktopAPI.testConnection();
+    $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal: ${r.message}`;
   };
 
   $('#login-form').onsubmit = async (e) => {
     e.preventDefault();
-    console.log('[login] clicked');
-    setLoginError('');
-    setLoginStatus('');
-    setLoginBusy(true);
-
-    try {
-      const fd = new FormData(e.target);
-      const payload = {
-        username: String(fd.get('username') || '').trim(),
-        password: String(fd.get('password') || '')
-      };
-      const settings = await window.desktopAPI.getSettings();
-      const validationMessage = validateLoginInput({ ...payload, settings });
-      if (validationMessage) {
-        setLoginError(validationMessage);
-        setLoginStatus('API belum disetting / data login belum lengkap');
-        return;
-      }
-
-      setLoginStatus('Sedang login...');
-      const resp = await window.desktopAPI.login(payload);
-      if (!resp?.ok) {
-        const msg = mapLoginError(resp);
-        setLoginError(msg);
-        setLoginStatus('Gagal login');
-        return;
-      }
-
-      state.user = resp.user;
-      $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
-      setLoginStatus('Login sukses');
-      try {
-        await window.desktopAPI.syncMaster();
-      } catch (syncErr) {
-        console.warn('[login] sync master failed:', syncErr?.message || syncErr);
-      }
-      await loadPosState();
-      $('#login-view').classList.remove('active');
-      $('#pos-view').classList.add('active');
-    } catch (err) {
-      console.error('[login] renderer error:', err?.message || err);
-      setLoginError(err?.message || 'Server tidak dapat dihubungi');
-      setLoginStatus('Gagal login');
-    } finally {
-      setLoginBusy(false);
-    }
+    const fd = new FormData(e.target);
+    const resp = await window.desktopAPI.login({ username: fd.get('username'), password: fd.get('password') });
+    if (!resp?.ok) return alert(resp.message || 'Login gagal');
+    state.user = resp.user;
+    $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
+    await window.desktopAPI.syncMaster();
+    await loadPosState();
+    $('#login-view').classList.remove('active');
+    $('#pos-view').classList.add('active');
   };
 
   $('#payment-method').onchange = updateBankState;
   $('#btn-pay').onclick = payNow;
-  $('#btn-new-transaction').onclick = resetTransaction;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
-
-  $('#btn-manual-sync').onclick = async () => {
-    try {
-      await window.desktopAPI.syncPending();
-      await loadPosState();
-      alert('Manual sync selesai');
-    } catch (e) {
-      alert(`Manual sync gagal: ${e.message}`);
-    }
-  };
-
-  $('#btn-print').onclick = async () => {
-    const settings = await window.desktopAPI.getSettings();
-    const html = buildReceiptHtml({
-      ...state.latestReceipt,
-      storeName: 'Adena POS',
-      paymentMethod: state.latestReceipt.paymentMethod,
-      paymentBank: state.latestReceipt.paymentBank
-    });
-    await window.desktopAPI.printReceipt({ html, printerName: settings.printerName, silent: true });
-  };
+  document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = ''; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };
+  $('#btn-manual-sync').onclick = async () => { await window.desktopAPI.syncPending(); await loadPosState(); await loadOrders(); alert('Manual sync selesai'); };
+  $('#btn-load-history').onclick = loadHistory;
 }
 
 bootstrap();
