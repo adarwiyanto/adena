@@ -7,8 +7,6 @@
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
 
-// ── Response helpers ──────────────────────────────────────────────────────────
-
 function api_json($data, int $status = 200): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
@@ -25,73 +23,62 @@ function api_err(string $message, int $status = 400): void {
     api_json(['ok' => false, 'message' => $message], $status);
 }
 
-// ── Device token table ────────────────────────────────────────────────────────
-
-function ensure_device_tokens_table(): void {
+function ensure_api_tokens_table(): void {
     $pdo = db();
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS device_tokens (
-            id          INT AUTO_INCREMENT PRIMARY KEY,
-            user_id     INT NOT NULL,
-            token_hash  CHAR(64) NOT NULL,
-            device_name VARCHAR(120),
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            expires_at  TIMESTAMP NOT NULL,
-            INDEX (token_hash),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    ");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS api_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        token_hash VARCHAR(255) NOT NULL,
+        token_plain TEXT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        last_used_at DATETIME NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        revoked_at DATETIME NULL,
+        INDEX idx_api_tokens_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-
 function api_get_bearer_token(): ?string {
-    $h = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['HTTP_X_DEVICE_TOKEN'] ?? '';
-    if (preg_match('/^Bearer\s+(.+)$/i', trim($h), $m)) return trim($m[1]);
-    // also accept X-Device-Token header directly
-    $direct = trim($_SERVER['HTTP_X_DEVICE_TOKEN'] ?? '');
-    if ($direct !== '') return $direct;
+    $h = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    if (preg_match('/^Bearer\s+(.+)$/i', trim($h), $m)) {
+        return trim($m[1]);
+    }
     return null;
 }
 
-function api_verify_token(): array {
-    ensure_device_tokens_table();
-    $raw = api_get_bearer_token();
-    if (!$raw || strlen($raw) < 32) api_err('Token tidak valid.', 401);
+function require_api_token(): array {
+    ensure_api_tokens_table();
 
-    $hash = hash('sha256', $raw);
-    $pdo  = db();
-    $stmt = $pdo->prepare("
-        SELECT dt.id AS token_id, dt.user_id, dt.expires_at,
-               u.id, u.username, u.name, u.role AS legacy_role, r.role_key
-        FROM   device_tokens dt
-        JOIN   users u ON u.id = dt.user_id
-        LEFT JOIN roles r ON r.id = u.role_id
-        WHERE  dt.token_hash = ?
-          AND  dt.expires_at > NOW()
-        LIMIT 1
-    ");
-    $stmt->execute([$hash]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) api_err('Token tidak valid.', 401);
+    $input = api_get_bearer_token();
+    if (!$input || strlen($input) < 20) {
+        api_err('Token tidak valid', 401);
+    }
 
-    // Refresh last_used
-    $pdo->prepare("UPDATE device_tokens SET last_used_at = NOW() WHERE id = ?")->execute([$row['token_id']]);
+    $pdo = db();
+    $rows = $pdo->query('SELECT id, name, token_hash FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
+                ->fetchAll(PDO::FETCH_ASSOC);
 
-    $effectiveRole = trim((string)($row['role_key'] ?: $row['legacy_role']));
+    foreach ($rows as $row) {
+        if (password_verify($input, (string)$row['token_hash'])) {
+            $pdo->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([(int)$row['id']]);
+            return [
+                'id' => (int)$row['id'],
+                'name' => (string)$row['name'],
+            ];
+        }
+    }
 
-    return [
-        'id'       => (int)$row['id'],
-        'username' => $row['username'],
-        'name'     => $row['name'],
-        'role'     => $effectiveRole,
-    ];
+    api_err('Token tidak valid', 401);
 }
 
-// ── CORS (opsional, untuk akses dari app) ─────────────────────────────────────
+function api_verify_token(): array {
+    return require_api_token();
+}
 
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Device-Token');
+header('Access-Control-Allow-Headers: Authorization, Content-Type');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+    http_response_code(204);
+    exit;
+}
