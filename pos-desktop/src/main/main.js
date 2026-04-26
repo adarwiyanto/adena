@@ -22,10 +22,7 @@ async function handleSyncBeforeExit() {
   });
 
   if (choice.response === 2) return { shouldQuit: false, mode: 'cancel' };
-  if (choice.response === 1) {
-    store.set('allowIncrementalSyncOnce', true);
-    return { shouldQuit: true, mode: 'skip_sync' };
-  }
+  if (choice.response === 1) return { shouldQuit: true, mode: 'skip_sync' };
 
   const pendingResp = await syncPendingTransactions();
   const shiftResp = await retryPendingShiftSync();

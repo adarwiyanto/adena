@@ -156,14 +156,10 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
   tx();
 }
 
-async function syncMaster(options = {}) {
+async function syncMaster(_options = {}) {
   try {
-    const allowIncremental = !!store.get('allowIncrementalSyncOnce');
-    const requestedIncremental = options.incremental === true || allowIncremental;
-    const since = requestedIncremental ? store.get('lastSyncAt') : null;
-    const fullSync = !(requestedIncremental && since);
-
-    const resp = await pullMaster(fullSync ? null : since);
+    const fullSync = true;
+    const resp = await pullMaster();
     if (!resp?.ok) return { ...resp, endpoint: '/api/sync/pull.php', fullSync };
 
     const payload = resp.data || {};
@@ -194,7 +190,6 @@ async function syncMaster(options = {}) {
     saveMasterData(payload, { fullSync, normalizedProducts });
 
     if (resp.server_time) store.set('lastSyncAt', resp.server_time);
-    if (allowIncremental) store.delete('allowIncrementalSyncOnce');
     if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
 
     return {

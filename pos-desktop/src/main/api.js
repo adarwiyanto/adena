@@ -121,12 +121,12 @@ async function login(username, password) {
   }
 }
 
-async function pullMaster(since = null) {
+async function pullMaster() {
   try {
-    const q = since ? `?since=${encodeURIComponent(since)}` : '';
     const apiClient = client();
     if (!apiClient.get) return apiClient;
-    const res = await apiClient.get(`/api/sync/pull.php${q}`);
+    console.log('[sync:master:req]', 'GET', '/api/sync/pull.php');
+    const res = await apiClient.get('/api/sync/pull.php');
     return res.data;
   } catch (err) {
     return mapAxiosError(err, 'Sync master');
