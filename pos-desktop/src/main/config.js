@@ -4,7 +4,7 @@ const Store = ElectronStore.default || ElectronStore;
 const store = new Store({
   name: 'settings',
   defaults: {
-    apiBaseUrl: 'http://localhost/adena',
+    apiBaseUrl: '',
     apiToken: '',
     deviceId: 'desktop-default',
     printerName: '',

@@ -39,7 +39,19 @@ ipcMain.handle('settings:set', (_, patch) => {
 });
 
 ipcMain.handle('api:test', async () => testConnection());
-ipcMain.handle('auth:login', async (_, payload) => login(payload.username, payload.password));
+ipcMain.handle('auth:login', async (_, payload) => {
+  const resp = await login(payload?.username, payload?.password);
+  if (resp?.ok && resp.user) {
+    store.set('sessionUser', resp.user);
+    store.set('sessionAt', new Date().toISOString());
+  }
+  return resp;
+});
+ipcMain.handle('auth:session', () => {
+  const user = store.get('sessionUser');
+  if (!user) return { ok: false, user: null };
+  return { ok: true, user };
+});
 ipcMain.handle('sync:master', async () => syncMaster());
 ipcMain.handle('sync:pending', async () => syncPendingTransactions());
 ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload));
