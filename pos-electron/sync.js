@@ -4,8 +4,9 @@ const http  = require('http');
 const {
   getSetting, setSetting, replaceAll, replaceServerSettings,
   upsertServerShift, getPendingTransactions, markTransactionSynced,
+  markTransactionFailed,
   getPendingShifts, markShiftSynced, getPendingMovements, markMovementSynced,
-  getLastSyncAt, logSync, db,
+  getLastSyncAt, logSync, db, getSyncQueueStats,
 } = require('./db');
 
 const BASE_URL = 'https://adena.co.id';
@@ -18,6 +19,7 @@ function apiRequest(method, path, token, body = null) {
     const lib = url.protocol === 'https:' ? https : http;
     const bodyStr = body ? JSON.stringify(body) : null;
 
+    const maskedToken = token ? `${String(token).slice(0, 6)}***${String(token).slice(-4)}` : '(empty)';
     const opts = {
       hostname: url.hostname,
       port: url.port || (url.protocol === 'https:' ? 443 : 80),
@@ -25,6 +27,7 @@ function apiRequest(method, path, token, body = null) {
       method,
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : '',
         'X-Device-Token': token || '',
         ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
       },
@@ -53,6 +56,7 @@ function apiRequest(method, path, token, body = null) {
           const message = parsed.message || `Request gagal (HTTP ${statusCode})`;
           const err = new Error(message);
           err.type = 'json_error';
+          if (statusCode === 401 || /token tidak valid/i.test(message)) err.type = 'auth_error';
           err.statusCode = statusCode;
           err.response = parsed;
           reject(err);
@@ -71,6 +75,7 @@ function apiRequest(method, path, token, body = null) {
         resolve(parsed);
       });
     });
+    console.info('[sync] request', { method, path: url.pathname + url.search, token: maskedToken });
 
     req.on('timeout', () => {
       req.destroy();
@@ -170,6 +175,21 @@ async function pullFromServer(token, fullSync = false) {
       is_active: b.is_active == null ? 1 : (b.is_active ? 1 : 0),
       })));
     }
+  }
+
+  if (Array.isArray(d.payment_channels)) {
+    db().prepare('DELETE FROM payment_channels').run();
+    if (d.payment_channels.length) {
+      replaceAll('payment_channels', d.payment_channels.map((c) => ({
+        id: c.id,
+        payment_method: c.payment_method || null,
+        channel_name: c.channel_name || null,
+        bank_name: c.bank_name || null,
+        is_active: c.is_active == null ? 1 : (c.is_active ? 1 : 0),
+        sort_order: c.sort_order || 0,
+      })));
+    }
+    pulled += d.payment_channels.length;
   }
 
   if (Array.isArray(d.guides)) {
@@ -283,7 +303,15 @@ async function pushToServer(token) {
     })),
   };
 
-  const res = await apiRequest('POST', '/api/sync/push.php', token, body);
+  let res;
+  try {
+    res = await apiRequest('POST', '/api/sync/push.php', token, body);
+  } catch (err) {
+    for (const tx of pendingTx) {
+      markTransactionFailed(tx.offline_uuid, err?.message || 'Push gagal');
+    }
+    throw err;
+  }
   if (!res.ok) throw new Error(res.message || 'Push gagal');
 
   const r = res.results || {};
@@ -313,16 +341,37 @@ async function runSync(fullSync = false) {
 
   let pulled = 0, pushed = 0;
   try {
+    const startedAt = new Date().toISOString();
     pushed  = await pushToServer(token);
     pulled  = await pullFromServer(token, fullSync);
+    const stats = getSyncQueueStats();
     logSync({ direction: 'both', status: 'ok', records_pulled: pulled, records_pushed: pushed });
     setSetting('last_sync_at', new Date().toISOString());
-    return { ok: true, pulled, pushed };
+    return { ok: true, pulled, pushed, queue: stats, started_at: startedAt, finished_at: new Date().toISOString() };
   } catch (err) {
     const debug = err?.type === 'non_json' && err?.debug ? ` | ${err.debug}` : '';
     logSync({ direction: 'both', status: 'error', error_message: err.message, records_pulled: pulled, records_pushed: pushed });
-    return { ok: false, silent: false, type: err?.type || 'unknown_error', message: `${err.message}${debug}` };
+    if (err?.type === 'auth_error') {
+      setSetting('device_token', '');
+      setSetting('current_user', '');
+      setSetting('current_user_info', '');
+    }
+    const queue = getSyncQueueStats();
+    return { ok: false, silent: false, type: err?.type || 'unknown_error', message: `${err.message}${debug}`, queue };
   }
 }
 
-module.exports = { loginOnline, pullFromServer, pushToServer, runSync };
+async function validateToken(token) {
+  if (!token) return { ok: false, message: 'Token kosong', type: 'auth_error' };
+  try {
+    const res = await apiRequest('GET', '/api/auth.php', token);
+    return { ok: true, user: res.user || null };
+  } catch (err) {
+    if (err?.type === 'auth_error' || err?.statusCode === 401) {
+      return { ok: false, message: err.message || 'Token tidak valid', type: 'auth_error' };
+    }
+    return { ok: false, message: err.message || 'Gagal verifikasi token', type: err?.type || 'unknown_error' };
+  }
+}
+
+module.exports = { loginOnline, pullFromServer, pushToServer, runSync, validateToken };

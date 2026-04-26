@@ -75,15 +75,7 @@ function createMainWindow() {
     },
   });
 
-  const token = dbMod.getSetting('device_token', '');
-  void token;
-
-  // Wajib reset session setiap startup
-  dbMod.setSetting('current_user', '');
-  dbMod.setSetting('device_token', '');
-  dbMod.setSetting('current_user_info', '');
-
-  // Selalu arahkan ke login
+  // Selalu mulai dari halaman login. login page akan memvalidasi sesi/token.
   mainWindow.loadFile(page('login.html'));
 
   mainWindow.on('closed', () => { mainWindow = null; });
@@ -183,6 +175,10 @@ ipcMain.on('checkout:done', async (_, receipt) => {
     mainWindow.webContents.send('sync:done', syncResult);
     if (!syncResult?.ok) {
       mainWindow.webContents.send('sync:warning', syncResult?.message || 'Sync gagal sesudah transaksi.');
+      if (syncResult?.type === 'auth_error') {
+        mainWindow.webContents.send('sync:warning', 'Sesi desktop tidak valid. Login ulang diperlukan agar transaksi tersinkron.');
+        reloadWithPreload('login-pre.js', 'login.html');
+      }
     }
   }
 });
@@ -336,8 +332,12 @@ function openSettingsWindow() {
 
 function startAutoSync() {
   if (syncTimer) clearInterval(syncTimer);
-  syncTimer = setInterval(() => {
-    syncMod.runSync(false).catch(() => {});
+  syncTimer = setInterval(async () => {
+    const result = await syncMod.runSync(false).catch(() => ({ ok: false }));
+    if (mainWindow && !mainWindow.isDestroyed() && result && !result.ok && result.type === 'auth_error') {
+      mainWindow.webContents.send('sync:warning', 'Sesi desktop tidak valid. Login ulang diperlukan agar transaksi tersinkron.');
+      reloadWithPreload('login-pre.js', 'login.html');
+    }
   }, 10 * 60 * 1000); // 10 menit
 }
 

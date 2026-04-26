@@ -73,6 +73,17 @@ try {
     );
 } catch (Throwable $_) {}
 
+// ── Payment channels (opsional, schema baru) ────────────────────────────────
+$paymentChannels = [];
+try {
+    $paymentChannels = rows($pdo,
+        "SELECT id, payment_method, channel_name, bank_name, is_active, sort_order
+         FROM payment_channels
+         WHERE is_active = 1
+         ORDER BY sort_order, id"
+    );
+} catch (Throwable $_) {}
+
 // ── Guides ────────────────────────────────────────────────────────────────────
 $guides = [];
 try {
@@ -152,6 +163,7 @@ api_ok([
         'loyalty_rewards' => array_values($loyaltyRewards),
         'payment_methods' => array_values($paymentMethods),
         'qris_banks'      => array_values($banks),
+        'payment_channels' => array_values($paymentChannels),
         'guides'          => array_values($guides),
         'settings'        => $settingsData,
         'active_shift'    => $activeShift,
