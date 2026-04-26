@@ -90,6 +90,14 @@ function migrate(d) {
       is_active INTEGER DEFAULT 1
     );
 
+    CREATE TABLE IF NOT EXISTS cashiers (
+      id        INTEGER PRIMARY KEY,
+      username  TEXT UNIQUE,
+      name      TEXT NOT NULL,
+      role      TEXT,
+      is_active INTEGER DEFAULT 1
+    );
+
     CREATE TABLE IF NOT EXISTS payment_channels (
       id             INTEGER PRIMARY KEY,
       payment_method TEXT,
@@ -153,11 +161,16 @@ function migrate(d) {
       offline_uuid          TEXT UNIQUE,
       transaction_group_uuid TEXT,
       transaction_code      TEXT,
+      local_transaction_id  TEXT,
+      local_device_id       TEXT,
       shift_id              INTEGER,
       shift_offline_uuid    TEXT,
       customer_id           INTEGER,
+      guide_id              INTEGER,
       guide_name            TEXT,
       payment_method        TEXT DEFAULT 'cash',
+      payment_channel_id    INTEGER,
+      payment_channel_name  TEXT,
       payment_bank          TEXT,
       items_json            TEXT,
       subtotal              REAL DEFAULT 0,
@@ -200,6 +213,37 @@ function migrate(d) {
       synced_at     TEXT DEFAULT (datetime('now','localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS transaction_items (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_offline_uuid TEXT NOT NULL,
+      product_id            INTEGER,
+      product_name          TEXT,
+      qty                   REAL DEFAULT 0,
+      price                 REAL DEFAULT 0,
+      subtotal              REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_queue (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_type   TEXT NOT NULL,
+      local_ref     TEXT NOT NULL,
+      status        TEXT DEFAULT 'pending_sync',
+      last_error    TEXT,
+      created_at    TEXT DEFAULT (datetime('now','localtime')),
+      updated_at    TEXT DEFAULT (datetime('now','localtime'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_logs (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint        TEXT,
+      http_status     INTEGER DEFAULT 0,
+      response_message TEXT,
+      synced_at       TEXT DEFAULT (datetime('now','localtime')),
+      records_sent    INTEGER DEFAULT 0,
+      records_success INTEGER DEFAULT 0,
+      records_failed  INTEGER DEFAULT 0
+    );
+
   `);
 
   // additive migrations (aman untuk data existing)
@@ -211,6 +255,12 @@ function migrate(d) {
   };
   ensureColumn('payment_methods', 'requires_bank', 'requires_bank INTEGER DEFAULT 0');
   ensureColumn('transactions', 'sync_error', 'sync_error TEXT');
+  ensureColumn('transactions', 'local_transaction_id', 'local_transaction_id TEXT');
+  ensureColumn('transactions', 'local_device_id', 'local_device_id TEXT');
+  ensureColumn('transactions', 'guide_id', 'guide_id INTEGER');
+  ensureColumn('transactions', 'payment_channel_id', 'payment_channel_id INTEGER');
+  ensureColumn('transactions', 'payment_channel_name', 'payment_channel_name TEXT');
+  ensureColumn('transactions', 'sync_status', "sync_status TEXT DEFAULT 'pending_sync'");
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -222,6 +272,14 @@ function getSetting(key, def = null) {
 
 function setSetting(key, value) {
   db().prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)').run(key, String(value ?? ''));
+}
+
+function getOrCreateDeviceId() {
+  let value = getSetting('local_device_id', '');
+  if (value) return value;
+  value = `desktop-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  setSetting('local_device_id', value);
+  return value;
 }
 
 function getServerSetting(key, def = '') {
@@ -244,6 +302,18 @@ function getLocalUser(username) {
 
 function setLocalPasswordHash(userId, hash) {
   db().prepare('UPDATE local_users SET password_hash = ? WHERE id = ?').run(hash, userId);
+}
+
+function replaceCashiers(rows = []) {
+  db().prepare('DELETE FROM cashiers').run();
+  if (!rows.length) return;
+  replaceAll('cashiers', rows.map((r) => ({
+    id: r.id,
+    username: r.username || '',
+    name: r.name || '',
+    role: r.role || 'kasir',
+    is_active: r.is_active == null ? 1 : (r.is_active ? 1 : 0),
+  })));
 }
 
 // ── Sync: bulk replace ────────────────────────────────────────────────────────
@@ -326,21 +396,25 @@ function saveTransaction(data) {
   db().prepare(`
     INSERT INTO transactions
       (offline_uuid, transaction_group_uuid, shift_id, shift_offline_uuid,
-       customer_id, guide_name, payment_method, payment_bank,
+       local_transaction_id, local_device_id,
+       customer_id, guide_id, guide_name, payment_method,
+       payment_channel_id, payment_channel_name, payment_bank,
        items_json, subtotal, tx_discount_amount, tx_discount_type,
        total, paid_amount, change_amount, loyalty_points_earned,
        sold_at, created_by, sync_status)
     VALUES
       (@offline_uuid, @transaction_group_uuid, @shift_id, @shift_offline_uuid,
-       @customer_id, @guide_name, @payment_method, @payment_bank,
+       @local_transaction_id, @local_device_id,
+       @customer_id, @guide_id, @guide_name, @payment_method,
+       @payment_channel_id, @payment_channel_name, @payment_bank,
        @items_json, @subtotal, @tx_discount_amount, @tx_discount_type,
        @total, @paid_amount, @change_amount, @loyalty_points_earned,
-       @sold_at, @created_by, 'pending')
+       @sold_at, @created_by, 'pending_sync')
   `).run(data);
 }
 
 function getPendingTransactions() {
-  return db().prepare("SELECT * FROM transactions WHERE sync_status IN ('pending', 'sync_failed')").all();
+  return db().prepare("SELECT * FROM transactions WHERE sync_status IN ('pending', 'pending_sync', 'sync_failed')").all();
 }
 
 function markTransactionSynced(offlineUuid, txCode) {
@@ -356,7 +430,7 @@ function markTransactionFailed(offlineUuid, reason) {
 }
 
 function getPendingShifts() {
-  return db().prepare("SELECT * FROM pos_shifts WHERE sync_status IN ('pending', 'sync_failed')").all();
+  return db().prepare("SELECT * FROM pos_shifts WHERE sync_status IN ('pending', 'pending_sync', 'sync_failed')").all();
 }
 
 function markShiftSynced(offlineUuid, serverId) {
@@ -366,7 +440,7 @@ function markShiftSynced(offlineUuid, serverId) {
 }
 
 function getPendingMovements() {
-  return db().prepare("SELECT * FROM cash_movements WHERE sync_status IN ('pending', 'sync_failed')").all();
+  return db().prepare("SELECT * FROM cash_movements WHERE sync_status IN ('pending', 'pending_sync', 'sync_failed')").all();
 }
 
 function markMovementSynced(offlineUuid, serverId) {
@@ -451,7 +525,9 @@ function getSyncQueueStats() {
 
 module.exports = {
   db, getSetting, setSetting, getServerSetting,
+  getOrCreateDeviceId,
   saveLocalUser, getLocalUser, setLocalPasswordHash,
+  replaceCashiers,
   replaceAll, replaceServerSettings,
   getActiveShift, openShift, closeShift, upsertServerShift,
   addCashMovement, getShiftMovements,

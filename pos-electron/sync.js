@@ -3,6 +3,7 @@ const https = require('https');
 const http  = require('http');
 const {
   getSetting, setSetting, replaceAll, replaceServerSettings,
+  replaceCashiers, getOrCreateDeviceId,
   upsertServerShift, getPendingTransactions, markTransactionSynced,
   markTransactionFailed,
   getPendingShifts, markShiftSynced, getPendingMovements, markMovementSynced,
@@ -154,6 +155,9 @@ async function pullFromServer(token, fullSync = false) {
     db().prepare('DELETE FROM guides').run();
     if (d.guides.length) replaceAll('guides', d.guides.map((g) => ({ id: g.id, name: g.name, is_active: g.is_active == null ? 1 : (g.is_active ? 1 : 0) })));
   }
+  if (Array.isArray(d.cashiers || d.users)) {
+    replaceCashiers(d.cashiers || d.users || []);
+  }
   if (d.settings) replaceServerSettings(d.settings);
   if (d.active_shift) upsertServerShift(d.active_shift);
 
@@ -166,10 +170,11 @@ async function pushToServer(token) {
   const pendingTx = getPendingTransactions();
   if (!pendingShifts.length && !pendingMovements.length && !pendingTx.length) return 0;
 
+  const deviceId = getOrCreateDeviceId();
   const body = {
     shifts: pendingShifts.map((s) => ({ offline_uuid: s.offline_uuid, status: s.status, opened_at: s.opened_at, opening_cash_actual: s.opening_cash_actual, closed_at: s.closed_at, counted_cash_total: s.counted_cash_total, notes: s.notes, offline_close_uuid: s.status === 'closed' ? s.offline_uuid + '-close' : null })),
     cash_movements: pendingMovements.map((m) => ({ offline_uuid: m.offline_uuid, shift_offline_uuid: m.shift_offline_uuid, movement_type: m.movement_type, amount: m.amount, reason: m.reason, notes: m.notes, created_at: m.created_at })),
-    transactions: pendingTx.map((tx) => ({ offline_uuid: tx.offline_uuid, transaction_group_uuid: tx.transaction_group_uuid, shift_offline_uuid: tx.shift_offline_uuid, customer_id: tx.customer_id, guide_name: tx.guide_name, payment_method: tx.payment_method, payment_bank: tx.payment_bank, items: JSON.parse(tx.items_json || '[]'), subtotal: tx.subtotal, tx_discount_amount: tx.tx_discount_amount, tx_discount_type: tx.tx_discount_type, total: tx.total, paid_amount: tx.paid_amount, sold_at: tx.sold_at })),
+    transactions: pendingTx.map((tx) => ({ offline_uuid: tx.offline_uuid, transaction_group_uuid: tx.transaction_group_uuid, shift_offline_uuid: tx.shift_offline_uuid, customer_id: tx.customer_id, user_id: tx.created_by, guide_id: tx.guide_id || null, guide_name: tx.guide_name, payment_method: tx.payment_method, payment_channel_id: tx.payment_channel_id || null, payment_channel_name: tx.payment_channel_name || tx.payment_bank || null, payment_bank: tx.payment_bank, items: JSON.parse(tx.items_json || '[]'), subtotal: tx.subtotal, tx_discount_amount: tx.tx_discount_amount, tx_discount_type: tx.tx_discount_type, total: tx.total, paid_amount: tx.paid_amount, change_amount: tx.change_amount || 0, sold_at: tx.sold_at, local_transaction_id: tx.local_transaction_id || tx.offline_uuid, local_device_id: tx.local_device_id || deviceId })),
   };
 
   let res;
@@ -220,4 +225,15 @@ async function validateToken(token) {
   }
 }
 
-module.exports = { testConnection, pullFromServer, pushToServer, runSync, validateToken };
+async function loginUser(username, password) {
+  const token = String(getSetting('device_token', '') || '').trim();
+  if (!token) return { ok: false, message: 'API Token belum diisi.' };
+  try {
+    const res = await apiRequest('POST', '/api/auth.php', token, { username, password });
+    return { ok: true, user: res.user || null };
+  } catch (err) {
+    return { ok: false, message: err?.message || 'Login gagal', type: err?.type || 'unknown_error' };
+  }
+}
+
+module.exports = { testConnection, pullFromServer, pushToServer, runSync, validateToken, loginUser };
