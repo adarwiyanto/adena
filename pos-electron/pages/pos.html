@@ -204,6 +204,7 @@
       <div class="cart-line cart-total"><span>TOTAL</span><span id="total-val">Rp 0</span></div>
       <div class="cart-actions">
         <button class="btn btn-success btn-full btn-lg" id="btn-bayar">BAYAR</button>
+        <button class="btn btn-ghost btn-full btn-lg" id="btn-print" style="display:none">PRINT</button>
         <button class="btn btn-primary btn-full btn-lg" id="btn-transaksi-baru" style="display:none">Transaksi Baru</button>
       </div>
       <div class="checkout-status-box" id="checkout-status-box" style="display:none">
@@ -309,6 +310,7 @@ let cart = {}; // { productId: { product, qty, discount_amount, discount_type } 
 let currentDiscItemId = null;
 let latestDebugState = null;
 let awaitingNewTransaction = false;
+let lastReceiptPayload = null;
 
 const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
 const IMAGE_BASE_URL = 'https://adena.co.id';
@@ -344,10 +346,12 @@ async function init() {
   });
   window.POS.onCheckoutFinished((payload) => {
     awaitingNewTransaction = true;
+    lastReceiptPayload = payload?.receipt || null;
     document.getElementById('btn-bayar').style.display = 'none';
+    document.getElementById('btn-print').style.display = '';
     document.getElementById('btn-transaksi-baru').style.display = '';
     if (payload && payload.synced === false && payload.syncMessage) {
-      showCheckoutStatus('Sinkronisasi gagal, transaksi disimpan pending');
+      showCheckoutStatus('Transaksi tersimpan. Sync gagal, menunggu Sync Manual.');
     }
   });
   window.POS.onSyncDone(async (r) => {
@@ -525,7 +529,9 @@ function resetCart() {
   document.getElementById('guide-name').value = '';
   renderCart();
   awaitingNewTransaction = false;
+  lastReceiptPayload = null;
   document.getElementById('btn-bayar').style.display = '';
+  document.getElementById('btn-print').style.display = 'none';
   document.getElementById('btn-transaksi-baru').style.display = 'none';
   hideCheckoutStatus();
 }
@@ -646,6 +652,11 @@ document.getElementById('btn-transaksi-baru').addEventListener('click', () => {
   searchInput.value = '';
   searchInput.focus();
   renderProducts(filterProducts());
+});
+document.getElementById('btn-print').addEventListener('click', async () => {
+  if (!lastReceiptPayload) { alert('Belum ada transaksi tersimpan untuk dicetak.'); return; }
+  const result = await window.POS.printReceipt(lastReceiptPayload);
+  if (!result?.ok) alert(result?.message || 'Gagal mencetak struk.');
 });
 
 // ── Shift ─────────────────────────────────────────────────────────────────────

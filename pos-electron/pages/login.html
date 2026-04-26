@@ -2,41 +2,33 @@
 <html lang="id">
 <head>
   <meta charset="utf-8">
-  <title>Setting API — Adena POS</title>
+  <title>Login — Adena POS</title>
   <link rel="stylesheet" href="../assets/app.css">
   <style>
     body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--sidebar); }
-    .card { background: var(--surface); border-radius: 16px; padding: 32px; width: 420px; box-shadow: 0 25px 80px rgba(0,0,0,.3); }
+    .card { background: var(--surface); border-radius: 16px; padding: 32px; width: 380px; box-shadow: 0 25px 80px rgba(0,0,0,.3); }
     .brand { text-align: center; margin-bottom: 24px; }
     .brand-name { font-size: 24px; font-weight: 800; color: var(--accent); }
     .brand-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
     .form-group { margin-bottom: 14px; }
+    .api-fab {
+      position: fixed; left: 18px; bottom: 18px; border: 1px solid var(--border);
+      border-radius: 999px; background: rgba(255,255,255,.95); padding: 8px 12px; font-size: 12px; cursor: pointer;
+    }
+    .api-modal { position: fixed; inset: 0; background: rgba(15,23,42,.4); display: none; align-items: center; justify-content: center; }
+    .api-modal.show { display: flex; }
+    .api-panel { width: 420px; background: #fff; border-radius: 12px; padding: 18px; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="brand">
       <div class="brand-name">Adena POS</div>
-      <div class="brand-sub">Setting API Desktop</div>
+      <div class="brand-sub">Login Kasir Desktop</div>
     </div>
 
     <div id="notice" class="notice"></div>
 
-    <form id="api-form">
-      <div class="form-group">
-        <label class="form-label">Base URL</label>
-        <input id="base-url" class="form-control" type="url" placeholder="https://domain-anda.com" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label">API Token</label>
-        <input id="api-token" class="form-control" type="text" required>
-      </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost btn-lg" type="button" id="btn-test">Test Koneksi</button>
-        <button class="btn btn-primary btn-lg" type="submit" id="btn-save">Simpan</button>
-      </div>
-    </form>
-    <hr style="margin:16px 0;border:none;border-top:1px solid #e5e7eb">
     <form id="user-form">
       <div class="form-group">
         <label class="form-label">Username Kasir</label>
@@ -49,6 +41,31 @@
       <button class="btn btn-primary btn-lg" type="submit" id="btn-login">Login Kasir</button>
     </form>
   </div>
+  <button class="api-fab" id="btn-open-api">⚙️ Setting API</button>
+  <div class="api-modal" id="api-modal">
+    <div class="api-panel">
+      <h3 style="margin-bottom:12px">Setting API</h3>
+      <form id="api-form">
+        <div class="form-group">
+          <label class="form-label">Base URL</label>
+          <input id="base-url" class="form-control" type="url" placeholder="https://domain-anda.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Token</label>
+          <input id="api-token" class="form-control" type="text" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Local Device ID</label>
+          <input id="local-device-id" class="form-control" type="text" readonly>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-lg" type="button" id="btn-test">Test Koneksi</button>
+          <button class="btn btn-primary btn-lg" type="submit" id="btn-save">Simpan</button>
+          <button class="btn btn-ghost btn-lg" type="button" id="btn-close-api">Tutup</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script>
     const form = document.getElementById('api-form');
@@ -56,6 +73,7 @@
     const btnTest = document.getElementById('btn-test');
     const btnSave = document.getElementById('btn-save');
     const btnLogin = document.getElementById('btn-login');
+    const apiModal = document.getElementById('api-modal');
     const userForm = document.getElementById('user-form');
 
     function showNotice(msg, type) {
@@ -67,7 +85,13 @@
       const cfg = await window.POS.getApiConfig();
       if (cfg?.base_url) document.getElementById('base-url').value = cfg.base_url;
       if (cfg?.token) document.getElementById('api-token').value = cfg.token;
+      document.getElementById('local-device-id').value = cfg?.local_device_id || '-';
     }
+    document.getElementById('btn-open-api').addEventListener('click', async () => {
+      await preloadForm();
+      apiModal.classList.add('show');
+    });
+    document.getElementById('btn-close-api').addEventListener('click', () => apiModal.classList.remove('show'));
 
     btnTest.addEventListener('click', async () => {
       const base = document.getElementById('base-url').value.trim();
@@ -91,15 +115,15 @@
         return;
       }
       showNotice('Setting API tersimpan.', 'ok');
-      window.POS.navigate('pos');
+      apiModal.classList.remove('show');
+      showNotice('Setting API tersimpan.', 'ok');
     });
 
     (async () => {
       await preloadForm();
       const boot = await window.POS.bootstrapSession();
-      if (boot?.ok && !boot?.needs_login) {
-        window.POS.navigate('pos');
-      } else if (boot?.message) {
+      if (boot?.ok && !boot?.needs_login) window.POS.navigate('pos');
+      else if (boot?.message) {
         showNotice(boot.message, 'err');
       }
     })();

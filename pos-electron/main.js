@@ -163,10 +163,9 @@ ipcMain.on('close:payment', () => {
 
 // Setelah checkout berhasil: print + tutup payment + reload POS
 ipcMain.on('checkout:done', async (_, payload) => {
-  const receipt = payload?.receipt || payload;
+  const receipt = payload?.receipt || null;
   const offlineUuid = payload?.offline_uuid || null;
   if (paymentWindow && !paymentWindow.isDestroyed()) paymentWindow.close();
-  await printReceipt(receipt);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('checkout:status', { text: 'Transaksi tersimpan lokal' });
     mainWindow.webContents.send('checkout:status', { text: 'Sinkronisasi ke server...' });
@@ -179,6 +178,7 @@ ipcMain.on('checkout:done', async (_, payload) => {
     mainWindow.webContents.send('pos:checkout-finished', {
       synced: !!(syncResult && syncResult.ok),
       offline_uuid: offlineUuid,
+      receipt,
       syncMessage: syncResult?.ok ? '' : (syncResult?.message || 'Transaksi tersimpan lokal. Jalankan sync manual.'),
     });
     mainWindow.webContents.send('sync:done', syncResult);
@@ -190,6 +190,12 @@ ipcMain.on('checkout:done', async (_, payload) => {
       }
     }
   }
+});
+
+ipcMain.handle('print:receipt', async (_, receipt) => {
+  if (!receipt) return { ok: false, message: 'Data struk tidak tersedia.' };
+  await printReceipt(receipt);
+  return { ok: true };
 });
 
 // ── Print receipt ─────────────────────────────────────────────────────────────
@@ -254,7 +260,8 @@ function generateReceiptHtml(r) {
     .spacer { height: 6px; }
   </style>
   </head><body>
-  <div class="store-name">${esc(r.store_name)}</div>
+  ${r.store_logo ? `<div class="center" style="margin-bottom:4px"><img src="${esc(r.store_logo)}" style="max-width:120px;max-height:60px;object-fit:contain"></div>` : ''}
+  <div class="store-name">${esc(r.store_name || 'Adena')}</div>
   ${r.store_subtitle ? `<div class="center">${esc(r.store_subtitle)}</div>` : ''}
   ${r.store_address ? `<div class="center" style="font-size:10px">${esc(r.store_address)}</div>` : ''}
   ${r.store_phone ? `<div class="center" style="font-size:10px">Telp: ${esc(r.store_phone)}</div>` : ''}

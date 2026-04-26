@@ -148,14 +148,6 @@ const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
 let cart = null, payMethods = [], banks = [];
 let selectedMethod = 'cash';
 const FALLBACK_BANK_METHODS = new Set(['qris','edc','transfer','debit','credit_card','bank_transfer']);
-const FALLBACK_BANK_OPTIONS = {
-  qris: ['QRIS'],
-  transfer: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
-  bank_transfer: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
-  credit_card: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
-  debit: ['BCA', 'Mandiri', 'BRI', 'BNI', 'CIMB Niaga', 'Permata'],
-  edc: ['BCA', 'Mandiri', 'BRI', 'BNI'],
-};
 
 async function init() {
   [cart, payMethods, banks] = await Promise.all([
@@ -221,12 +213,20 @@ function selectMethod(code, btn) {
   document.querySelectorAll('.method-btn').forEach((b) => b.classList.remove('active'));
   btn.classList.add('active');
 
-  const isCash    = code === 'cash';
+  const isCash    = methodIsCash(code);
   const needsBank = methodNeedsBank(code);
-  renderBankOptions(code);
+  const hasBankOptions = renderBankOptions(code);
 
   document.getElementById('cash-wrap').style.display  = isCash ? '' : 'none';
   document.getElementById('bank-wrap').style.display  = needsBank ? '' : 'none';
+  const notice = document.getElementById('pay-notice');
+  if (needsBank && !hasBankOptions) {
+    notice.textContent = 'Data bank/channel belum tersedia. Jalankan Sync Manual.';
+    notice.className = 'notice show notice-err';
+  } else if (notice.textContent.includes('Data bank/channel')) {
+    notice.className = 'notice';
+    notice.textContent = '';
+  }
 
   if (!isCash) {
     document.getElementById('kembalian-box').style.display = 'none';
@@ -252,16 +252,22 @@ function renderBankOptions(methodCode) {
   const sel = document.getElementById('sel-bank');
   const current = sel.value;
   const normalizedMethod = String(methodCode || '').toLowerCase();
-  const dynamicOptions = banks
-    .filter((b) => {
-      const bankMethod = String(b.payment_method || '').toLowerCase();
-      if (normalizedMethod === 'qris') return bankMethod === 'qris' || !bankMethod;
-      return bankMethod === normalizedMethod || !bankMethod;
-    })
-    .map((b) => String(b.name || '').trim())
-    .filter(Boolean);
-  const fallbackOptions = FALLBACK_BANK_OPTIONS[String(methodCode || '').toLowerCase()] || [];
-  const options = [...new Set([...dynamicOptions, ...fallbackOptions])];
+  const isQris = normalizedMethod.includes('qris');
+  let dynamicRows = banks.filter((b) => {
+    const bankMethod = String(b.payment_method || '').toLowerCase();
+    const bankName = String(b.name || '').trim().toLowerCase();
+    if (isQris) return bankMethod === 'qris' || bankName.includes('qris');
+    if (!bankMethod) return false;
+    return bankMethod === normalizedMethod;
+  });
+  if (!dynamicRows.length && !isQris) {
+    dynamicRows = banks.filter((b) => String(b.payment_method || '').trim() !== '');
+  }
+  if (!dynamicRows.length && banks.length) {
+    dynamicRows = banks;
+  }
+  const dynamicOptions = dynamicRows.map((b) => String(b.name || '').trim()).filter(Boolean);
+  const options = [...new Set(dynamicOptions)];
 
   sel.innerHTML = '<option value="">— Pilih —</option>';
   options.forEach((name) => {
@@ -275,6 +281,7 @@ function renderBankOptions(methodCode) {
   if (current && Array.from(sel.options).some((o) => o.value === current)) {
     sel.value = current;
   }
+  return options.length > 0;
 }
 
 // ── Quick amount buttons ──────────────────────────────────────────────────────
@@ -328,12 +335,13 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
   notice.className = 'notice';
 
   // Validasi
-  if (methodNeedsBank(selectedMethod) && !document.getElementById('sel-bank').value) {
+  const hasBankOptions = document.querySelectorAll('#sel-bank option').length > 1;
+  if (methodNeedsBank(selectedMethod) && hasBankOptions && !document.getElementById('sel-bank').value) {
     notice.textContent = 'Pilih bank / penyedia pembayaran.';
     notice.className = 'notice show notice-err';
     return;
   }
-  if (selectedMethod === 'cash') {
+  if (methodIsCash(selectedMethod)) {
     const paid  = parseFloat(document.getElementById('paid-amount').value) || 0;
     const total = cart.total || 0;
     if (paid < total) {
@@ -343,10 +351,10 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
     }
   }
 
-  const paid   = selectedMethod === 'cash'
+  const paid   = methodIsCash(selectedMethod)
     ? parseFloat(document.getElementById('paid-amount').value) || cart.total
     : cart.total;
-  const change = selectedMethod === 'cash' ? paid - cart.total : 0;
+  const change = methodIsCash(selectedMethod) ? paid - cart.total : 0;
   const bankSel = document.getElementById('sel-bank');
   const bankId = bankSel.value ? parseInt(bankSel.value, 10) || null : null;
   const bankName = bankSel.selectedOptions[0]?.dataset?.name || bankSel.selectedOptions[0]?.textContent || null;
@@ -396,6 +404,7 @@ document.getElementById('btn-cancel').addEventListener('click', () => window.PAY
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function methodNeedsBank(code) {
   const normalizedCode = String(code || '').toLowerCase();
+  if (methodIsCash(code)) return false;
   const m = payMethods.find((x) => String(x.code || '').toLowerCase() === normalizedCode);
   const fallbackByCode = FALLBACK_BANK_METHODS.has(normalizedCode);
   const fallbackByName = m
@@ -405,6 +414,13 @@ function methodNeedsBank(code) {
     return Number(m.requires_bank) === 1 || fallbackByCode || fallbackByName;
   }
   return fallbackByCode || fallbackByName;
+}
+
+function methodIsCash(code) {
+  const normalizedCode = String(code || '').toLowerCase().trim();
+  const m = payMethods.find((x) => String(x.code || '').toLowerCase() === normalizedCode);
+  const name = String(m?.name || '').toLowerCase();
+  return normalizedCode === 'cash' || normalizedCode === 'tunai' || name.includes('cash') || name.includes('tunai');
 }
 
 init();

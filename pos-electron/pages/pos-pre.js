@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('POS', {
   // Checkout
   setPendingCart: (data) => ipcRenderer.invoke('checkout:set-pending', data),
   openPayment:    ()     => ipcRenderer.send('open:payment'),
+  printReceipt:   (data) => ipcRenderer.invoke('print:receipt', data),
 
   // Sync
   syncManual:     ()     => ipcRenderer.invoke('sync:run', { full: true }),
