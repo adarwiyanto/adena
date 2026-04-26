@@ -50,3 +50,11 @@ dialog { border: none; border-radius: 12px; width: 420px; }
 .app-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; padding: 10px 14px; border-radius: 10px; color: #fff; background: #dc2626; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 70vw; font-size: 13px; }
 .app-toast.show { opacity: 1; }
 .app-toast.success { background: #16a34a; }
+
+
+.sync-card { max-width: 880px; margin: 5vh auto; }
+#sync-progress { width: 100%; height: 20px; }
+.sync-module-status { columns: 2; padding-left: 20px; }
+.sync-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+#sync-debug { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+#btn-sync-offline { display: none; }
