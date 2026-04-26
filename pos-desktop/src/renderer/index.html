@@ -24,6 +24,23 @@
     </div>
   </section>
 
+  <section id="sync-view" class="view">
+    <div class="card sync-card">
+      <h2>Sinkronisasi Data</h2>
+      <progress id="sync-progress" max="100" value="0"></progress>
+      <p id="sync-status-text">Menunggu sinkronisasi...</p>
+      <ul id="sync-module-status" class="sync-module-status"></ul>
+      <p id="sync-retry-count">Retry: 0</p>
+      <textarea id="sync-debug" rows="8" readonly placeholder="Debug sync akan muncul di sini jika gagal."></textarea>
+      <div class="sync-actions">
+        <button id="btn-sync-retry">Coba Lagi</button>
+        <button id="btn-sync-copy-debug">Copy Debug</button>
+        <button id="btn-sync-offline" class="link-btn">Masuk Mode Offline</button>
+        <button id="btn-sync-enter-pos">Masuk POS</button>
+      </div>
+    </div>
+  </section>
+
   <section id="pos-view" class="view">
     <header class="topbar">
       <div>
@@ -74,28 +91,9 @@
       </main>
     </section>
 
-    <section class="tab-panel" data-panel="receipt">
-      <div id="receipt-wrap" class="card"></div>
-    </section>
-
-    <section class="tab-panel" data-panel="history">
-      <div class="card">
-        <div class="filters">
-          <input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" />
-          <input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" />
-          <select id="history-guide-filter"><option value="">Semua guide</option></select>
-          <select id="history-payment-filter"><option value="">Semua pembayaran</option></select>
-          <select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select>
-          <button id="btn-load-history">Filter</button>
-        </div>
-        <div id="history-omzet"></div>
-        <div id="history-list"></div>
-      </div>
-    </section>
-
-    <section class="tab-panel" data-panel="orders">
-      <div class="card" id="orders-list"></div>
-    </section>
+    <section class="tab-panel" data-panel="receipt"><div id="receipt-wrap" class="card"></div></section>
+    <section class="tab-panel" data-panel="history"><div class="card"><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
+    <section class="tab-panel" data-panel="orders"><div class="card" id="orders-list"></div></section>
   </section>
 
   <div id="app-status" class="app-status" aria-live="polite"></div>
@@ -105,11 +103,7 @@
     <h3>Setting API</h3>
     <input id="api-base-url" placeholder="Base URL" />
     <input id="api-token" placeholder="Static API token" />
-    <div class="dialog-actions">
-      <button id="btn-test-api">Test Connection</button>
-      <button id="btn-save-api">Save API Setting</button>
-      <button id="btn-close-api">Tutup</button>
-    </div>
+    <div class="dialog-actions"><button id="btn-test-api">Test Connection</button><button id="btn-save-api">Save API Setting</button><button id="btn-close-api">Tutup</button></div>
     <p id="api-status"></p>
   </dialog>
 
@@ -119,10 +113,8 @@
     <select id="printer-name"></select>
     <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
     <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
-    <div class="dialog-actions">
-      <button id="btn-save-printer">Save Printer Setting</button>
-      <button id="btn-close-printer">Tutup</button>
-    </div>
+    <input id="device-code" placeholder="Kode POS / Kode Device (contoh: TJQ)" />
+    <div class="dialog-actions"><button id="btn-save-printer">Save Printer Setting</button><button id="btn-close-printer">Tutup</button></div>
     <p id="printer-status"></p>
   </dialog>
 

@@ -66,6 +66,7 @@ function initDb() {
       price REAL NOT NULL DEFAULT 0,
       category TEXT,
       category_id INTEGER,
+      category_name TEXT,
       image_path TEXT,
       is_favorite INTEGER DEFAULT 0,
       is_best_seller INTEGER DEFAULT 0,
@@ -253,6 +254,7 @@ function initDb() {
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_offline_uuid ON sales(offline_uuid);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_local_id ON sales(local_device_id, local_transaction_id);
     CREATE INDEX IF NOT EXISTS idx_sales_sync_status ON sales(sync_status);
   `);
@@ -263,6 +265,7 @@ function initDb() {
   };
   safeExec('ALTER TABLE products ADD COLUMN image_path TEXT');
   safeExec('ALTER TABLE products ADD COLUMN category_id INTEGER');
+  safeExec('ALTER TABLE products ADD COLUMN category_name TEXT');
   safeExec('ALTER TABLE product_categories ADD COLUMN image_path TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_contact TEXT');
@@ -273,6 +276,7 @@ function initDb() {
   safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
+  safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');
 
   return db;
 }

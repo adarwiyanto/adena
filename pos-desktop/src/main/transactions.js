@@ -3,11 +3,33 @@ const { initDb } = require('./db');
 const { store } = require('./config');
 const { localDateTimeString } = require('./time');
 
+function ensureDeviceCode() {
+  const raw = String(store.get('deviceCode') || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]+$/.test(raw)) {
+    return { ok: false, message: 'Kode POS/Device belum disetting.' };
+  }
+  return { ok: true, value: raw };
+}
+
+function formatTransactionCode(deviceCode) {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `TRX-${date}-${time}-post${deviceCode}`;
+}
+
 function saveSaleLocally({ user, guide, payment, items }) {
+  const device = ensureDeviceCode();
+  if (!device.ok) {
+    return { ok: false, message: device.message };
+  }
+
   const db = initDb();
-  const localTransactionId = uuidv4();
-  const offlineUuid = uuidv4();
-  const transactionCode = `TRX-${Date.now()}`;
+  const transactionUuid = uuidv4();
+  const localTransactionId = transactionUuid;
+  const transactionGroupUuid = transactionUuid;
+  const transactionCode = formatTransactionCode(device.value);
   const nowLocal = localDateTimeString();
 
   const insert = db.prepare(`INSERT INTO sales
@@ -18,10 +40,11 @@ function saveSaleLocally({ user, guide, payment, items }) {
 
   const tx = db.transaction(() => {
     for (const item of items) {
+      const itemOfflineUuid = uuidv4();
       insert.run(
         transactionCode,
-        localTransactionId,
-        offlineUuid,
+        transactionGroupUuid,
+        itemOfflineUuid,
         item.product_id,
         item.qty,
         item.price_each,
@@ -40,7 +63,13 @@ function saveSaleLocally({ user, guide, payment, items }) {
   });
 
   tx();
-  return { localTransactionId, offlineUuid, transactionCode, soldAt: nowLocal };
+  return {
+    ok: true,
+    localTransactionId,
+    transactionGroupUuid,
+    transactionCode,
+    soldAt: nowLocal
+  };
 }
 
 module.exports = { saveSaleLocally };

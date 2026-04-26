@@ -7,6 +7,7 @@ const store = new Store({
     apiBaseUrl: '',
     apiToken: '',
     deviceId: 'desktop-default',
+    deviceCode: '',
     printerName: '',
     receiptWidthMm: 58,
     receiptMarginMm: 2,
