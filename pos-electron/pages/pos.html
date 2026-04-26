@@ -153,6 +153,7 @@
       <button class="btn btn-ghost btn-sm" id="btn-shift">Shift</button>
       <button class="btn btn-ghost btn-sm" id="btn-landing">Belanja Landing</button>
       <button class="btn btn-ghost btn-sm" id="btn-sync" title="Sync Manual (F4)">Sync Manual</button>
+      <button class="btn btn-ghost btn-sm" id="btn-debug-sync">Debug Sync</button>
       <span class="user-badge" id="sync-status">Sync: -</span>
       <span class="user-badge" id="user-name"></span>
       <button class="btn btn-ghost btn-sm" id="btn-logout">Logout</button>
@@ -275,12 +276,29 @@
   </div>
 </div>
 
+<!-- Modal: Debug Sync -->
+<div class="modal-overlay" id="modal-debug-sync" hidden>
+  <div class="modal modal-md">
+    <div class="modal-title">Debug Sync / Status Sync</div>
+    <div id="debug-sync-body" style="max-height:420px;overflow:auto;font-size:12px;line-height:1.6"></div>
+    <div class="modal-footer" style="flex-wrap:wrap;gap:6px">
+      <button class="btn btn-ghost btn-sm" id="btn-debug-test-token">Test API Token</button>
+      <button class="btn btn-ghost btn-sm" id="btn-debug-pull-master">Pull Master Data</button>
+      <button class="btn btn-ghost btn-sm" id="btn-debug-push-pending">Push Pending Transactions</button>
+      <button class="btn btn-primary btn-sm" id="btn-debug-sync-now">Sync Now</button>
+      <button class="btn btn-success btn-sm" id="btn-debug-copy">Copy Debug Log</button>
+      <button class="btn btn-ghost btn-sm" id="btn-debug-close">Tutup</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ─────────────────────────────────────────────────────────────────────
 let products = [], categories = [], customers = [], guides = [], paymentMethods = [], banks = [], landingOrders = [];
 let settings = {}, activeShift = null;
 let cart = {}; // { productId: { product, qty, discount_amount, discount_type } }
 let currentDiscItemId = null;
+let latestDebugState = null;
 
 const fmt = (n) => 'Rp ' + Number(n||0).toLocaleString('id-ID');
 const IMAGE_BASE_URL = 'https://adena.co.id';
@@ -728,6 +746,44 @@ document.getElementById('btn-sync').addEventListener('click', async () => {
   await refreshSyncStatus();
 });
 
+document.getElementById('btn-debug-sync').addEventListener('click', async () => {
+  document.getElementById('modal-debug-sync').hidden = false;
+  await refreshDebugSyncPanel();
+});
+document.getElementById('btn-debug-close').addEventListener('click', () => {
+  document.getElementById('modal-debug-sync').hidden = true;
+});
+document.getElementById('btn-debug-test-token').addEventListener('click', async () => {
+  const res = await window.POS.syncTestToken();
+  await refreshDebugSyncPanel(`Test API Token: ${res.ok ? 'OK' : (res.message || 'gagal')}`);
+});
+document.getElementById('btn-debug-pull-master').addEventListener('click', async () => {
+  const res = await window.POS.syncPullMaster();
+  await refreshDebugSyncPanel(res.ok ? 'Pull master data selesai.' : `Pull master gagal: ${res.message || '-'}`);
+  if (res.ok) await reloadMasterData();
+});
+document.getElementById('btn-debug-push-pending').addEventListener('click', async () => {
+  const res = await window.POS.syncPushPending();
+  await refreshDebugSyncPanel(res.ok ? 'Push pending selesai.' : `Push pending gagal: ${res.message || '-'}`);
+  await refreshSyncStatus();
+});
+document.getElementById('btn-debug-sync-now').addEventListener('click', async () => {
+  const res = await window.POS.syncManual();
+  await refreshDebugSyncPanel(res.ok ? 'Sync now sukses.' : `Sync now gagal: ${res.message || '-'}`);
+  if (res.ok) await reloadMasterData();
+  await refreshSyncStatus();
+});
+document.getElementById('btn-debug-copy').addEventListener('click', async () => {
+  if (!latestDebugState) await refreshDebugSyncPanel();
+  const text = buildDebugLogText(latestDebugState);
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('Debug log berhasil di-copy.');
+  } catch (_) {
+    window.prompt('Copy Debug Log (Ctrl+C lalu Enter):', text);
+  }
+});
+
 // ── Landing orders ───────────────────────────────────────────────────────────
 document.getElementById('btn-landing').addEventListener('click', async () => {
   await refreshLandingOrders();
@@ -786,6 +842,66 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+
+async function refreshDebugSyncPanel(infoMessage = '') {
+  const st = await window.POS.syncDebugStatus();
+  latestDebugState = st;
+  const logs = Array.isArray(st.logs) ? st.logs.slice(0, 5) : [];
+  const logHtml = logs.length
+    ? logs.map((row) => `
+      <div style="padding:6px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <div><b>${esc(row.created_at || '-')}</b> · ${esc(row.direction || '-')} · ${esc(row.endpoint || '-')}</div>
+        <div>Status: ${Number(row.http_status || 0)}</div>
+        <div>Error: ${esc(row.error_message || '-')}</div>
+      </div>`).join('')
+    : '<div class="cart-empty">Belum ada sync_debug_logs.</div>';
+
+  document.getElementById('debug-sync-body').innerHTML = `
+    ${infoMessage ? `<div class="notice show" style="margin-bottom:8px">${esc(infoMessage)}</div>` : ''}
+    <div><b>Base URL aktif:</b> ${esc(st.base_url || '-')}</div>
+    <div><b>API Token:</b> ${st.has_token ? 'Ada' : 'Tidak ada'} (${esc(st.masked_token || '-')})</div>
+    <div><b>Device ID:</b> ${esc(st.device_id || '-')}</div>
+    <div><b>Current User:</b> ${esc(st.current_user || '-')}</div>
+    <div><b>Pending Transactions:</b> ${Number(st.pending_sync_count || 0)}</div>
+    <div><b>Failed Transactions:</b> ${Number(st.sync_failed_count || 0)}</div>
+    <div><b>Transaksi gagal terakhir:</b> ${esc(st.latest_failed_transaction?.offline_uuid || '-')}</div>
+    <div><b>Error terakhir:</b> ${esc(st.last_error || '-')}</div>
+    <div><b>Endpoint terakhir:</b> ${esc(st.last_endpoint || '-')}</div>
+    <div><b>HTTP status terakhir:</b> ${Number(st.last_http_status || 0)}</div>
+    <div><b>Response server terakhir:</b> <pre style="white-space:pre-wrap">${esc((st.last_server_response || '-').slice(0, 1200))}</pre></div>
+    <div><b>Waktu sync terakhir:</b> ${esc(st.last_sync_at || '-')}</div>
+    <hr>
+    <div><b>5 Log terakhir</b></div>
+    ${logHtml}
+  `;
+}
+
+function buildDebugLogText(st) {
+  const lines = [
+    'Adena POS Sync Debug',
+    `Base URL: ${st?.base_url || '-'}`,
+    `Token: ${st?.has_token ? 'ada' : 'tidak'} (${st?.masked_token || '-'})`,
+    `Device ID: ${st?.device_id || '-'}`,
+    `Current User: ${st?.current_user || '-'}`,
+    `Pending Transactions: ${Number(st?.pending_sync_count || 0)}`,
+    `Failed Transactions: ${Number(st?.sync_failed_count || 0)}`,
+    `Last Error: ${st?.last_error || '-'}`,
+    `Last Endpoint: ${st?.last_endpoint || '-'}`,
+    `Last HTTP Status: ${Number(st?.last_http_status || 0)}`,
+    `Last Response: ${String(st?.last_server_response || '-').slice(0, 800)}`,
+    `Last Sync At: ${st?.last_sync_at || '-'}`,
+    'Pending Payload Summary:',
+  ];
+  const pendingRows = Array.isArray(st?.pending_payload_summary) ? st.pending_payload_summary : [];
+  pendingRows.forEach((row) => {
+    lines.push(`- ${row.offline_uuid} | ${row.sync_status} | total=${row.total} | ${row.payment_method}/${row.payment_channel || '-'}`);
+  });
+  lines.push('Last API Calls:');
+  (Array.isArray(st?.logs) ? st.logs.slice(0, 10) : []).forEach((row) => {
+    lines.push(`- [${row.created_at}] ${row.direction} ${row.endpoint} -> HTTP ${row.http_status} ${row.error_message ? '| ' + row.error_message : ''}`);
+  });
+  return lines.join('\\n');
+}
 
 init();
 

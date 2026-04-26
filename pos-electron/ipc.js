@@ -11,7 +11,7 @@ const {
   addCashMovement, getShiftMovements,
   saveTransaction, addCustomerLoyaltyPoints,
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
-  db,
+  db, getSyncDebugLogs, getPendingTransactionsDebug, getLatestApiRequest,
 } = db_module;
 
 // Pending checkout dari POS → Payment (disimpan di memori main process)
@@ -97,6 +97,72 @@ ipcMain.handle('sync:status', () => {
     last_sync_at: getSetting('last_sync_at', null),
     token: !!getSetting('device_token', ''),
     ...queue,
+  };
+});
+
+ipcMain.handle('sync:test-token', async () => {
+  const token = String(getSetting('device_token', '') || '').trim();
+  if (!token) return { ok: false, message: 'API token belum diisi.' };
+  return sync_module.validateToken(token);
+});
+
+ipcMain.handle('sync:pull-master', async () => {
+  const token = String(getSetting('device_token', '') || '').trim();
+  if (!token) return { ok: false, message: 'API token belum diisi.' };
+  try {
+    const pulled = await sync_module.pullFromServer(token, true);
+    return { ok: true, pulled };
+  } catch (err) {
+    return { ok: false, message: err?.message || 'Pull master gagal.', type: err?.type || 'unknown_error' };
+  }
+});
+
+ipcMain.handle('sync:push-pending', async () => {
+  const token = String(getSetting('device_token', '') || '').trim();
+  if (!token) return { ok: false, message: 'API token belum diisi.' };
+  try {
+    const pushed = await sync_module.pushToServer(token);
+    return { ok: true, pushed };
+  } catch (err) {
+    return { ok: false, message: err?.message || 'Push pending gagal.', type: err?.type || 'unknown_error' };
+  }
+});
+
+ipcMain.handle('sync:debug-status', async () => {
+  const token = String(getSetting('device_token', '') || '').trim();
+  const pendingRows = getPendingTransactionsDebug();
+  const failedRows = pendingRows.filter((row) => String(row.sync_status) === 'sync_failed');
+  const latestFailed = failedRows.length ? failedRows[failedRows.length - 1] : null;
+  const logs = getSyncDebugLogs(10);
+  const latestLog = logs[0] || null;
+  const latestApi = getLatestApiRequest();
+  const currentUserRaw = getSetting('current_user', '');
+  let currentUser = null;
+  try { currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : null; } catch (_) { currentUser = null; }
+
+  return {
+    base_url: sync_module.getBaseUrl(),
+    has_token: !!token,
+    masked_token: sync_module.maskToken(token),
+    device_id: db_module.getOrCreateDeviceId(),
+    current_user: currentUser ? `${currentUser.name || currentUser.username || '-'} (#${currentUser.id || '-'})` : '-',
+    last_sync_at: getSetting('last_sync_at', ''),
+    pending_sync_count: pendingRows.filter((r) => String(r.sync_status) !== 'sync_failed').length,
+    sync_failed_count: failedRows.length,
+    latest_failed_transaction: latestFailed,
+    last_error: latestLog?.error_message || latestApi?.error_message || '',
+    last_endpoint: latestLog?.endpoint || latestApi?.endpoint || '',
+    last_http_status: latestLog?.http_status || latestApi?.status_code || 0,
+    last_server_response: latestLog?.response_summary || '',
+    last_api_call_at: latestApi?.synced_at || latestLog?.created_at || '',
+    logs,
+    pending_payload_summary: pendingRows.map((r) => ({
+      offline_uuid: r.offline_uuid,
+      total: Number(r.total || 0),
+      payment_method: r.payment_method,
+      payment_channel: r.payment_channel || null,
+      sync_status: r.sync_status,
+    })),
   };
 });
 
