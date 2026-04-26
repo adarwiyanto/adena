@@ -11,7 +11,7 @@ require_once __DIR__ . '/../lib/upload_secure.php';
 start_secure_session();
 require_login();
 ensure_rbac_schema();
-$me = require_menu_access('pos', 'view');
+$me = require_menu_access('pos_history', 'view');
 ensure_sales_payment_bank_column();
 ensure_sales_revision_schema();
 

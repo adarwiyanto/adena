@@ -71,7 +71,7 @@ function start_secure_session(): void {
   }
 
   $now = time();
-  $idleTimeout = 1800;
+  $idleTimeout = 28800;
   $absoluteTimeout = 28800;
 
   if (!isset($_SESSION['_created_at'])) {

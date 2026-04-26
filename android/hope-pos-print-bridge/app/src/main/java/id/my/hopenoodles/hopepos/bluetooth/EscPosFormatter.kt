@@ -35,6 +35,9 @@ object EscPosFormatter {
         out.write(text("ID   : ${payload.receiptId}")); out.write(newLine())
         out.write(text("Tgl  : ${payload.tanggalJam}")); out.write(newLine())
         out.write(text("Kasir: ${payload.cashier}")); out.write(newLine())
+        if (!payload.guide.isNullOrBlank()) {
+            out.write(text("Guide: ${payload.guide}")); out.write(newLine())
+        }
         divider(out)
 
         payload.items.forEach {
@@ -43,9 +46,29 @@ object EscPosFormatter {
             val left = "$qty x ${money(it.price)}"
             out.write(text(twoColumn(left, money(it.subtotal))))
             out.write(newLine())
+            if (it.discountAmount > 0) {
+                val discLabel = if (it.discountType == "percent")
+                    "  Diskon ${trimDouble(it.discountAmount)}%"
+                else
+                    "  Diskon Rp${money(it.discountAmount.toLong())}"
+                out.write(text(discLabel)); out.write(newLine())
+            }
         }
 
         divider(out)
+        if (payload.txDiscountAmount > 0) {
+            val subtotalVal = if (payload.txDiscountType == "percent")
+                (payload.total / (1.0 - payload.txDiscountAmount / 100)).toLong()
+            else
+                payload.total + payload.txDiscountAmount.toLong()
+            out.write(text(twoColumn("SUBTOTAL", money(subtotalVal)))); out.write(newLine())
+            val discLabel = if (payload.txDiscountType == "percent")
+                "DISKON ${trimDouble(payload.txDiscountAmount)}%"
+            else
+                "DISKON"
+            val discValue = subtotalVal - payload.total
+            out.write(text(twoColumn(discLabel, "-${money(discValue)}"))); out.write(newLine())
+        }
         out.write(text(twoColumn("TOTAL", money(payload.total)))); out.write(newLine())
         out.write(text(twoColumn("BAYAR", money(payload.bayar)))); out.write(newLine())
         out.write(text(twoColumn("KEMBALI", money(payload.kembalian)))); out.write(newLine())
@@ -54,8 +77,7 @@ object EscPosFormatter {
         writeCenteredLine(out, payload.footer)
 
         out.write(newLine())
-        out.write(newLine())
-        out.write(newLine())
+        out.write(paperCut())
         return out.toByteArray()
     }
 
@@ -69,7 +91,8 @@ object EscPosFormatter {
         out.write(text("Test printer Panda PRJ-58D")); out.write(newLine())
         out.write(text(nowText)); out.write(newLine())
         out.write(text("Status: BERHASIL")); out.write(newLine())
-        out.write(newLine()); out.write(newLine()); out.write(newLine())
+        out.write(newLine())
+        out.write(paperCut())
         return out.toByteArray()
     }
 
@@ -106,6 +129,8 @@ object EscPosFormatter {
     private fun alignCenter(): ByteArray = byteArrayOf(0x1B, 0x61, 0x01)
     private fun bold(on: Boolean): ByteArray = byteArrayOf(0x1B, 0x45, if (on) 1 else 0)
     private fun doubleHeight(on: Boolean): ByteArray = byteArrayOf(0x1D, 0x21, if (on) 0x11 else 0x00)
+    // GS V B 0 — partial cut. Silently ignored by printers without auto-cutter.
+    private fun paperCut(): ByteArray = byteArrayOf(0x1D, 0x56, 0x42, 0x00)
 
     private fun bitmapToEscPos(source: Bitmap): ByteArray {
         val targetWidth = 384

@@ -8,7 +8,7 @@ require_once __DIR__ . '/../core/rbac.php';
 start_secure_session();
 require_login();
 ensure_rbac_schema();
-$me = require_menu_access('pos', 'view');
+$me = require_menu_access('pos_history', 'print');
 ensure_sales_payment_bank_column();
 
 $appName      = app_config()['app']['name'];

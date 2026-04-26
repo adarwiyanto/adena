@@ -181,6 +181,7 @@ function role_menu_tree(): array {
   return [
     'dashboard' => ['label' => 'Dashboard', 'actions' => ['view', 'export']],
     'pos' => ['label' => 'POS', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'pos_history' => ['label' => 'Riwayat Transaksi POS', 'actions' => ['view', 'print']],
     'sales' => ['label' => 'Penjualan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'produk' => ['label' => 'Produk', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export']],
     'inventori' => ['label' => 'Inventori', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
@@ -192,15 +193,16 @@ function role_menu_tree(): array {
     'roles' => ['label' => 'Role & Permission', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'shift' => ['label' => 'Buka / Tutup Shift', 'actions' => ['create', 'delete']],
     'settings' => ['label' => 'Pengaturan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'rekap_omset' => ['label' => 'Rekap Omset', 'actions' => ['view', 'export']],
   ];
 }
 
 function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
-    'admin' => ['dashboard', 'pos', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift'],
-    'manager' => ['dashboard', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase'],
-    'kasir' => ['pos', 'shift'],
+    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset'],
+    'manager' => ['dashboard', 'pos_history', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
+    'kasir' => ['pos', 'pos_history', 'shift'],
     'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
   foreach ($menuDefaults as $roleKey => $menus) {

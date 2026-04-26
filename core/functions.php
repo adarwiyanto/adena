@@ -708,18 +708,26 @@ function build_pos_receipt_payload(array $receipt, array $opts = []): array {
 
   $items = [];
   foreach (($receipt['items'] ?? []) as $item) {
-    $items[] = [
+    $entry = [
       'name' => (string)($item['name'] ?? ''),
       'qty' => (float)($item['qty'] ?? 0),
       'price' => (float)($item['price'] ?? 0),
       'subtotal' => (float)($item['subtotal'] ?? 0),
     ];
+    if (!empty($item['discount_amount'])) {
+      $entry['discount_amount'] = (float)$item['discount_amount'];
+      $entry['discount_type'] = (string)($item['discount_type'] ?? 'fixed');
+    }
+    $items[] = $entry;
   }
+  $txDiscountAmount = (float)($receipt['tx_discount_amount'] ?? 0);
+  $txDiscountType   = (string)($receipt['tx_discount_type'] ?? 'fixed');
 
   return [
     'receipt_id' => (string)($receipt['id'] ?? ''),
     'tanggal_jam' => (string)($receipt['time'] ?? date('d/m/Y H:i')),
     'cashier' => (string)($receipt['cashier'] ?? 'Kasir'),
+    'guide' => isset($receipt['guide']) && $receipt['guide'] !== null ? (string)$receipt['guide'] : null,
     'store_name' => $storeName,
     'store_subtitle' => $storeSubtitle,
     'store_address' => $storeAddress,
@@ -727,6 +735,8 @@ function build_pos_receipt_payload(array $receipt, array $opts = []): array {
     'footer' => $footer,
     'payment_method' => (string)($receipt['payment'] ?? 'cash'),
     'total' => $total,
+    'tx_discount_amount' => $txDiscountAmount,
+    'tx_discount_type' => $txDiscountType,
     'bayar' => $paidAmount,
     'kembalian' => max($paidAmount - $total, 0),
     'items' => $items,
@@ -860,7 +870,8 @@ function ensure_payment_methods_table(): void {
         ('cash', 'Tunai', 1, 1, 1),
         ('qris', 'QRIS', 1, 1, 2),
         ('edc', 'EDC', 1, 1, 3),
-        ('transfer', 'Transfer', 1, 1, 4)
+        ('transfer', 'Transfer', 1, 1, 4),
+        ('credit_card', 'Kartu Kredit', 1, 1, 5)
     ");
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.
@@ -868,7 +879,7 @@ function ensure_payment_methods_table(): void {
 }
 
 function payment_method_requires_bank(string $code): bool {
-  return in_array(strtolower(trim($code)), ['qris', 'edc', 'transfer'], true);
+  return in_array(strtolower(trim($code)), ['qris', 'edc', 'transfer', 'credit_card'], true);
 }
 
 function get_active_payment_methods(): array {
@@ -881,6 +892,7 @@ function get_active_payment_methods(): array {
       ['code' => 'qris', 'name' => 'QRIS'],
       ['code' => 'edc', 'name' => 'EDC'],
       ['code' => 'transfer', 'name' => 'Transfer'],
+      ['code' => 'credit_card', 'name' => 'Kartu Kredit'],
     ];
   }
 }
@@ -921,6 +933,65 @@ function ensure_sales_payment_bank_column(): void {
     $cols = db()->query("SHOW COLUMNS FROM sales LIKE 'payment_bank'")->fetchAll();
     if (empty($cols)) {
       db()->exec("ALTER TABLE sales ADD COLUMN payment_bank VARCHAR(100) NULL DEFAULT NULL");
+    }
+  } catch (Throwable $e) {}
+}
+
+function ensure_guides_table(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    db()->exec("
+      CREATE TABLE IF NOT EXISTS guides (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_guide_name (name)
+      ) ENGINE=InnoDB
+    ");
+  } catch (Throwable $e) {}
+}
+
+function get_active_guides(): array {
+  try {
+    ensure_guides_table();
+    return db()->query("SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
+  } catch (Throwable $e) {
+    return [];
+  }
+}
+
+function ensure_sales_guide_column(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    $col = db()->query("SHOW COLUMNS FROM sales LIKE 'guide_name'")->fetch();
+    if (!$col) {
+      db()->exec("ALTER TABLE sales ADD COLUMN guide_name VARCHAR(100) NULL DEFAULT NULL");
+    }
+  } catch (Throwable $e) {}
+}
+
+function ensure_sales_discount_columns(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
+  try {
+    $col = db()->query("SHOW COLUMNS FROM sales LIKE 'discount_amount'")->fetch();
+    if (!$col) {
+      db()->exec("ALTER TABLE sales ADD COLUMN discount_amount DECIMAL(18,2) NOT NULL DEFAULT 0");
+      db()->exec("ALTER TABLE sales ADD COLUMN discount_type VARCHAR(10) NOT NULL DEFAULT 'fixed'");
+    }
+    $col2 = db()->query("SHOW COLUMNS FROM sales LIKE 'tx_discount_amount'")->fetch();
+    if (!$col2) {
+      db()->exec("ALTER TABLE sales ADD COLUMN tx_discount_amount DECIMAL(18,2) NOT NULL DEFAULT 0");
+      db()->exec("ALTER TABLE sales ADD COLUMN tx_discount_type VARCHAR(10) NOT NULL DEFAULT 'fixed'");
     }
   } catch (Throwable $e) {}
 }

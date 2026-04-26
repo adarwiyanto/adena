@@ -225,7 +225,7 @@ $customCss = setting('custom_css', '');
       <!-- Non-cash Banks -->
       <div class="card" style="margin-top:24px">
         <h3 style="margin-top:0">Bank Non Tunai</h3>
-        <p><small>Daftar nama bank yang tampil sebagai pilihan saat kasir memilih QRIS, EDC, atau Transfer di POS.</small></p>
+        <p><small>Daftar nama bank yang tampil sebagai pilihan saat kasir memilih QRIS, EDC, Transfer, atau Kartu Kredit di POS.</small></p>
 
         <form method="post" style="margin-bottom:16px">
           <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
@@ -238,7 +238,7 @@ $customCss = setting('custom_css', '');
         </form>
 
         <?php if (empty($qrisBanks)): ?>
-          <p><small>Belum ada bank non-tunai. Tambahkan di atas agar kasir bisa memilih bank saat checkout QRIS, EDC, atau Transfer.</small></p>
+          <p><small>Belum ada bank non-tunai. Tambahkan di atas agar kasir bisa memilih bank saat checkout QRIS, EDC, Transfer, atau Kartu Kredit.</small></p>
         <?php else: ?>
           <div class="table-wrap" style="margin-top:12px">
             <table>
