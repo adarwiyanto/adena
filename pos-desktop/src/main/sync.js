@@ -3,24 +3,36 @@ const { pullMaster, pushTransactions } = require('./api');
 const { store } = require('./config');
 const { localDateTimeString } = require('./time');
 
+function toCategoryId(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function saveMasterData(data) {
   const db = initDb();
   const tx = db.transaction(() => {
     const wipe = (table) => db.prepare(`DELETE FROM ${table}`).run();
-    ['products', 'product_categories', 'payment_methods', 'qris_banks', 'guides', 'users', 'orders', 'order_items'].forEach(wipe);
+    ['products', 'product_categories', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements'].forEach(wipe);
 
-    const insertProduct = db.prepare(`INSERT INTO products (id, name, price, category, image_path, is_favorite, is_best_seller, show_on_pos, track_stock, updated_at)
-      VALUES (@id, @name, @price, @category, @image_path, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @updated_at)`);
-    (data.products || []).forEach((r) => insertProduct.run(r));
+    const insertProduct = db.prepare(`INSERT INTO products (id, name, price, category, category_id, image_path, is_favorite, is_best_seller, show_on_pos, track_stock, updated_at)
+      VALUES (@id, @name, @price, @category, @category_id, @image_path, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @updated_at)`);
+    (data.products || []).forEach((r) => insertProduct.run({
+      ...r,
+      category_id: toCategoryId(r.category_id ?? r.category)
+    }));
 
     const insertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?)');
     (data.categories || []).forEach((r) => insertCategory.run(r.id, r.name, r.image_path || null));
 
-    const insertPm = db.prepare('INSERT INTO payment_methods (code,name,is_active,sort_order) VALUES (?,?,?,?)');
-    (data.payment_methods || []).forEach((r) => insertPm.run(r.code, r.name, r.is_active ?? 1, r.sort_order ?? 0));
+    const insertPm = db.prepare('INSERT INTO payment_methods (code,name,is_active,sort_order,requires_bank) VALUES (?,?,?,?,?)');
+    (data.payment_methods || []).forEach((r) => insertPm.run(r.code, r.name, r.is_active ?? 1, r.sort_order ?? 0, r.requires_bank ?? null));
 
     const insertBank = db.prepare('INSERT INTO qris_banks (id,name,sort_order,is_active) VALUES (?,?,?,?)');
     (data.qris_banks || []).forEach((r) => insertBank.run(r.id, r.name, r.sort_order ?? 0, r.is_active ?? 1));
+
+    const insertChannel = db.prepare('INSERT INTO payment_channels (id,payment_method,channel_name,bank_name,is_active,sort_order) VALUES (?,?,?,?,?,?)');
+    (data.payment_channels || []).forEach((r) => insertChannel.run(r.id, r.payment_method || '', r.channel_name || '', r.bank_name || '', r.is_active ?? 1, r.sort_order ?? 0));
 
     const insertGuide = db.prepare('INSERT INTO guides (id,name,is_active) VALUES (?,?,?)');
     (data.guides || []).forEach((r) => insertGuide.run(r.id, r.name, r.is_active ?? 1));
@@ -34,15 +46,16 @@ function saveMasterData(data) {
     const insertOi = db.prepare('INSERT INTO order_items (order_id,product_id,qty,price_each,subtotal,product_name) VALUES (?,?,?,?,?,?)');
     (data.pending_order_items || []).forEach((r) => insertOi.run(r.order_id, r.product_id, r.qty, r.price_each || 0, r.subtotal || 0, r.product_name || ''));
 
-    const wipeShift = db.prepare('DELETE FROM pos_shifts');
-    wipeShift.run();
     if (data.active_shift) {
       const s = data.active_shift;
-      db.prepare(`INSERT INTO pos_shifts
+      db.prepare(`INSERT OR REPLACE INTO pos_shifts
         (id, shift_code, branch_id, opened_at, opened_by, opening_cash_default, opening_cash_actual, status, closed_at, closed_by, expected_cash_total, counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid, sync_status, created_at, updated_at)
         VALUES (@id, @shift_code, @branch_id, @opened_at, @opened_by, @opening_cash_default, @opening_cash_actual, @status, @closed_at, @closed_by, @expected_cash_total, @counted_cash_total, @cash_difference, @notes, @offline_open_uuid, @offline_close_uuid, 'synced', @created_at, @updated_at)`)
         .run(s);
     }
+
+    const insertCashMove = db.prepare('INSERT INTO pos_cash_movements (id,shift_id,movement_type,amount,reason,notes,created_at,offline_uuid,sync_status) VALUES (?,?,?,?,?,?,?,?,?)');
+    (data.cash_movements || []).forEach((r) => insertCashMove.run(r.id, r.shift_id, r.movement_type, r.amount, r.reason || '', r.notes || '', r.created_at || localDateTimeString(), r.offline_uuid || null, 'synced'));
 
     const hasWebSale = db.prepare('SELECT 1 FROM sales WHERE web_sale_id = ? LIMIT 1');
     const hasGroupItem = db.prepare('SELECT 1 FROM sales WHERE transaction_group_uuid = ? AND product_id = ? AND sold_at = ? LIMIT 1');
@@ -84,7 +97,7 @@ async function syncMaster() {
   try {
     const since = store.get('lastSyncAt');
     const resp = await pullMaster(since);
-    if (!resp?.ok) return resp;
+    if (!resp?.ok) return { ...resp, endpoint: '/api/sync/pull.php' };
     saveMasterData(resp.data || {});
     store.set('lastSyncAt', localDateTimeString());
     return resp;
@@ -93,7 +106,8 @@ async function syncMaster() {
     return {
       ok: false,
       message: 'Sync gagal',
-      status: error?.status || 500
+      status: error?.status || 500,
+      endpoint: '/api/sync/pull.php'
     };
   }
 }

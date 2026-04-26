@@ -20,7 +20,7 @@ function rows(PDO $pdo, string $sql, array $params = []): array {
 }
 
 // ── Products (show_on_pos only) ───────────────────────────────────────────────
-$productSql = "SELECT id, name, price, category, image_path,
+$productSql = "SELECT id, name, price, category, category AS category_id, image_path,
                       is_favorite, is_best_seller, show_on_pos,
                       track_stock, base_unit, updated_at
                FROM products
@@ -113,6 +113,16 @@ $settingKeys = [
     'store_logo', 'receipt_footer',
     'loyalty_point_value', 'loyalty_remainder_mode',
     'pos_default_opening_cash',
+    'store_intro',
+    'theme_primary',
+    'theme_secondary',
+    'theme_accent',
+    'theme_surface',
+    'theme_sidebar',
+    'theme_header',
+    'theme_text',
+    'theme_muted',
+    'custom_css',
 ];
 $settingsData = [];
 foreach ($settingKeys as $k) {

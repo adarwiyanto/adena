@@ -65,6 +65,7 @@ function initDb() {
       name TEXT NOT NULL,
       price REAL NOT NULL DEFAULT 0,
       category TEXT,
+      category_id INTEGER,
       image_path TEXT,
       is_favorite INTEGER DEFAULT 0,
       is_best_seller INTEGER DEFAULT 0,
@@ -89,7 +90,17 @@ function initDb() {
       is_system INTEGER DEFAULT 0,
       is_active INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,
+      requires_bank INTEGER DEFAULT 0,
       created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_channels (
+      id INTEGER PRIMARY KEY,
+      payment_method TEXT,
+      channel_name TEXT,
+      bank_name TEXT,
+      is_active INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS qris_banks (
@@ -218,6 +229,17 @@ function initDb() {
       created_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS shift_sync_queue (
+      id INTEGER PRIMARY KEY,
+      action TEXT NOT NULL,
+      offline_uuid TEXT NOT NULL UNIQUE,
+      payload_json TEXT NOT NULL,
+      sync_status TEXT DEFAULT 'pending',
+      error_message TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      synced_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS pos_sync_queue_log (
       id INTEGER PRIMARY KEY,
       entity_type TEXT NOT NULL,
@@ -240,6 +262,7 @@ function initDb() {
     try { db.exec(sql); } catch (_) {}
   };
   safeExec('ALTER TABLE products ADD COLUMN image_path TEXT');
+  safeExec('ALTER TABLE products ADD COLUMN category_id INTEGER');
   safeExec('ALTER TABLE product_categories ADD COLUMN image_path TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_contact TEXT');
@@ -249,6 +272,7 @@ function initDb() {
   safeExec('ALTER TABLE order_items ADD COLUMN product_name TEXT');
   safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
+  safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
 
   return db;
 }

@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   getPrinters: () => ipcRenderer.invoke('settings:printers'),
-  testConnection: () => ipcRenderer.invoke('api:test'),
+  testConnection: (overrides) => ipcRenderer.invoke('api:test', overrides),
   login: (payload) => ipcRenderer.invoke('auth:login', payload),
   logout: () => ipcRenderer.invoke('auth:logout'),
   syncMaster: () => ipcRenderer.invoke('sync:master'),
@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   printReceipt: (payload) => ipcRenderer.invoke('print:receipt', payload),
   shiftStatus: () => ipcRenderer.invoke('shift:status'),
   openShift: (payload) => ipcRenderer.invoke('shift:open', payload),
-  closeShift: (payload) => ipcRenderer.invoke('shift:close', payload)
+  closeShift: (payload) => ipcRenderer.invoke('shift:close', payload),
+  retryPendingShift: () => ipcRenderer.invoke('shift:retryPending')
 });
