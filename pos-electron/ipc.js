@@ -11,7 +11,7 @@ const {
   addCashMovement, getShiftMovements,
   saveTransaction, addCustomerLoyaltyPoints,
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
-  db, getSyncDebugLogs, getPendingTransactionsDebug, getLatestApiRequest,
+  db, getSyncDebugLogs, getPendingTransactionsDebug, getLatestApiRequest, getDbDiagnostics,
 } = db_module;
 
 // Pending checkout dari POS → Payment (disimpan di memori main process)
@@ -140,6 +140,7 @@ ipcMain.handle('sync:debug-status', async () => {
   let currentUser = null;
   try { currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : null; } catch (_) { currentUser = null; }
 
+  const dbDiag = getDbDiagnostics();
   return {
     base_url: sync_module.getBaseUrl(),
     has_token: !!token,
@@ -155,6 +156,7 @@ ipcMain.handle('sync:debug-status', async () => {
     last_http_status: latestLog?.http_status || latestApi?.status_code || 0,
     last_server_response: latestLog?.response_summary || '',
     last_api_call_at: latestApi?.synced_at || latestLog?.created_at || '',
+    db_diag: dbDiag,
     logs,
     pending_payload_summary: pendingRows.map((r) => ({
       offline_uuid: r.offline_uuid,
@@ -206,8 +208,17 @@ ipcMain.handle('data:banks', () => {
     WHERE is_active = 1
     ORDER BY sort_order, name
   `).all().filter((row) => String(row.name || '').trim() !== '');
-  if (channels.length) return channels;
-  return db().prepare("SELECT id, '' AS payment_method, name, sort_order, is_active FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, name").all();
+  const qrisBanks = db().prepare(`
+    SELECT id, 'qris' AS payment_method, name, sort_order, is_active
+    FROM qris_banks
+    WHERE is_active = 1
+    ORDER BY sort_order, name
+  `).all();
+
+  if (channels.length) {
+    return [...qrisBanks, ...channels];
+  }
+  return qrisBanks;
 });
 
 ipcMain.handle('data:guides', () => {
@@ -356,13 +367,26 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
     }
   }
 
-  saveTransaction(txData);
+  console.info('[checkout] payload', {
+    offline_uuid: txData.offline_uuid,
+    total: txData.total,
+    payment_method: txData.payment_method,
+    payment_channel: txData.payment_channel_name || txData.payment_bank || null,
+    items_count: cart.items.length,
+  });
+  try {
+    saveTransaction(txData);
+  } catch (err) {
+    console.error('[checkout] sqlite insert failed', err);
+    return { ok: false, message: 'Gagal menyimpan transaksi lokal. Silakan cek database lokal.' };
+  }
+  console.info('[checkout] sqlite insert success', { offline_uuid: txData.offline_uuid, sync_status: 'pending_sync' });
   _pendingCheckout = null;
 
   // Build receipt payload
   const receipt = buildReceiptPayload(cart, paymentData, currentUser, txUuid);
 
-  return { ok: true, receipt };
+  return { ok: true, receipt, offline_uuid: txData.offline_uuid, sync_status: 'pending_sync' };
 });
 
 ipcMain.handle('landing:load-order', (_, { order_id }) => {

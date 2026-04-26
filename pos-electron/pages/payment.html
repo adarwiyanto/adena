@@ -139,7 +139,7 @@
 <!-- Spinner -->
 <div class="spinner-overlay" id="spinner">
   <div class="spinner"></div>
-  <span>Memproses & Mencetak...</span>
+  <span id="spinner-text">Memproses...</span>
 </div>
 
 <script>
@@ -253,7 +253,11 @@ function renderBankOptions(methodCode) {
   const current = sel.value;
   const normalizedMethod = String(methodCode || '').toLowerCase();
   const dynamicOptions = banks
-    .filter((b) => !b.payment_method || String(b.payment_method).toLowerCase() === normalizedMethod)
+    .filter((b) => {
+      const bankMethod = String(b.payment_method || '').toLowerCase();
+      if (normalizedMethod === 'qris') return bankMethod === 'qris' || !bankMethod;
+      return bankMethod === normalizedMethod || !bankMethod;
+    })
     .map((b) => String(b.name || '').trim())
     .filter(Boolean);
   const fallbackOptions = FALLBACK_BANK_OPTIONS[String(methodCode || '').toLowerCase()] || [];
@@ -348,6 +352,7 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
   const bankName = bankSel.selectedOptions[0]?.dataset?.name || bankSel.selectedOptions[0]?.textContent || null;
 
   document.getElementById('spinner').classList.add('show');
+  document.getElementById('spinner-text').textContent = 'Menyimpan transaksi...';
   document.getElementById('btn-confirm').disabled = true;
   document.getElementById('btn-cancel').disabled  = true;
 
@@ -372,9 +377,10 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
       document.getElementById('btn-cancel').disabled  = false;
       return;
     }
+    document.getElementById('spinner-text').textContent = 'Transaksi tersimpan lokal';
 
     // Kirim ke main process untuk print + tutup window
-    window.PAY.done(res.receipt);
+    window.PAY.done({ receipt: res.receipt, offline_uuid: res.offline_uuid });
 
   } catch (err) {
     notice.textContent = 'Error: ' + err.message;

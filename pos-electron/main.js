@@ -162,14 +162,23 @@ ipcMain.on('close:payment', () => {
 });
 
 // Setelah checkout berhasil: print + tutup payment + reload POS
-ipcMain.on('checkout:done', async (_, receipt) => {
+ipcMain.on('checkout:done', async (_, payload) => {
+  const receipt = payload?.receipt || payload;
+  const offlineUuid = payload?.offline_uuid || null;
   if (paymentWindow && !paymentWindow.isDestroyed()) paymentWindow.close();
   await printReceipt(receipt);
-  const syncResult = await syncMod.runSync(false);
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('pos:reset');
+    mainWindow.webContents.send('checkout:status', { text: 'Transaksi tersimpan lokal' });
+    mainWindow.webContents.send('checkout:status', { text: 'Sinkronisasi ke server...' });
+  }
+  const syncResult = await syncMod.runSync(false);
+  console.info('[checkout] push result', { offline_uuid: offlineUuid, sync_ok: !!syncResult?.ok, message: syncResult?.message || '' });
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const syncLabel = syncResult?.ok ? 'Sinkronisasi berhasil' : 'Sinkronisasi gagal, transaksi disimpan pending';
+    mainWindow.webContents.send('checkout:status', { text: syncLabel });
     mainWindow.webContents.send('pos:checkout-finished', {
       synced: !!(syncResult && syncResult.ok),
+      offline_uuid: offlineUuid,
       syncMessage: syncResult?.ok ? '' : (syncResult?.message || 'Transaksi tersimpan lokal. Jalankan sync manual.'),
     });
     mainWindow.webContents.send('sync:done', syncResult);
@@ -373,6 +382,8 @@ ipcMain.handle('sync:manual', () => syncMod.runSync(true));
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  dbMod.db();
+  console.info(`[startup] Active DB Path: ${dbMod.getDbPath()}`);
   Menu.setApplicationMenu(buildMenu());
   createMainWindow();
   startAutoSync();
