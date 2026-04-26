@@ -41,11 +41,21 @@ function saveMasterData(data) {
 }
 
 async function syncMaster() {
-  const since = store.get('lastSyncAt');
-  const resp = await pullMaster(since);
-  saveMasterData(resp.data || {});
-  store.set('lastSyncAt', localDateTimeString());
-  return resp;
+  try {
+    const since = store.get('lastSyncAt');
+    const resp = await pullMaster(since);
+    if (!resp?.ok) return resp;
+    saveMasterData(resp.data || {});
+    store.set('lastSyncAt', localDateTimeString());
+    return resp;
+  } catch (error) {
+    console.error('[sync:master] failed', error);
+    return {
+      ok: false,
+      message: 'Sync gagal',
+      status: error?.status || 500
+    };
+  }
 }
 
 function buildPendingPayload() {
@@ -81,22 +91,32 @@ function buildPendingPayload() {
 }
 
 async function syncPendingTransactions() {
-  const db = initDb();
-  const payload = buildPendingPayload();
-  if (!payload.transactions.length) return { ok: true, message: 'No pending' };
+  try {
+    const db = initDb();
+    const payload = buildPendingPayload();
+    if (!payload.transactions.length) return { ok: true, message: 'No pending' };
 
-  const resp = await pushTransactions(payload);
-  const tx = db.transaction(() => {
-    for (const [uuid, result] of Object.entries(resp.results?.transactions || {})) {
-      const isSuccess = result.status === 'inserted' || result.status === 'exists';
-      db.prepare('UPDATE sales SET sync_status = ?, sync_error = ?, last_synced_at = CURRENT_TIMESTAMP WHERE offline_uuid = ?')
-        .run(isSuccess ? 'synced' : 'failed', isSuccess ? null : (result.message || 'sync failed'), uuid);
-      db.prepare('INSERT INTO pos_sync_queue_log (entity_type, offline_uuid, payload_json, processed_at, status, message) VALUES (?,?,?,?,?,?)')
-        .run('sale', uuid, JSON.stringify(result), localDateTimeString(), isSuccess ? 'success' : 'failed', result.message || null);
-    }
-  });
-  tx();
-  return resp;
+    const resp = await pushTransactions(payload);
+    if (!resp?.ok) return resp;
+    const tx = db.transaction(() => {
+      for (const [uuid, result] of Object.entries(resp.results?.transactions || {})) {
+        const isSuccess = result.status === 'inserted' || result.status === 'exists';
+        db.prepare('UPDATE sales SET sync_status = ?, sync_error = ?, last_synced_at = CURRENT_TIMESTAMP WHERE offline_uuid = ?')
+          .run(isSuccess ? 'synced' : 'failed', isSuccess ? null : (result.message || 'sync failed'), uuid);
+        db.prepare('INSERT INTO pos_sync_queue_log (entity_type, offline_uuid, payload_json, processed_at, status, message) VALUES (?,?,?,?,?,?)')
+          .run('sale', uuid, JSON.stringify(result), localDateTimeString(), isSuccess ? 'success' : 'failed', result.message || null);
+      }
+    });
+    tx();
+    return resp;
+  } catch (error) {
+    console.error('[sync:pending] failed', error);
+    return {
+      ok: false,
+      message: 'Sync gagal',
+      status: error?.status || 500
+    };
+  }
 }
 
 module.exports = { syncMaster, syncPendingTransactions };

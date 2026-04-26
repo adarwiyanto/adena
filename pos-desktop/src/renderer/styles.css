@@ -27,3 +27,8 @@ button { background: #111827; color: #fff; border: 0; cursor: pointer; }
 .filters { display:grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap:8px; }
 #history-list .row { border-bottom:1px solid #eee; padding:8px 0; }
 dialog { border: none; border-radius: 12px; width: 420px; }
+.app-status { position: fixed; right: 14px; bottom: 14px; background: #111827; color: #fff; padding: 8px 12px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity .2s; font-size: 12px; }
+.app-status.show { opacity: 1; }
+.app-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; padding: 10px 14px; border-radius: 10px; color: #fff; background: #dc2626; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 70vw; font-size: 13px; }
+.app-toast.show { opacity: 1; }
+.app-toast.success { background: #16a34a; }

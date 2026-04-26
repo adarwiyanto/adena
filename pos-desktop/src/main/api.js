@@ -79,18 +79,34 @@ async function login(username, password) {
 }
 
 async function pullMaster(since = null) {
-  const q = since ? `?since=${encodeURIComponent(since)}` : '';
-  const apiClient = client();
-  if (!apiClient.get) throw new Error(apiClient.message || 'Config API belum valid');
-  const res = await apiClient.get(`/api/sync/pull.php${q}`);
-  return res.data;
+  try {
+    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+    const apiClient = client();
+    if (!apiClient.get) return apiClient;
+    const res = await apiClient.get(`/api/sync/pull.php${q}`);
+    return res.data;
+  } catch (err) {
+    const mapped = mapAxiosError(err);
+    if (mapped.status === 500) {
+      return { ok: false, message: 'Sync gagal', status: 500, detail: mapped.detail };
+    }
+    return mapped;
+  }
 }
 
 async function pushTransactions(payload) {
-  const apiClient = client();
-  if (!apiClient.post) throw new Error(apiClient.message || 'Config API belum valid');
-  const res = await apiClient.post('/api/sync/push.php', payload);
-  return res.data;
+  try {
+    const apiClient = client();
+    if (!apiClient.post) return apiClient;
+    const res = await apiClient.post('/api/sync/push.php', payload);
+    return res.data;
+  } catch (err) {
+    const mapped = mapAxiosError(err);
+    if (mapped.status === 500) {
+      return { ok: false, message: 'Sync gagal', status: 500, detail: mapped.detail };
+    }
+    return mapped;
+  }
 }
 
 module.exports = { testConnection, login, pullMaster, pushTransactions };
