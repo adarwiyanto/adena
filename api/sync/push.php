@@ -19,6 +19,17 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $pdo = db();
+
+$safeExec = static function (string $sql) use ($pdo): void {
+    try { $pdo->exec($sql); } catch (Throwable $_) {}
+};
+$safeExec("ALTER TABLE sales ADD COLUMN local_device_id VARCHAR(120) NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN local_transaction_id VARCHAR(120) NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN payment_channel_id BIGINT NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN payment_channel_name VARCHAR(120) NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN guide_id BIGINT NULL");
+$safeExec("ALTER TABLE sales ADD KEY idx_sales_device_local (local_device_id, local_transaction_id)");
+
 $pdo->beginTransaction();
 
 $results = ['shifts' => [], 'cash_movements' => [], 'transactions' => []];
@@ -126,6 +137,8 @@ foreach ((array)($body['cash_movements'] ?? []) as $cm) {
 foreach ((array)($body['transactions'] ?? []) as $tx) {
     $txUuid = trim((string)($tx['offline_uuid'] ?? ''));
     if ($txUuid === '') continue;
+    $deviceId = trim((string)($tx['local_device_id'] ?? ''));
+    $localTxId = trim((string)($tx['local_transaction_id'] ?? $txUuid));
 
     // Cek apakah sudah ada (lewat offline_uuid di sales)
     $existing = $pdo->prepare("SELECT id FROM sales WHERE offline_uuid = ? LIMIT 1");
@@ -134,6 +147,14 @@ foreach ((array)($body['transactions'] ?? []) as $tx) {
     if ($existRow) {
         $results['transactions'][$txUuid] = 'exists';
         continue;
+    }
+    if ($deviceId !== '' && $localTxId !== '') {
+        $dup = $pdo->prepare("SELECT id FROM sales WHERE local_device_id = ? AND local_transaction_id = ? LIMIT 1");
+        $dup->execute([$deviceId, $localTxId]);
+        if ($dup->fetch(PDO::FETCH_ASSOC)) {
+            $results['transactions'][$txUuid] = 'exists';
+            continue;
+        }
     }
 
     // Resolve shift server ID
@@ -156,8 +177,12 @@ foreach ((array)($body['transactions'] ?? []) as $tx) {
     $soldAt     = (string)($tx['sold_at'] ?? date('Y-m-d H:i:s'));
     $payMethod  = (string)($tx['payment_method'] ?? 'cash');
     $payBank    = (string)($tx['payment_bank'] ?? '');
+    $payChannelId = !empty($tx['payment_channel_id']) ? (int)$tx['payment_channel_id'] : null;
+    $payChannelName = (string)($tx['payment_channel_name'] ?? $payBank);
     $guideName  = (string)($tx['guide_name'] ?? '');
+    $guideId    = !empty($tx['guide_id']) ? (int)$tx['guide_id'] : null;
     $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
+    $cashierId  = !empty($tx['user_id']) ? (int)$tx['user_id'] : (int)$user['id'];
     $txDiscAmt  = (float)($tx['tx_discount_amount'] ?? 0);
     $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
 
@@ -170,7 +195,8 @@ foreach ((array)($body['transactions'] ?? []) as $tx) {
                  product_id, qty, price_each, total,
                  discount_amount, discount_type,
                  tx_discount_amount, tx_discount_type,
-                 payment_method, payment_bank, guide_name,
+                 payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
+                 local_device_id, local_transaction_id,
                  created_by, shift_id, sold_at,
                  sync_status, original_sale_id,
                  is_active_revision, revision_no, revision_status,
@@ -180,8 +206,8 @@ foreach ((array)($body['transactions'] ?? []) as $tx) {
                  ?, ?, ?, ?,
                  ?, ?,
                  ?, ?,
-                 ?, ?, ?,
-                 ?, ?, ?,
+                 ?, ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?,
                  'synced', ?,
                  1, 0, 'active',
                  ?)
@@ -194,8 +220,9 @@ foreach ((array)($body['transactions'] ?? []) as $tx) {
             (float)($item['discount_amount'] ?? 0),
             (string)($item['discount_type'] ?? 'fixed'),
             $txDiscAmt, $txDiscType,
-            $payMethod, $payBank, $guideName,
-            $user['id'], $shiftServerId, $soldAt,
+            $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
+            $deviceId ?: null, $localTxId ?: $txUuid,
+            $cashierId, $shiftServerId, $soldAt,
             $firstId,
             $txCode,
         ]);

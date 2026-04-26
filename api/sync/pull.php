@@ -95,6 +95,18 @@ try {
     );
 } catch (Throwable $_) {}
 
+// ── Cashiers/users aktif ─────────────────────────────────────────────────────
+$cashiers = [];
+try {
+    $cashiers = rows($pdo,
+        "SELECT id, username, name,
+                COALESCE(NULLIF(role,''), 'kasir') AS role,
+                1 AS is_active
+         FROM users
+         ORDER BY name ASC"
+    );
+} catch (Throwable $_) {}
+
 // ── Store settings ────────────────────────────────────────────────────────────
 $settingKeys = [
     'store_name', 'store_subtitle', 'store_address', 'store_phone',
@@ -165,6 +177,7 @@ api_ok([
         'qris_banks'      => array_values($banks),
         'payment_channels' => array_values($paymentChannels),
         'guides'          => array_values($guides),
+        'cashiers'        => array_values($cashiers),
         'settings'        => $settingsData,
         'active_shift'    => $activeShift,
         'cash_movements'  => array_values($cashMovements),

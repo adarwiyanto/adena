@@ -29,7 +29,6 @@ function ensure_api_tokens_table(): void {
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         token_hash VARCHAR(255) NOT NULL,
-        token_plain TEXT NULL,
         is_active TINYINT(1) NOT NULL DEFAULT 1,
         last_used_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -51,7 +50,7 @@ function require_api_token(): array {
 
     $input = api_get_bearer_token();
     if (!$input || strlen($input) < 20) {
-        api_err('Token tidak valid', 401);
+        api_err('API token tidak valid', 401);
     }
 
     $pdo = db();
@@ -68,7 +67,7 @@ function require_api_token(): array {
         }
     }
 
-    api_err('Token tidak valid', 401);
+    api_err('API token tidak valid', 401);
 }
 
 function api_verify_token(): array {

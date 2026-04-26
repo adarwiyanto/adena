@@ -30,12 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $err = 'Nama device wajib diisi.';
     } else {
       $generatedToken = bin2hex(random_bytes(24));
-      db()->prepare('INSERT INTO api_tokens (name, token_hash, token_plain, is_active, created_at) VALUES (?, ?, ?, 1, NOW())')
-        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $generatedToken]);
+      db()->prepare('INSERT INTO api_tokens (name, token_hash, is_active, created_at) VALUES (?, ?, 1, NOW())')
+        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT)]);
       $ok = 'Token berhasil dibuat. Salin sekarang karena hanya tampil sekali.';
     }
   } elseif ($action === 'revoke' && $id > 0) {
-    db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW(), token_plain = NULL WHERE id = ?')
+    db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW() WHERE id = ?')
       ->execute([$id]);
     $ok = 'Token berhasil direvoke.';
   } elseif ($action === 'regenerate' && $id > 0) {
@@ -43,11 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($name === '') {
       $name = 'POS Desktop';
     }
-    db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW(), token_plain = NULL WHERE id = ?')
+    db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW() WHERE id = ?')
       ->execute([$id]);
     $generatedToken = bin2hex(random_bytes(24));
-    db()->prepare('INSERT INTO api_tokens (name, token_hash, token_plain, is_active, created_at) VALUES (?, ?, ?, 1, NOW())')
-      ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $generatedToken]);
+    db()->prepare('INSERT INTO api_tokens (name, token_hash, is_active, created_at) VALUES (?, ?, 1, NOW())')
+      ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT)]);
     $ok = 'Token digenerate ulang. Salin token baru sekarang.';
   }
 }

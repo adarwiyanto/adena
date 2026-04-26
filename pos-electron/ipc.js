@@ -29,8 +29,8 @@ ipcMain.handle('auth:save-api-config', async (_, { base_url, token }) => {
 
   setSetting('api_base_url', cleanBase);
   setSetting('device_token', cleanToken);
-  setSetting('current_user', JSON.stringify({ id: 0, username: 'desktop', name: 'POS Desktop', role: 'kasir' }));
-  setSetting('current_user_info', JSON.stringify({ id: 0, username: 'desktop', name: 'POS Desktop', role: 'kasir' }));
+  setSetting('current_user', '');
+  setSetting('current_user_info', '');
   return { ok: true, message: 'Setting API tersimpan.' };
 });
 
@@ -60,10 +60,15 @@ ipcMain.handle('auth:bootstrap', async () => {
   if (!token || !baseUrl) return { ok: false, needs_login: true, message: 'Silakan isi Setting API terlebih dahulu.' };
   const validation = await sync_module.validateToken(token);
   if (!validation.ok) return { ok: false, needs_login: true, message: 'API Token tidak valid. Silakan cek Setting API.' };
-  if (!getSetting('current_user', '')) {
-    setSetting('current_user', JSON.stringify({ id: 0, username: 'desktop', name: 'POS Desktop', role: 'kasir' }));
-  }
-  return { ok: true, needs_login: false };
+  return { ok: true, needs_login: !getSetting('current_user', '') };
+});
+
+ipcMain.handle('auth:login-user', async (_, { username, password }) => {
+  const login = await sync_module.loginUser(String(username || ''), String(password || ''));
+  if (!login.ok || !login.user) return login;
+  setSetting('current_user', JSON.stringify(login.user));
+  setSetting('current_user_info', JSON.stringify(login.user));
+  return { ok: true, user: login.user };
 });
 
 // ── Sync ──────────────────────────────────────────────────────────────────────
@@ -257,8 +262,11 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
     shift_id: shift.id,
     shift_offline_uuid: shift.offline_uuid,
     customer_id: paymentData.customer_id || cart.customer_id || null,
+    guide_id: paymentData.guide_id || cart.guide_id || null,
     guide_name: paymentData.guide_name || cart.guide_name || null,
     payment_method: selectedMethod,
+    payment_channel_id: paymentData.payment_channel_id || null,
+    payment_channel_name: paymentData.payment_channel_name || selectedBank || null,
     payment_bank: selectedBank || null,
     items_json: JSON.stringify(cart.items),
     subtotal: cart.subtotal || 0,
@@ -270,6 +278,8 @@ ipcMain.handle('checkout:confirm', async (_, paymentData) => {
     loyalty_points_earned: 0,
     sold_at: now,
     created_by: currentUser?.id || 0,
+    local_transaction_id: txUuid,
+    local_device_id: db_module.getOrCreateDeviceId(),
   };
 
   // Hitung loyalty points

@@ -240,7 +240,10 @@ function buildBanks() {
   const sel = document.getElementById('sel-bank');
   sel.innerHTML = '<option value="">— Pilih —</option>';
   banks.forEach((b) => {
-    const opt = document.createElement('option'); opt.value = b.name; opt.textContent = b.name;
+    const opt = document.createElement('option');
+    opt.value = String(b.id || '');
+    opt.dataset.name = b.name;
+    opt.textContent = b.name;
     sel.appendChild(opt);
   });
 }
@@ -259,11 +262,13 @@ function renderBankOptions(methodCode) {
   sel.innerHTML = '<option value="">— Pilih —</option>';
   options.forEach((name) => {
     const opt = document.createElement('option');
-    opt.value = name;
+    const found = banks.find((b) => String(b.name || '').toLowerCase() === String(name).toLowerCase());
+    opt.value = found ? String(found.id || '') : '';
+    opt.dataset.name = name;
     opt.textContent = name;
     sel.appendChild(opt);
   });
-  if (options.includes(current)) {
+  if (current && Array.from(sel.options).some((o) => o.value === current)) {
     sel.value = current;
   }
 }
@@ -338,7 +343,9 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
     ? parseFloat(document.getElementById('paid-amount').value) || cart.total
     : cart.total;
   const change = selectedMethod === 'cash' ? paid - cart.total : 0;
-  const bank   = document.getElementById('sel-bank').value || null;
+  const bankSel = document.getElementById('sel-bank');
+  const bankId = bankSel.value ? parseInt(bankSel.value, 10) || null : null;
+  const bankName = bankSel.selectedOptions[0]?.dataset?.name || bankSel.selectedOptions[0]?.textContent || null;
 
   document.getElementById('spinner').classList.add('show');
   document.getElementById('btn-confirm').disabled = true;
@@ -347,10 +354,13 @@ document.getElementById('btn-confirm').addEventListener('click', async () => {
   try {
     const res = await window.PAY.confirm({
       payment_method: selectedMethod,
-      payment_bank:   bank,
+      payment_bank:   bankName,
+      payment_channel_id: bankId,
+      payment_channel_name: bankName,
       paid_amount:    paid,
       change_amount:  Math.max(0, change),
       customer_id:    cart.customer_id || null,
+      guide_id:       cart.guide_id || null,
       guide_name:     cart.guide_name  || null,
     });
 
