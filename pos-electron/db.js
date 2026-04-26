@@ -191,6 +191,15 @@ function migrate(d) {
       password_hash TEXT,
       token         TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS api_request_log (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint      TEXT,
+      status_code   INTEGER DEFAULT 0,
+      error_message TEXT,
+      synced_at     TEXT DEFAULT (datetime('now','localtime'))
+    );
+
   `);
 
   // additive migrations (aman untuk data existing)
@@ -406,6 +415,18 @@ function logSync(entry) {
   });
 }
 
+
+function logApiRequest(entry) {
+  db().prepare(`
+    INSERT INTO api_request_log (endpoint, status_code, error_message)
+    VALUES (@endpoint, @status_code, @error_message)
+  `).run({
+    endpoint: entry.endpoint || '-',
+    status_code: Number(entry.status_code || 0),
+    error_message: entry.error_message ? String(entry.error_message).slice(0, 500) : null,
+  });
+}
+
 function getLastSyncAt() {
   const row = db().prepare(
     "SELECT synced_at FROM sync_log WHERE status = 'ok' ORDER BY id DESC LIMIT 1"
@@ -441,4 +462,5 @@ module.exports = {
   addCustomerLoyaltyPoints,
   getPendingLandingOrders, getLandingOrderItemsByOrderId, markLandingOrderProcessing,
   logSync, getLastSyncAt, getSyncQueueStats,
+  logApiRequest,
 };

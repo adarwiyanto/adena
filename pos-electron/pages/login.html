@@ -2,102 +2,92 @@
 <html lang="id">
 <head>
   <meta charset="utf-8">
-  <title>Login — Adena POS</title>
+  <title>Setting API — Adena POS</title>
   <link rel="stylesheet" href="../assets/app.css">
   <style>
     body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--sidebar); }
-    .card {
-      background: var(--surface); border-radius: 16px; padding: 40px 36px;
-      width: 360px; box-shadow: 0 25px 80px rgba(0,0,0,.3);
-    }
-    .brand { text-align: center; margin-bottom: 32px; }
+    .card { background: var(--surface); border-radius: 16px; padding: 32px; width: 420px; box-shadow: 0 25px 80px rgba(0,0,0,.3); }
+    .brand { text-align: center; margin-bottom: 24px; }
     .brand-name { font-size: 24px; font-weight: 800; color: var(--accent); }
-    .brand-sub  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-    .form-group { margin-bottom: 16px; }
-    .offline-badge {
-      text-align: center; font-size: 11px; color: var(--warn);
-      background: #fffbeb; border: 1px solid #fde68a;
-      border-radius: 6px; padding: 6px; margin-top: 12px; display: none;
-    }
+    .brand-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .form-group { margin-bottom: 14px; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="brand">
       <div class="brand-name">Adena POS</div>
-      <div class="brand-sub">Point of Sale Desktop</div>
+      <div class="brand-sub">Setting API Desktop</div>
     </div>
 
     <div id="notice" class="notice"></div>
 
-    <form id="login-form">
+    <form id="api-form">
       <div class="form-group">
-        <label class="form-label">Username</label>
-        <input id="username" class="form-control" type="text" autocomplete="username" required>
+        <label class="form-label">Base URL</label>
+        <input id="base-url" class="form-control" type="url" placeholder="https://domain-anda.com" required>
       </div>
       <div class="form-group">
-        <label class="form-label">Password</label>
-        <input id="password" class="form-control" type="password" autocomplete="current-password" required>
+        <label class="form-label">API Token</label>
+        <input id="api-token" class="form-control" type="text" required>
       </div>
-      <button class="btn btn-primary btn-full btn-lg" type="submit" id="btn-login">Masuk</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-lg" type="button" id="btn-test">Test Koneksi</button>
+        <button class="btn btn-primary btn-lg" type="submit" id="btn-save">Simpan</button>
+      </div>
     </form>
-
-    <div class="offline-badge" id="offline-badge">Mode offline — data dari login sebelumnya</div>
   </div>
 
   <script>
-    const form    = document.getElementById('login-form');
-    const notice  = document.getElementById('notice');
-    const btnLogin = document.getElementById('btn-login');
+    const form = document.getElementById('api-form');
+    const notice = document.getElementById('notice');
+    const btnTest = document.getElementById('btn-test');
+    const btnSave = document.getElementById('btn-save');
 
     function showNotice(msg, type) {
       notice.textContent = msg;
       notice.className = 'notice show notice-' + type;
     }
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      btnLogin.disabled = true;
-      btnLogin.textContent = 'Memeriksa...';
-      notice.className = 'notice';
+    async function preloadForm() {
+      const cfg = await window.POS.getApiConfig();
+      if (cfg?.base_url) document.getElementById('base-url').value = cfg.base_url;
+      if (cfg?.token) document.getElementById('api-token').value = cfg.token;
+    }
 
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value;
-
-      try {
-        const res = await window.POS.login(username, password);
-        if (!res.ok) {
-          showNotice(res.message || 'Login gagal.', 'err');
-        } else {
-          if (!res.online) {
-            document.getElementById('offline-badge').style.display = 'block';
-          }
-          if (res.warning) {
-            alert(res.warning);
-            window.POS.navigate('pos');
-          } else {
-            window.POS.navigate('pos');
-          }
-        }
-      } catch (err) {
-        showNotice('Terjadi kesalahan: ' + err.message, 'err');
-      } finally {
-        btnLogin.disabled = false;
-        btnLogin.textContent = 'Masuk';
-      }
+    btnTest.addEventListener('click', async () => {
+      const base = document.getElementById('base-url').value.trim();
+      const token = document.getElementById('api-token').value.trim();
+      if (!base || !token) return showNotice('Base URL dan token wajib diisi.', 'err');
+      btnTest.disabled = true;
+      const res = await window.POS.testApiConfig(base, token);
+      btnTest.disabled = false;
+      showNotice(res.ok ? 'Koneksi berhasil' : (res.message || 'Koneksi gagal'), res.ok ? 'ok' : 'err');
     });
 
-    // Focus username on load
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btnSave.disabled = true;
+      const base = document.getElementById('base-url').value.trim();
+      const token = document.getElementById('api-token').value.trim();
+      const res = await window.POS.saveApiConfig(base, token);
+      btnSave.disabled = false;
+      if (!res.ok) {
+        showNotice(res.message || 'Gagal menyimpan setting API.', 'err');
+        return;
+      }
+      showNotice('Setting API tersimpan.', 'ok');
+      window.POS.navigate('pos');
+    });
+
     (async () => {
-      try {
-        const boot = await window.POS.bootstrapSession();
-        if (boot?.ok) {
-          window.POS.navigate('pos');
-          return;
-        }
-        if (boot?.message) showNotice(boot.message, 'err');
-      } catch (_) {}
-      document.getElementById('username').focus();
+      await preloadForm();
+      const boot = await window.POS.bootstrapSession();
+      if (boot?.ok) {
+        window.POS.navigate('pos');
+      } else if (boot?.message) {
+        showNotice(boot.message, 'err');
+      }
     })();
   </script>
 </body>

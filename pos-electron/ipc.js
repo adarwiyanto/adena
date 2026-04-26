@@ -19,89 +19,33 @@ let _pendingCheckout = null;
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-ipcMain.handle('auth:login', async (_, { username, password }) => {
-  username = (username || '').trim().toLowerCase();
-  if (!username || !password) return { ok: false, message: 'Username dan password wajib diisi.' };
+ipcMain.handle('auth:save-api-config', async (_, { base_url, token }) => {
+  const cleanBase = String(base_url || '').trim().replace(/\/$/, '');
+  const cleanToken = String(token || '').trim();
+  if (!cleanBase || !cleanToken) return { ok: false, message: 'Base URL dan API Token wajib diisi.' };
 
-  // Coba online login dulu
-  let onlineErrorMessage = '';
-  try {
-    const deviceName = require('os').hostname() + '-Adena-POS';
-    const res = await sync_module.loginOnline(username, password, deviceName);
-    // Simpan token + user ke lokal
-    setSetting('device_token', res.token);
-    setSetting('current_user', JSON.stringify(res.user));
-    setSetting('current_user_info', JSON.stringify(res.user));
-    saveLocalUser(res.user, res.token);
-    // Simpan hash password untuk login offline
-    const hash = bcrypt.hashSync(password, 10);
-    setLocalPasswordHash(res.user.id, hash);
-    // Full sync setelah login pertama online (tetap login walau sync gagal)
-    const syncResult = await sync_module.runSync(true);
-    if (!syncResult.ok) {
-      return {
-        ok: true,
-        user: res.user,
-        online: true,
-        sync_ok: false,
-        warning: 'Login berhasil, tetapi gagal mengambil data dari server.',
-      };
-    }
-    return { ok: true, user: res.user, online: true, sync_ok: true };
-  } catch (err) {
-    console.error('[auth:login online failed]', err);
-    onlineErrorMessage = err?.message || 'Gagal login online';
-  }
+  const test = await sync_module.testConnection(cleanBase, cleanToken);
+  if (!test.ok) return { ok: false, message: test.message || 'Koneksi gagal.' };
 
-  // Offline login: verifikasi password lokal
-  const localUser = getLocalUser(username);
-  if (!localUser || !localUser.password_hash) {
-    if (onlineErrorMessage) {
-      return {
-        ok: false,
-        message: `Login online gagal: ${onlineErrorMessage}. Login offline membutuhkan login online sebelumnya.`,
-      };
-    }
-    return { ok: false, message: 'Tidak dapat terhubung ke server. Login offline membutuhkan login online sebelumnya.' };
-  }
-  if (!bcrypt.compareSync(password, localUser.password_hash)) {
-    return { ok: false, message: 'Username atau password salah.' };
-  }
-
-  setSetting('current_user', JSON.stringify({
-    id: localUser.id, username: localUser.username,
-    name: localUser.name, role: localUser.role,
-  }));
-  setSetting('current_user_info', JSON.stringify({
-    id: localUser.id, username: localUser.username,
-    name: localUser.name, role: localUser.role,
-  }));
-  return {
-    ok: true,
-    user: { id: localUser.id, username: localUser.username, name: localUser.name, role: localUser.role },
-    online: false,
-  };
+  setSetting('api_base_url', cleanBase);
+  setSetting('device_token', cleanToken);
+  setSetting('current_user', JSON.stringify({ id: 0, username: 'desktop', name: 'POS Desktop', role: 'kasir' }));
+  setSetting('current_user_info', JSON.stringify({ id: 0, username: 'desktop', name: 'POS Desktop', role: 'kasir' }));
+  return { ok: true, message: 'Setting API tersimpan.' };
 });
 
-ipcMain.handle('auth:logout', () => {
-  setSetting('current_user', '');
-  setSetting('device_token', '');
-  setSetting('current_user_info', '');
-  return { ok: true };
+ipcMain.handle('auth:test-api-config', async (_, { base_url, token }) => {
+  return sync_module.testConnection(base_url, token);
 });
+
+ipcMain.handle('auth:get-api-config', () => ({
+  base_url: getSetting('api_base_url', ''),
+  token: getSetting('device_token', ''),
+}));
 
 ipcMain.handle('auth:logout-full', () => {
   setSetting('current_user', '');
-  setSetting('device_token', '');
-  setSetting('current_user_info', '');
   return { ok: true, navigate: 'login' };
-});
-
-ipcMain.handle('auth:reset-local', () => {
-  setSetting('current_user', '');
-  setSetting('device_token', '');
-  setSetting('current_user_info', '');
-  return { ok: true };
 });
 
 ipcMain.handle('auth:current', () => {
@@ -111,15 +55,13 @@ ipcMain.handle('auth:current', () => {
 });
 
 ipcMain.handle('auth:bootstrap', async () => {
-  const token = getSetting('device_token', '');
-  const userRaw = getSetting('current_user', '');
-  if (!token || !userRaw) return { ok: false, needs_login: true };
+  const token = String(getSetting('device_token', '') || '').trim();
+  const baseUrl = String(getSetting('api_base_url', '') || '').trim();
+  if (!token || !baseUrl) return { ok: false, needs_login: true, message: 'Silakan isi Setting API terlebih dahulu.' };
   const validation = await sync_module.validateToken(token);
-  if (!validation.ok) {
-    setSetting('device_token', '');
-    setSetting('current_user', '');
-    setSetting('current_user_info', '');
-    return { ok: false, needs_login: true, message: 'Sesi desktop tidak valid, silakan login ulang.' };
+  if (!validation.ok) return { ok: false, needs_login: true, message: 'API Token tidak valid. Silakan cek Setting API.' };
+  if (!getSetting('current_user', '')) {
+    setSetting('current_user', JSON.stringify({ id: 0, username: 'desktop', name: 'POS Desktop', role: 'kasir' }));
   }
   return { ok: true, needs_login: false };
 });
@@ -132,7 +74,7 @@ ipcMain.handle('sync:run', async (_, { full = false } = {}) => {
     return {
       ...result,
       requires_login: true,
-      message: 'Sesi desktop tidak valid. Login ulang diperlukan agar transaksi tersinkron.',
+      message: 'API Token tidak valid. Silakan cek setting API.',
     };
   }
   if (!result.ok && result.type === 'network_error') {

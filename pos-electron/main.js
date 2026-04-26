@@ -52,7 +52,7 @@ function buildMenu() {
       label: 'Adena POS',
       submenu: [
         { label: 'Sync Manual', accelerator: 'F4', click: () => triggerManualSync() },
-        { label: 'Reset Login Lokal', click: () => resetLocalSession() },
+        { label: 'Reset API Lokal', click: () => resetLocalSession() },
         { label: 'Pengaturan Printer', accelerator: 'Ctrl+Shift+P', click: () => openSettingsWindow() },
         { type: 'separator' },
         { label: 'Keluar', role: 'quit' },
@@ -176,7 +176,7 @@ ipcMain.on('checkout:done', async (_, receipt) => {
     if (!syncResult?.ok) {
       mainWindow.webContents.send('sync:warning', syncResult?.message || 'Sync gagal sesudah transaksi.');
       if (syncResult?.type === 'auth_error') {
-        mainWindow.webContents.send('sync:warning', 'Sesi desktop tidak valid. Login ulang diperlukan agar transaksi tersinkron.');
+        mainWindow.webContents.send('sync:warning', 'API Token tidak valid. Silakan cek setting API.');
         reloadWithPreload('login-pre.js', 'login.html');
       }
     }
@@ -335,7 +335,7 @@ function startAutoSync() {
   syncTimer = setInterval(async () => {
     const result = await syncMod.runSync(false).catch(() => ({ ok: false }));
     if (mainWindow && !mainWindow.isDestroyed() && result && !result.ok && result.type === 'auth_error') {
-      mainWindow.webContents.send('sync:warning', 'Sesi desktop tidak valid. Login ulang diperlukan agar transaksi tersinkron.');
+      mainWindow.webContents.send('sync:warning', 'API Token tidak valid. Silakan cek setting API.');
       reloadWithPreload('login-pre.js', 'login.html');
     }
   }, 10 * 60 * 1000); // 10 menit
@@ -355,6 +355,7 @@ function resetLocalSession() {
   dbMod.setSetting('current_user', '');
   dbMod.setSetting('device_token', '');
   dbMod.setSetting('current_user_info', '');
+  dbMod.setSetting('api_base_url', '');
   closeAuxWindows();
   if (mainWindow && !mainWindow.isDestroyed()) {
     reloadWithPreload('login-pre.js', 'login.html');
