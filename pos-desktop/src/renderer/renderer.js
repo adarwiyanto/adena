@@ -3,6 +3,7 @@ const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
 let toastTimer;
+const imageCacheQueue = new Set();
 
 function showView(id) { ['login-view', 'sync-view', 'pos-view'].forEach((v) => document.getElementById(v).classList.toggle('active', v === id)); }
 function rupiah(v) { return `Rp ${Number(v || 0).toLocaleString('id-ID')}`; }
@@ -12,9 +13,44 @@ function maskToken(token) { const t = String(token || '').trim(); if (!t) return
 function toAbsoluteImageUrl(path) {
   const p = String(path || '').trim();
   if (!p) return '';
-  if (/^https?:\/\//i.test(p) || p.startsWith('data:')) return p;
+  if (/^https?:\/\//i.test(p) || p.startsWith('data:') || p.startsWith('file://')) return p;
   const baseUrl = String($('#api-base-url').value || '').trim().replace(/\/$/, '');
   return baseUrl ? `${baseUrl}/${p.replace(/^\//, '')}` : p;
+}
+
+function productImageOnlineUrl(product) {
+  if (!product?.image_path) return '';
+  const raw = String(product.image_path || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
+  const baseUrl = String($('#api-base-url').value || '').trim().replace(/\/$/, '');
+  if (!baseUrl) return raw;
+
+  // Prefer the token-protected media endpoint for private_uploads images.
+  const qs = new URLSearchParams({ id: String(product.id) });
+  qs.set('v', raw);
+  return `${baseUrl}/api/media/product-image.php?${qs.toString()}`;
+}
+
+async function cacheProductImageInBackground(product, imgEl) {
+  if (!product?.id || !product?.image_path || product.local_image_path) return;
+  const key = `${product.id}:${product.image_path}`;
+  if (imageCacheQueue.has(key)) return;
+  imageCacheQueue.add(key);
+  try {
+    const res = await window.desktopAPI.cacheProductImage({ productId: product.id, imagePath: product.image_path });
+    if (res?.ok && res.local_image_path) {
+      product.local_image_path = res.local_image_path;
+      if (imgEl && document.body.contains(imgEl)) {
+        imgEl.src = res.local_image_path;
+        imgEl.classList.remove('is-placeholder');
+      }
+    }
+  } catch (error) {
+    console.warn('[image:cache] renderer failed', error);
+  } finally {
+    imageCacheQueue.delete(key);
+  }
 }
 
 function applyTheme(settings = {}) {
@@ -51,9 +87,18 @@ function renderProducts(filter = '') {
   wrap.innerHTML = '';
   filtered.forEach((p) => {
     const div = document.createElement('div');
-    const image = p.local_image_path || toAbsoluteImageUrl(p.image_path || '');
+    const image = p.local_image_path || productImageOnlineUrl(p) || toAbsoluteImageUrl(p.image_path || '');
     div.className = 'product-card';
-    div.innerHTML = `<img src="${image}" alt="${p.name}" onerror="this.src='';this.classList.add('is-placeholder')"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
+    div.innerHTML = `<img src="${image}" alt="${p.name}"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
+    const img = div.querySelector('img');
+    img.onerror = () => { img.removeAttribute('src'); img.classList.add('is-placeholder'); };
+    img.onload = () => cacheProductImageInBackground(p, img);
+
+    // Do not wait for <img> load. If the image endpoint needs Authorization and
+    // the browser image request cannot send it, the main process will still cache
+    // it using the saved API token and then swap the image source to file://.
+    cacheProductImageInBackground(p, img);
+
     div.onclick = () => addToCart(p);
     wrap.appendChild(div);
   });

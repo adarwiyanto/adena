@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   logoutWithPrompt: () => ipcRenderer.invoke('auth:logoutWithPrompt'),
   syncMaster: (options) => ipcRenderer.invoke('sync:master', options),
   syncPending: () => ipcRenderer.invoke('sync:pending'),
+  cacheProductImage: (payload) => ipcRenderer.invoke('image:cacheProduct', payload),
   saveSaleLocal: (payload) => ipcRenderer.invoke('sale:saveLocal', payload),
   getPosState: () => ipcRenderer.invoke('pos:state'),
   getHistory: (filters) => ipcRenderer.invoke('history:list', filters),

@@ -5,7 +5,7 @@ const { initDb, closeDb } = require('./db');
 const { store, DEFAULT_SETTINGS, getApiConfig } = require('./config');
 const { testConnection, login, shiftAction } = require('./api');
 const { performShift, retryPendingShiftSync } = require('./shift');
-const { syncMaster, syncPendingTransactions } = require('./sync');
+const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
 const { saveSaleLocally } = require('./transactions');
 const { printReceipt } = require('./print');
 
@@ -217,6 +217,7 @@ ipcMain.handle('auth:logoutWithPrompt', async () => {
 });
 ipcMain.handle('sync:master', async (_, options) => syncMaster(options || {}));
 ipcMain.handle('sync:pending', async () => syncPendingTransactions());
+ipcMain.handle('image:cacheProduct', async (_, payload) => cacheProductImage(payload?.productId, payload?.imagePath));
 ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload));
 
 ipcMain.handle('pos:state', () => {

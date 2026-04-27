@@ -217,18 +217,21 @@ async function syncMaster(_options = {}) {
     for (const record of (payload.products || [])) {
       const normalized = normalizeProduct(record);
       const prev = existingProduct.get(normalized.id);
-      if (normalized.image_path) {
-        try {
-          const imageState = await downloadProductImage(normalized.id, normalized.image_path, prev);
-          normalized.local_image_path = imageState.local_image_path;
-          normalized.image_downloaded_at = imageState.image_downloaded_at;
-          if (normalized.local_image_path) thumbnailDownloaded += 1;
-        } catch (_) {
-          thumbnailFailed += 1;
-          normalized.local_image_path = prev?.local_image_path || null;
-          normalized.image_downloaded_at = prev?.image_downloaded_at || null;
-        }
+
+      // Hybrid thumbnail strategy:
+      // Sync only stores image metadata and preserves any previously cached file.
+      // The renderer loads the online image immediately and then asks the main
+      // process to cache it in the background. This prevents a bad/slow image
+      // download from blocking the whole master sync.
+      if (prev && String(prev.image_path || '') === String(normalized.image_path || '') && prev.local_image_path) {
+        normalized.local_image_path = prev.local_image_path;
+        normalized.image_downloaded_at = prev.image_downloaded_at || null;
+        thumbnailDownloaded += 1;
+      } else {
+        normalized.local_image_path = null;
+        normalized.image_downloaded_at = null;
       }
+
       normalizedProducts.push(normalized);
     }
 
@@ -263,6 +266,42 @@ async function syncMaster(_options = {}) {
       local_error: true,
       error_detail: error?.stack || String(error)
     };
+  }
+}
+
+
+async function cacheProductImage(productId, imagePath) {
+  const id = Number(productId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return { ok: false, message: 'ID produk tidak valid' };
+  }
+
+  const db = initDb();
+  const row = db.prepare('SELECT id, image_path, local_image_path, image_downloaded_at FROM products WHERE id = ?').get(id);
+  const targetImagePath = String(imagePath || row?.image_path || '').trim();
+  if (!row || !targetImagePath) {
+    return { ok: false, message: 'Produk belum memiliki image_path' };
+  }
+
+  try {
+    const imageState = await downloadProductImage(id, targetImagePath, row);
+    if (!imageState.local_image_path) {
+      return { ok: false, message: 'Gagal membuat cache gambar lokal' };
+    }
+
+    db.prepare('UPDATE products SET image_path = ?, local_image_path = ?, image_downloaded_at = ? WHERE id = ?')
+      .run(targetImagePath, imageState.local_image_path, imageState.image_downloaded_at, id);
+
+    return {
+      ok: true,
+      productId: id,
+      image_path: targetImagePath,
+      local_image_path: imageState.local_image_path,
+      image_downloaded_at: imageState.image_downloaded_at
+    };
+  } catch (error) {
+    console.warn('[image:cache] failed', id, error.message);
+    return { ok: false, productId: id, message: error.message };
   }
 }
 
@@ -324,4 +363,4 @@ async function syncPendingTransactions() {
   }
 }
 
-module.exports = { syncMaster, syncPendingTransactions };
+module.exports = { syncMaster, syncPendingTransactions, cacheProductImage };
