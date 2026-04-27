@@ -63,6 +63,15 @@ function toAbsoluteImageUrl(imagePath) {
   return baseURL ? `${baseURL}/${raw.replace(/^\//, '')}` : '';
 }
 
+function productImageEndpoint(productId, imagePath) {
+  const baseURL = String(store.get('apiBaseUrl') || '').trim().replace(/\/$/, '');
+  if (!baseURL || !productId) return '';
+  const qs = new URLSearchParams({ id: String(productId) });
+  const rawPath = String(imagePath || '').trim();
+  if (rawPath) qs.set('v', crypto.createHash('md5').update(rawPath).digest('hex').slice(0, 10));
+  return `${baseURL}/api/media/product-image.php?${qs.toString()}`;
+}
+
 async function downloadProductImage(productId, imagePath, previousRow) {
   const normalizedPath = String(imagePath || '').trim();
   if (!normalizedPath) {
@@ -74,7 +83,7 @@ async function downloadProductImage(productId, imagePath, previousRow) {
     return { local_image_path: `file://${currentLocalPath}`, image_downloaded_at: previousRow?.image_downloaded_at || localDateTimeString() };
   }
 
-  const imageURL = toAbsoluteImageUrl(normalizedPath);
+  const imageURL = productImageEndpoint(productId, normalizedPath) || toAbsoluteImageUrl(normalizedPath);
   if (!imageURL) return { local_image_path: null, image_downloaded_at: null };
   const imagesDir = path.join(app.getPath('userData'), 'product-images');
   fs.mkdirSync(imagesDir, { recursive: true });
@@ -89,7 +98,13 @@ async function downloadProductImage(productId, imagePath, previousRow) {
     return { local_image_path: `file://${localFile}`, image_downloaded_at: previousRow?.image_downloaded_at || localDateTimeString() };
   }
 
-  const response = await axios.get(imageURL, { responseType: 'arraybuffer', timeout: 20000 });
+  const apiToken = String(store.get('apiToken') || '').trim();
+  const requestOptions = {
+    responseType: 'arraybuffer',
+    timeout: 20000,
+    headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {}
+  };
+  const response = await axios.get(imageURL, requestOptions);
   fs.writeFileSync(localFile, response.data);
   return { local_image_path: `file://${localFile}`, image_downloaded_at: localDateTimeString() };
 }
