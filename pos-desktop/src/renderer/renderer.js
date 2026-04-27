@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)' };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -104,7 +104,7 @@ function buildSyncDebug(error, resp, moduleName = 'unknown') {
     const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
     return text.length > 500 ? `${text.slice(0, 500)}...` : text;
   })();
-  const maskedToken = String(resp?.settings?.apiTokenMasked || '');
+  const maskedToken = String(resp?.settings?.apiTokenMasked || state.apiTokenMasked || '');
   return JSON.stringify({
     timestamp: new Date().toISOString(),
     failed_module: moduleName,
@@ -129,6 +129,7 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     $('#sync-retry-count').textContent = `Percobaan ${attempt}/3`;
     try {
     const cfg = await window.apiConfig.get();
+    state.apiTokenMasked = maskToken(cfg.apiToken);
     if (!cfg.apiToken) {
       throw new Error('Token API belum disetting. Buka Setting API dan simpan token terlebih dahulu.');
     }

@@ -28,11 +28,26 @@ function normalizeProduct(record = {}) {
     || (numericCategoryId === null ? (rawCategoryId || null) : null)
     || null;
 
+  // better-sqlite3 named parameters require every @param in the SQL
+  // to exist on the object passed to .run(). The web API does not always
+  // send all optional product fields, so normalize every product column
+  // used by the product UPSERT here. This prevents:
+  // RangeError: Missing named parameter "local_image_path".
   return {
-    ...record,
+    id: record.id,
+    name: record.name || '',
+    price: record.price ?? 0,
+    category: record.category || categoryName || '',
     category_id: numericCategoryId,
     category_name: categoryName,
-    image_path: record.image_path || record.photo || record.image || record.product_image || record.thumbnail || null
+    image_path: record.image_path || record.photo || record.image || record.product_image || record.thumbnail || null,
+    local_image_path: record.local_image_path || null,
+    image_downloaded_at: record.image_downloaded_at || null,
+    is_favorite: record.is_favorite ?? 0,
+    is_best_seller: record.is_best_seller ?? 0,
+    show_on_pos: record.show_on_pos ?? 1,
+    track_stock: record.track_stock ?? 0,
+    updated_at: record.updated_at || record.created_at || localDateTimeString()
   };
 }
 
@@ -94,7 +109,22 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
         category_name=excluded.category_name, image_path=excluded.image_path, local_image_path=excluded.local_image_path, image_downloaded_at=excluded.image_downloaded_at, is_favorite=excluded.is_favorite,
         is_best_seller=excluded.is_best_seller, show_on_pos=excluded.show_on_pos, track_stock=excluded.track_stock,
         updated_at=excluded.updated_at`);
-    normalizedProducts.forEach((r) => upsertProduct.run(r));
+    normalizedProducts.forEach((r) => upsertProduct.run({
+      id: r.id,
+      name: r.name || '',
+      price: r.price ?? 0,
+      category: r.category || r.category_name || '',
+      category_id: r.category_id ?? null,
+      category_name: r.category_name || null,
+      image_path: r.image_path || null,
+      local_image_path: r.local_image_path || null,
+      image_downloaded_at: r.image_downloaded_at || null,
+      is_favorite: r.is_favorite ?? 0,
+      is_best_seller: r.is_best_seller ?? 0,
+      show_on_pos: r.show_on_pos ?? 1,
+      track_stock: r.track_stock ?? 0,
+      updated_at: r.updated_at || localDateTimeString()
+    }));
 
     const upsertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=excluded.image_path');
     (data.categories || []).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
@@ -210,7 +240,14 @@ async function syncMaster(_options = {}) {
     };
   } catch (error) {
     console.error('[sync:master] failed', error);
-    return { ok: false, message: 'Sync gagal', status: error?.status || 500, endpoint: '/api/sync/pull.php' };
+    return {
+      ok: false,
+      message: error?.message || 'Sync gagal',
+      status: error?.status || 500,
+      endpoint: '/api/sync/pull.php',
+      local_error: true,
+      error_detail: error?.stack || String(error)
+    };
   }
 }
 
