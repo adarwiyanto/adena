@@ -313,3 +313,76 @@ button.danger { background:#b91c1c; color:#fff; }
   height: 100%;
   object-fit: cover;
 }
+
+/* Patch: reliable web brand logo + tidy header identity */
+.topbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 280px;
+}
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+}
+.brand-logo,
+.brand-logo-fallback {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  margin: 0;
+  border-radius: 12px;
+  background: #fff;
+  object-fit: contain;
+  box-sizing: border-box;
+}
+.brand-logo {
+  padding: 4px;
+  border: 1px solid rgba(255,255,255,.7);
+}
+.brand-logo-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+}
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+.brand-copy strong {
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brand-copy span {
+  margin-top: 3px;
+  color: rgba(255,255,255,.78);
+  font-size: 12px;
+  max-width: 420px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.login-card {
+  width: min(420px, calc(100vw - 48px));
+  padding: 28px 18px 30px;
+  box-sizing: border-box;
+}
+.login-card input,
+.login-card button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}

@@ -57,9 +57,34 @@ function applyTheme(settings = {}) {
   const root = document.documentElement;
   const theme = { '--desktop-primary': settings.theme_primary || '#0f172a', '--desktop-secondary': settings.theme_secondary || '#111827', '--desktop-accent': settings.theme_accent || '#1d4ed8', '--desktop-surface': settings.theme_surface || '#ffffff', '--desktop-sidebar': settings.theme_sidebar || '#f8fafc', '--desktop-header': settings.theme_header || settings.theme_primary || '#0f172a', '--desktop-text': settings.theme_text || '#0f172a', '--desktop-muted': settings.theme_muted || '#64748b' };
   Object.entries(theme).forEach(([k, v]) => root.style.setProperty(k, v));
-  const logo = settings.store_logo || '';
-  $('#brand-logo').src = logo ? toAbsoluteImageUrl(logo) : '';
-  $('#brand-logo').classList.toggle('hidden', !logo);
+
+  const brandName = String(settings.store_name || 'Adena POS').trim() || 'Adena POS';
+  const brandAddress = String(settings.store_address || settings.store_subtitle || 'Desktop cashier system').trim();
+  const brandNameEl = $('#brand-name');
+  const brandAddressEl = $('#brand-address');
+  if (brandNameEl) brandNameEl.textContent = brandName;
+  if (brandAddressEl) brandAddressEl.textContent = brandAddress || 'Desktop cashier system';
+
+  const logo = settings.store_logo_local_uri || settings.store_logo_url || settings.store_logo || '';
+  const img = $('#brand-logo');
+  const fallback = $('#brand-logo-fallback');
+  const showFallback = () => {
+    if (img) {
+      img.removeAttribute('src');
+      img.classList.add('hidden');
+    }
+    if (fallback) fallback.classList.remove('hidden');
+  };
+  if (img && logo) {
+    img.onload = () => {
+      img.classList.remove('hidden');
+      if (fallback) fallback.classList.add('hidden');
+    };
+    img.onerror = showFallback;
+    img.src = /^file:|^https?:|^data:/i.test(String(logo)) ? logo : toAbsoluteImageUrl(logo);
+  } else {
+    showFallback();
+  }
 }
 
 function matchesCategory(product, activeCategory) {

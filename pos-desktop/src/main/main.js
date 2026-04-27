@@ -369,6 +369,11 @@ ipcMain.handle('pos:state', () => {
   const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
   const syncedSettings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
+  const storeIdentity = getStoreIdentity();
+  syncedSettings.store_name = syncedSettings.store_name || storeIdentity.name || 'Adena';
+  syncedSettings.store_address = syncedSettings.store_address || storeIdentity.address || '';
+  syncedSettings.store_logo_local_uri = fileUriIfExists(storeIdentity.logoPath);
+  syncedSettings.store_logo_local_path = storeIdentity.logoPath || '';
   return { products, categories, guides, paymentMethods, banks, activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
 });
 

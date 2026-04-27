@@ -108,7 +108,7 @@ async function cacheStoreIdentity(settings = {}) {
     name: String(settings.store_name || 'Adena').trim() || 'Adena',
     address: String(settings.store_address || '').trim(),
     phone: String(settings.store_phone || '').trim(),
-    logo_source: String(settings.store_logo || '').trim(),
+    logo_source: String(settings.store_logo_url || settings.store_logo || '').trim(),
     logo_path: '',
     cached_at: localDateTimeString()
   };
