@@ -101,8 +101,9 @@
   <dialog id="api-dialog">
     <h3>Setting API</h3>
     <input id="api-base-url" placeholder="Base URL" />
-    <input id="api-token" placeholder="Static API token" />
-    <div class="dialog-actions"><button id="btn-test-api">Test Connection</button><button id="btn-save-api">Save API Setting</button><button id="btn-close-api">Tutup</button></div>
+    <input id="api-token" type="password" placeholder="Static API token" autocomplete="off" />
+    <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
+    <div class="dialog-actions"><button id="btn-save-api">Save & Test API</button><button id="btn-test-api">Test Dengan Input Saat Ini</button><button id="btn-close-api">Tutup</button></div>
     <p id="api-status"></p>
   </dialog>
 
@@ -113,7 +114,7 @@
     <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
     <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
     <p>Kode POS/Device dari web: <strong id="current-device-code">-</strong></p>
-    <div class="dialog-actions"><button id="btn-save-printer">Save Printer Setting</button><button id="btn-close-printer">Tutup</button></div>
+    <div class="dialog-actions"><button id="btn-save-printer">Save Printer Setting</button><button id="btn-reset-app-data" class="danger">Reset Data Aplikasi</button><button id="btn-close-printer">Tutup</button></div>
     <p id="printer-status"></p>
   </dialog>
 

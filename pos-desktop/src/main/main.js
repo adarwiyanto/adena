@@ -1,7 +1,8 @@
 const path = require('path');
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog } = require('electron');
-const { initDb } = require('./db');
-const { store } = require('./config');
+const fs = require('fs');
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, session } = require('electron');
+const { initDb, closeDb } = require('./db');
+const { store, DEFAULT_SETTINGS, getApiConfig } = require('./config');
 const { testConnection, login, shiftAction } = require('./api');
 const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions } = require('./sync');
@@ -10,6 +11,23 @@ const { printReceipt } = require('./print');
 
 let mainWindow;
 let isQuittingConfirmed = false;
+
+function isApiConfigured() {
+  const cfg = getApiConfig();
+  return !!(cfg.apiBaseUrl && cfg.apiToken);
+}
+
+function getPublicSettings() {
+  const cfg = getApiConfig();
+  const tokenMasked = cfg.apiToken ? `${cfg.apiToken.slice(0, 4)}***${cfg.apiToken.slice(-2)}` : '';
+  return {
+    ...store.store,
+    apiBaseUrl: cfg.apiBaseUrl,
+    apiToken: '',
+    apiTokenMasked: tokenMasked,
+    deviceCode: cfg.deviceCode
+  };
+}
 
 async function handleSyncBeforeExit() {
   const choice = await dialog.showMessageBox(mainWindow, {
@@ -63,6 +81,29 @@ function createWindow() {
   });
 }
 
+async function resetAllAppData() {
+  const userDataPath = app.getPath('userData');
+  closeDb();
+
+  try {
+    await session.defaultSession.clearStorageData();
+    await session.defaultSession.clearCache();
+  } catch (_) {}
+
+  store.clear();
+  Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => store.set(key, value));
+  store.delete('sessionUser');
+  store.delete('allowIncrementalSyncOnce');
+  store.delete('lastSyncAt');
+
+  fs.rmSync(userDataPath, { recursive: true, force: true });
+  fs.mkdirSync(userDataPath, { recursive: true });
+
+  app.relaunch();
+  app.exit(0);
+  return { ok: true };
+}
+
 app.whenReady().then(() => {
   initDb();
   store.delete('sessionUser');
@@ -77,23 +118,48 @@ process.on('uncaughtException', (error) => {
   console.error('[main] uncaughtException', error);
 });
 
-ipcMain.handle('settings:get', () => store.store);
+ipcMain.handle('settings:get', () => getPublicSettings());
 ipcMain.handle('settings:set', (_, patch) => {
   const normalized = { ...(patch || {}) };
   if (Object.prototype.hasOwnProperty.call(normalized, 'deviceCode')) {
     normalized.deviceCode = String(normalized.deviceCode || '').trim().toUpperCase().replace(/\s+/g, '');
   }
   Object.entries(normalized).forEach(([k, v]) => store.set(k, v));
-  return store.store;
+  return getPublicSettings();
+});
+ipcMain.handle('settings:saveApi', async (_, payload) => {
+  const apiBaseUrl = String(payload?.apiBaseUrl || '').trim();
+  const apiToken = String(payload?.apiToken || '').trim();
+  if (!apiBaseUrl || !apiToken) {
+    return { ok: false, message: 'Base URL dan Token API wajib diisi.' };
+  }
+  store.set('apiBaseUrl', apiBaseUrl);
+  store.set('apiToken', apiToken);
+  store.set('deviceCode', '');
+  store.delete('lastSyncAt');
+  store.delete('allowIncrementalSyncOnce');
+
+  const testResp = await testConnection({ baseURL: apiBaseUrl, token: apiToken });
+  if (!testResp?.ok) return testResp;
+
+  if (testResp?.token?.device_code) {
+    store.set('deviceCode', String(testResp.token.device_code).trim().toUpperCase());
+  }
+
+  return { ok: true, data: getPublicSettings(), connection: testResp };
 });
 ipcMain.handle('settings:printers', async () => {
   if (!mainWindow) return [];
   const printers = await mainWindow.webContents.getPrintersAsync();
   return printers.map((p) => ({ name: p.name, displayName: p.displayName || p.name, isDefault: !!p.isDefault }));
 });
+ipcMain.handle('app:reset-all', async () => resetAllAppData());
 
 ipcMain.handle('api:test', async (_, overrides) => testConnection(overrides || {}));
 ipcMain.handle('auth:login', async (_, payload) => {
+  if (!isApiConfigured()) {
+    return { ok: false, message: 'Setting API belum lengkap. Isi Base URL dan Token API dahulu.' };
+  }
   const resp = await login(payload?.username, payload?.password);
   if (resp?.ok && resp.user) store.set('sessionUser', resp.user);
   if (resp?.ok && resp?.device_code) store.set('deviceCode', String(resp.device_code).trim().toUpperCase());
@@ -125,7 +191,7 @@ ipcMain.handle('pos:state', () => {
   const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
   const syncedSettings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
-  return { products, categories, guides, paymentMethods, banks, activeShift, pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: store.get('lastSyncAt') };
+  return { products, categories, guides, paymentMethods, banks, activeShift, pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
 });
 
 ipcMain.handle('history:list', (_, filters = {}) => {

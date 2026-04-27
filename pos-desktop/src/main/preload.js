@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('desktopAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
+  saveApiSettings: (payload) => ipcRenderer.invoke('settings:saveApi', payload),
   getPrinters: () => ipcRenderer.invoke('settings:printers'),
   testConnection: (overrides) => ipcRenderer.invoke('api:test', overrides),
   login: (payload) => ipcRenderer.invoke('auth:login', payload),
@@ -19,5 +20,6 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   shiftStatus: () => ipcRenderer.invoke('shift:status'),
   openShift: (payload) => ipcRenderer.invoke('shift:open', payload),
   closeShift: (payload) => ipcRenderer.invoke('shift:close', payload),
-  retryPendingShift: () => ipcRenderer.invoke('shift:retryPending')
+  retryPendingShift: () => ipcRenderer.invoke('shift:retryPending'),
+  resetAllAppData: () => ipcRenderer.invoke('app:reset-all')
 });

@@ -201,7 +201,34 @@ async function payNow() {
 function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
 function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div><button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); }; }
 
-async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = s.apiToken || ''; }
+async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
+
+async function saveApiSettingsAndTest({ useCurrentInput = true } = {}) {
+  const payload = {
+    apiBaseUrl: String($('#api-base-url').value || '').trim(),
+    apiToken: String($('#api-token').value || '').trim()
+  };
+
+  if (!payload.apiBaseUrl || !payload.apiToken) {
+    $('#api-status').textContent = 'Base URL dan Token wajib diisi manual.';
+    return { ok: false, message: 'Base URL dan Token wajib diisi manual.' };
+  }
+
+  const resp = await window.desktopAPI.saveApiSettings(payload);
+  if (!resp?.ok) {
+    $('#api-status').textContent = `Gagal: ${resp?.message || 'Tidak dapat menyimpan setting API'}`;
+    return resp;
+  }
+
+  $('#api-token').value = '';
+  await initApiDialog();
+
+  if (!useCurrentInput) return resp;
+  const testResp = await window.desktopAPI.testConnection(payload);
+  $('#api-status').textContent = testResp?.ok ? 'Koneksi OK' : `Gagal: ${testResp?.message || 'Test koneksi gagal'}`;
+  return testResp;
+}
+
 async function initPrinterDialog() { const s = await window.desktopAPI.getSettings(); $('#receipt-width').value = s.receiptWidthMm || 58; $('#receipt-margin').value = s.receiptMarginMm || 2; $('#current-device-code').textContent = s.deviceCode || '-'; const printers = await window.desktopAPI.getPrinters(); $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`; $('#printer-name').value = s.printerName || ''; }
 
 async function bootstrap() {
@@ -211,15 +238,22 @@ async function bootstrap() {
   $('#btn-open-printer').onclick = async () => { await initPrinterDialog(); $('#printer-dialog').showModal(); };
   $('#btn-close-api').onclick = () => $('#api-dialog').close();
   $('#btn-close-printer').onclick = () => $('#printer-dialog').close();
-  $('#btn-save-api').onclick = async () => { await window.desktopAPI.setSettings({ apiBaseUrl: $('#api-base-url').value.trim(), apiToken: $('#api-token').value.trim() }); showToast('Setting API tersimpan', 'success'); };
-  $('#btn-test-api').onclick = async () => { const r = await window.desktopAPI.testConnection({ baseURL: $('#api-base-url').value.trim(), token: $('#api-token').value.trim() }); $('#api-status').textContent = r.ok ? 'Koneksi OK' : `Gagal: ${r.message}`; };
+  $('#btn-save-api').onclick = async () => { const resp = await saveApiSettingsAndTest({ useCurrentInput: true }); if (resp?.ok) showToast('Setting API tersimpan dan koneksi OK', 'success'); };
+  $('#btn-test-api').onclick = async () => { const resp = await saveApiSettingsAndTest({ useCurrentInput: true }); if (resp?.ok) showToast('Test koneksi OK', 'success'); };
   $('#btn-save-printer').onclick = async () => {
     await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
     showToast('Setting printer/program tersimpan', 'success');
   };
+  $('#btn-reset-app-data').onclick = async () => {
+    const warning = 'Semua data lokal, token API, printer, produk, transaksi lokal, dan cache akan dihapus. Data server tidak terpengaruh.';
+    if (!confirm(warning)) return;
+    await window.desktopAPI.resetAllAppData();
+  };
 
   $('#login-form').onsubmit = async (e) => {
     e.preventDefault();
+    const currentSettings = await window.desktopAPI.getSettings();
+    if (!currentSettings?.apiBaseUrl || !currentSettings?.apiTokenMasked) return alert('Setting API wajib diisi sebelum login.');
     const fd = new FormData(e.target);
     const resp = await window.desktopAPI.login({ username: fd.get('username'), password: fd.get('password') });
     if (!resp?.ok) return alert(resp.message || 'Login gagal');
