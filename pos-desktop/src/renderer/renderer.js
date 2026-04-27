@@ -86,6 +86,8 @@ function renderCategories() {
   });
 }
 
+function noPhotoHtml() { return `<div class="no-photo">NO PHOTO</div>`; }
+
 function renderProducts(filter = '') {
   const wrap = $('#products');
   const q = filter.toLowerCase();
@@ -96,16 +98,18 @@ function renderProducts(filter = '') {
     const div = document.createElement('div');
     const image = p.local_image_path || productImageOnlineUrl(p) || toAbsoluteImageUrl(p.image_path || '');
     div.className = 'product-card';
-    div.innerHTML = `<img src="${image}" alt="${p.name}"/><strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
+    div.innerHTML = `${image ? `<img src="${image}" alt="${p.name}"/>` : noPhotoHtml()}<strong>${p.name}</strong><div>${rupiah(p.price)}</div>`;
     const img = div.querySelector('img');
-    img.onerror = () => { img.removeAttribute('src'); img.classList.add('is-placeholder'); };
-    img.onload = () => cacheProductImageInBackground(p, img);
-
-    // Do not wait for <img> load. If the image endpoint needs Authorization and
-    // the browser image request cannot send it, the main process will still cache
-    // it using the saved API token and then swap the image source to file://.
-    cacheProductImageInBackground(p, img);
-
+    if (img) {
+      img.onerror = () => {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'no-photo';
+        placeholder.textContent = 'NO PHOTO';
+        img.replaceWith(placeholder);
+      };
+      img.onload = () => cacheProductImageInBackground(p, img);
+      cacheProductImageInBackground(p, img);
+    }
     div.onclick = () => addToCart(p);
     wrap.appendChild(div);
   });
@@ -214,12 +218,21 @@ async function submitOpenShift() {
 async function submitCloseShift() {
   const counted = Number($('#shift-counted-cash').value || 0);
   const notes = $('#shift-close-notes').value || '';
+  const closeReport = await window.desktopAPI.getShiftCloseReport({ counted_cash_total: counted, user: state.user });
   const pending = await window.desktopAPI.syncPending();
   await window.desktopAPI.retryPendingShift();
   const actionResp = await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: counted, notes, sync_status: pending?.ok ? 'synced' : 'partial' });
   if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal tutup shift');
   hideShiftModals();
-  await window.desktopAPI.syncMaster({ incremental: false });
+  if (closeReport?.ok && closeReport.html) {
+    try {
+      const settings = await window.desktopAPI.getSettings();
+      await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+    } catch (error) {
+      showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
+    }
+  }
+  try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
   await loadPosState();
   showToast(actionResp?.sync_status === 'pending' ? 'Closing shift tersimpan lokal dan menunggu sync' : 'Shift ditutup', 'success');
 }

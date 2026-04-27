@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   getOrders: () => ipcRenderer.invoke('orders:list'),
   printReceipt: (payload) => ipcRenderer.invoke('print:receipt', payload),
   shiftStatus: () => ipcRenderer.invoke('shift:status'),
+  getShiftCloseReport: (payload) => ipcRenderer.invoke('shift:closeReport', payload),
   openShift: (payload) => ipcRenderer.invoke('shift:open', payload),
   closeShift: (payload) => ipcRenderer.invoke('shift:close', payload),
   retryPendingShift: () => ipcRenderer.invoke('shift:retryPending'),

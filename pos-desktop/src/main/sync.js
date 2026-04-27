@@ -84,6 +84,71 @@ function toAbsoluteImageUrl(imagePath) {
   return baseURL ? `${baseURL}/${raw.replace(/^\//, '')}` : '';
 }
 
+function safeReadJson(filePath, fallback = {}) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function cacheDir() {
+  const dir = path.join(app.getPath('userData'), 'cache');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function storeCachePath() {
+  return path.join(cacheDir(), 'store.json');
+}
+
+async function cacheStoreIdentity(settings = {}) {
+  const storeInfo = {
+    name: String(settings.store_name || 'Adena').trim() || 'Adena',
+    address: String(settings.store_address || '').trim(),
+    phone: String(settings.store_phone || '').trim(),
+    logo_source: String(settings.store_logo || '').trim(),
+    logo_path: '',
+    cached_at: localDateTimeString()
+  };
+
+  const previous = safeReadJson(storeCachePath(), {});
+  if (!storeInfo.address && previous.address) storeInfo.address = previous.address;
+  if (!storeInfo.phone && previous.phone) storeInfo.phone = previous.phone;
+  if (!storeInfo.logo_source && previous.logo_source) storeInfo.logo_source = previous.logo_source;
+  if (previous.logo_path && fs.existsSync(previous.logo_path)) storeInfo.logo_path = previous.logo_path;
+
+  const logoURL = toAbsoluteImageUrl(storeInfo.logo_source);
+  if (logoURL && !logoURL.startsWith('data:')) {
+    try {
+      const apiToken = String(store.get('apiToken') || '').trim();
+      const response = await axios.get(logoURL, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {}
+      });
+      let ext = 'png';
+      try {
+        const candidate = new URL(logoURL).pathname.split('.').pop();
+        if (candidate && /^[a-zA-Z0-9]{2,5}$/.test(candidate)) ext = candidate.toLowerCase();
+      } catch (_) {}
+      const logoPath = path.join(cacheDir(), `store-logo.${ext}`);
+      fs.writeFileSync(logoPath, response.data);
+      storeInfo.logo_path = logoPath;
+    } catch (error) {
+      console.warn('[store:logo] cache failed', error.message);
+    }
+  }
+
+  fs.writeFileSync(storeCachePath(), JSON.stringify(storeInfo, null, 2));
+  store.set('storeCachePath', storeCachePath());
+  store.set('storeLogoPath', storeInfo.logo_path || '');
+  store.set('storeAddress', storeInfo.address || '');
+  store.set('storeName', storeInfo.name || 'Adena');
+  return storeInfo;
+}
+
 function productImageEndpoint(productId, imagePath) {
   const baseURL = String(store.get('apiBaseUrl') || '').trim().replace(/\/$/, '');
   if (!baseURL || !productId) return '';
@@ -267,6 +332,7 @@ async function syncMaster(_options = {}) {
     }
 
     saveMasterData(payload, { fullSync, normalizedProducts });
+    const storeIdentity = await cacheStoreIdentity(payload.settings || {});
 
     if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
 
@@ -283,7 +349,8 @@ async function syncMaster(_options = {}) {
         sales_history: (payload.sales_history || []).length,
         pending_orders: (payload.pending_orders || []).length,
         thumbnails_downloaded: thumbnailDownloaded,
-        thumbnails_failed: thumbnailFailed
+        thumbnails_failed: thumbnailFailed,
+        store_logo_cached: storeIdentity?.logo_path ? 1 : 0
       },
       device_code: resp?.token?.device_code || null
     };

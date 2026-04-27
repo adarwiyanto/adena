@@ -64,30 +64,141 @@ function calculateShiftSummary(shift = null) {
   return { opening_cash: openingCash, cash_sales: cashSales, cash_refund: 0, cash_in: Number(cashIn || 0), cash_out: Number(cashOut || 0), non_cash_sales: nonCashSales, expected_cash: expectedCash };
 }
 
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('id-ID');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+}
+
+function fileUriIfExists(filePath) {
+  const raw = String(filePath || '').trim();
+  if (!raw || !fs.existsSync(raw)) return '';
+  return `file://${raw.replace(/\\/g, '/')}`;
+}
+
+function getStoreIdentity() {
+  const settings = getPublicSettings();
+  const cachePath = String(settings.storeCachePath || '').trim();
+  let cached = {};
+  try {
+    if (cachePath && fs.existsSync(cachePath)) cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+  } catch (_) {}
+  return {
+    name: cached.name || settings.storeName || 'Adena',
+    address: cached.address || settings.storeAddress || '',
+    phone: cached.phone || '',
+    logoPath: cached.logo_path || settings.storeLogoPath || ''
+  };
+}
+
+function getShiftClosePrintData(countedCashTotal = null, user = null) {
+  const db = initDb();
+  const shift = activeShiftLocal();
+  if (!shift) return { ok: false, message: 'Shift belum aktif' };
+  const summary = calculateShiftSummary(shift);
+  const storeIdentity = getStoreIdentity();
+  const cashier = user?.name || db.prepare('SELECT name FROM users WHERE id = ?').get(shift.opened_by)?.name || '-';
+  const transactionCount = db.prepare(`SELECT COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS c FROM sales WHERE shift_id = ?`).get(shift.id)?.c || 0;
+  const itemQty = db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM sales WHERE shift_id = ?').get(shift.id)?.qty || 0;
+  const totalSales = db.prepare('SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE shift_id = ?').get(shift.id)?.total || 0;
+  const paymentRows = db.prepare(`SELECT payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') AS label, COALESCE(SUM(total),0) AS total, COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS tx_count
+    FROM sales WHERE shift_id = ? GROUP BY payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') ORDER BY payment_method, label`).all(shift.id);
+  const counted = countedCashTotal === null || countedCashTotal === undefined ? Number(summary.expected_cash || 0) : Number(countedCashTotal || 0);
+  const nonCashTotal = paymentRows.reduce((sum, row) => {
+    const method = String(row.payment_method || '').toLowerCase();
+    return (method === 'cash' || method === 'tunai') ? sum : sum + Number(row.total || 0);
+  }, 0);
+  return {
+    ok: true,
+    store: { ...storeIdentity, logoUri: fileUriIfExists(storeIdentity.logoPath) },
+    shift,
+    cashier,
+    printedAt: localDateTimeString(),
+    transactionCount,
+    itemQty,
+    totalSales: Number(totalSales || 0),
+    summary,
+    countedCash: counted,
+    cashDifference: counted - Number(summary.expected_cash || 0),
+    paymentRows,
+    totalExpected: Number(summary.expected_cash || 0) + nonCashTotal,
+    totalActual: counted + nonCashTotal,
+    totalDifference: counted - Number(summary.expected_cash || 0)
+  };
+}
+
+function buildShiftClosePrintHtml(data) {
+  const logo = data.store.logoUri
+    ? `<img class="receipt-logo" src="${escapeHtml(data.store.logoUri)}" alt="${escapeHtml(data.store.name)}"/>`
+    : `<div class="receipt-logo-text">ADENA</div>`;
+  const address = data.store.address ? `<div class="receipt-address">${escapeHtml(data.store.address)}</div>` : '';
+  const paymentSections = (data.paymentRows || []).map((row) => {
+    const label = String(row.label || row.payment_method || '-').toUpperCase();
+    return `<div class="section"><div class="row"><span>${escapeHtml(label)}</span><span>${formatNumber(row.total)}</span></div><div class="row sub"><span>Penjualan</span><span>${formatNumber(row.total)}</span></div><div class="row sub"><span>Pembatalan</span><span>0</span></div></div>`;
+  }).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @page { margin: 2mm; size: 58mm auto; }
+    body { width: 54mm; margin: 0 auto; font-family: "Courier New", monospace; font-size: 10px; color: #111; }
+    .center { text-align: center; }
+    .receipt-logo { display:block; max-width: 30mm; max-height: 16mm; object-fit: contain; margin: 0 auto 2mm; }
+    .receipt-logo-text { text-align:center; font-weight:bold; font-size:14px; letter-spacing:1px; margin-bottom:1mm; }
+    .receipt-address { text-align:center; font-size:9px; line-height:1.25; margin-bottom:2mm; white-space:normal; }
+    .title { text-align:center; margin: 1mm 0 2mm; }
+    .row { display:flex; justify-content:space-between; gap:5px; line-height:1.35; }
+    .row span:first-child { white-space: nowrap; }
+    .row span:last-child { text-align:right; margin-left:auto; }
+    .sub span:first-child { padding-left: 3mm; }
+    .sep { border-top: 1px dashed #111; margin: 2mm 0; }
+    .section { margin: 1mm 0; }
+  </style></head><body>
+    ${logo}${address}
+    <div class="title">${escapeHtml(data.store.name || 'Adena')}<br/>Penutupan Penjualan</div>
+    <div class="row"><span>Dicetak</span><span>${escapeHtml(data.printedAt)}</span></div>
+    <br/>
+    <div class="row"><span>Kasir</span><span>${escapeHtml(data.cashier)}</span></div>
+    <div class="row"><span>Mulai Shift</span><span>${escapeHtml(data.shift.opened_at || '-')}</span></div>
+    <div class="row"><span>Akhir Shift</span><span>${escapeHtml(data.printedAt)}</span></div>
+    <div class="row"><span>Tanggal Jual</span><span>${escapeHtml((data.printedAt || '').slice(0,10))}</span></div>
+    <div class="row"><span>Jumlah Tamu</span><span>${formatNumber(data.transactionCount)}</span></div>
+    <div class="row"><span>Resi</span><span>${formatNumber(data.itemQty)} pack(s)</span></div>
+    <div class="row"><span>Pengembalian</span><span>0</span></div>
+    <br/>
+    <div class="row"><span>Total Penjualan</span><span>${formatNumber(data.totalSales)}</span></div>
+    <div class="sep"></div>
+    <div class="row"><span>Subtotal</span><span>${formatNumber(data.totalSales)}</span></div>
+    <br/>
+    <div class="row"><span>Kas Diharapkan</span><span>${formatNumber(data.summary.expected_cash)}</span></div>
+    <div class="sep"></div>
+    <div class="row"><span>Awal di Laci</span><span>${formatNumber(data.summary.opening_cash)}</span></div>
+    <div class="row"><span>Penjualan Tunai</span><span>${formatNumber(data.summary.cash_sales)}</span></div>
+    <div class="row"><span>Pengembalian Tunai</span><span>${formatNumber(data.summary.cash_refund)}</span></div>
+    <div class="row"><span>Pembatalan Tunai</span><span>0</span></div>
+    <div class="row"><span>Kas Masuk-Keluar</span><span>${formatNumber((data.summary.cash_in || 0) - (data.summary.cash_out || 0))}</span></div>
+    <br/>
+    <div class="row"><span>Kas Aktual</span><span>${formatNumber(data.countedCash)}</span></div>
+    <div class="sep"></div>
+    <div class="row"><span>Kas Selisih</span><span>${formatNumber(data.cashDifference)}</span></div>
+    <div class="sep"></div>
+    ${paymentSections}
+    <div class="sep"></div>
+    <div class="row"><span>Total Diharapkan</span><span>${formatNumber(data.totalExpected)}</span></div>
+    <div class="sep"></div>
+    <div class="row"><span>Total Aktual</span><span>${formatNumber(data.totalActual)}</span></div>
+    <div class="sep"></div>
+    <div class="row"><span>Total Selisih</span><span>${formatNumber(data.totalDifference)}</span></div>
+  </body></html>`;
+}
+
 async function handleSyncBeforeExit() {
-  const choice = await dialog.showMessageBox(mainWindow, {
-    type: 'question',
-    buttons: ['Sinkron Dulu', 'Keluar Tanpa Sinkron', 'Batal'],
-    defaultId: 0,
-    cancelId: 2,
-    title: 'Konfirmasi Keluar',
-    message: 'Sinkronisasi dulu sebelum keluar?'
-  });
-
-  if (choice.response === 2) return { shouldQuit: false, mode: 'cancel' };
-  if (choice.response === 1) return { shouldQuit: true, mode: 'skip_sync' };
-
-  const pendingResp = await syncPendingTransactions();
-  const shiftResp = await retryPendingShiftSync();
-  if (!pendingResp?.ok || !shiftResp?.ok) {
-    await dialog.showMessageBox(mainWindow, {
-      type: 'error',
-      title: 'Sync Gagal',
-      message: 'Sinkronisasi sebelum keluar gagal. Silakan coba lagi atau pilih keluar tanpa sinkron.'
-    });
-    return { shouldQuit: false, mode: 'sync_failed', pendingResp, shiftResp };
+  try {
+    await syncPendingTransactions();
+    await retryPendingShiftSync();
+  } catch (error) {
+    console.warn('[exit:sync] sync before exit failed; exiting anyway', error.message);
   }
-  return { shouldQuit: true, mode: 'synced' };
+  return { shouldQuit: true, mode: 'synced_or_queued' };
 }
 
 function createWindow() {
@@ -301,6 +412,11 @@ ipcMain.handle('orders:list', () => {
 
 ipcMain.handle('print:receipt', async (_, payload) => printReceipt(payload));
 ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); return { ok: true, shift, has_active_shift: !!shift, state: shift ? 'active_shift_exists' : 'no_active_shift', summary: calculateShiftSummary(shift) }; });
+ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
+  const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
+  if (!data.ok) return data;
+  return { ...data, html: buildShiftClosePrintHtml(data) };
+});
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));
 ipcMain.handle('shift:retryPending', async () => retryPendingShiftSync());
