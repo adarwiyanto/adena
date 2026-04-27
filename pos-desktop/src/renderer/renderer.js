@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today' };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -87,6 +87,40 @@ function applyTheme(settings = {}) {
   }
 }
 
+
+function cartTotal() { return state.cart.reduce((a, b) => a + Number(b.qty || 0) * Number(b.price_each || 0), 0); }
+function isCashPayment(code) { const v = String(code || '').toLowerCase(); return v === 'cash' || v === 'tunai' || v.includes('cash') || v.includes('tunai'); }
+function updateCashPaymentState() {
+  const wrap = $('#cash-payment-wrap');
+  const input = $('#cash-received');
+  const change = $('#cash-change');
+  if (!wrap || !input || !change) return;
+  const cash = isCashPayment($('#payment-method')?.value);
+  wrap.classList.toggle('hidden', !cash);
+  input.required = cash;
+  if (!cash) { input.value = ''; change.textContent = 'Kembalian: Rp 0'; change.classList.remove('negative'); return; }
+  const received = Number(input.value || 0);
+  const diff = received - cartTotal();
+  change.textContent = diff >= 0 ? `Kembalian: ${rupiah(diff)}` : `Kurang: ${rupiah(Math.abs(diff))}`;
+  change.classList.toggle('negative', diff < 0);
+}
+function pad2(n) { return String(n).padStart(2, '0'); }
+function dateStart(d) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} 00:00:00`; }
+function dateEnd(d) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} 23:59:59`; }
+function setHistoryRange(range) {
+  state.historyRange = range;
+  document.querySelectorAll('.history-range').forEach((b) => b.classList.toggle('active', b.dataset.range === range));
+  const from = $('#history-from'); const to = $('#history-to');
+  const now = new Date();
+  let a = new Date(now); let b = new Date(now);
+  if (range === 'custom') { from.disabled = false; to.disabled = false; return; }
+  if (range === 'yesterday') { a.setDate(now.getDate()-1); b.setDate(now.getDate()-1); }
+  if (range === '7days') { a.setDate(now.getDate()-6); }
+  if (range === 'month') { a.setMonth(now.getMonth()-1); }
+  from.value = dateStart(a); to.value = dateEnd(b);
+  from.disabled = true; to.disabled = true;
+}
+
 function matchesCategory(product, activeCategory) {
   if (!activeCategory) return true;
   const productCatId = product.category_id != null ? String(product.category_id) : '';
@@ -103,7 +137,7 @@ function renderCategories() {
   const allBtn = document.querySelector('[data-category=""]');
   if (allBtn) allBtn.classList.toggle('active', !state.activeCategory);
   const cats = (state.categories || []).filter((c) => c && c.name);
-  wrap.innerHTML = cats.map((c) => `<button class="category ${(state.activeCategory && String(c.id) === String(state.activeCategory.id)) ? 'active' : ''}" data-category-id="${c.id ?? ''}" data-category-name="${c.name}">${c.name}</button>`).join('') || '<div class="empty small">Kategori belum tersinkron.</div>';
+  wrap.innerHTML = cats.map((c) => `<button class="category ${(state.activeCategory && String(c.id) === String(state.activeCategory.id)) ? 'active' : ''}" data-category-id="${c.id ?? ''}" data-category-name="${c.name}"><span class="category-icon">▣</span><span>${c.name}</span></button>`).join('') || '<div class="empty small">Kategori belum tersinkron.</div>';
   wrap.querySelectorAll('button').forEach((b) => b.onclick = () => {
     state.activeCategory = { id: b.dataset.categoryId, name: b.dataset.categoryName };
     renderProducts($('#product-search').value);
@@ -197,7 +231,8 @@ function renderCart() {
     wrap.querySelectorAll('[data-qty-id]').forEach((el) => el.onchange = () => updateCartQty(el.dataset.qtyId, el.value));
     wrap.querySelectorAll('[data-remove-id]').forEach((el) => el.onclick = () => removeCartItem(el.dataset.removeId));
   }
-  $('#cart-total').textContent = `Total: ${rupiah(state.cart.reduce((a, b) => a + b.qty * b.price_each, 0))}`;
+  $('#cart-total').textContent = `Total: ${rupiah(cartTotal())}`;
+  updateCashPaymentState();
 }
 
 function renderPaymentOptions() {
@@ -208,7 +243,7 @@ function renderPaymentOptions() {
   $('#history-payment-filter').innerHTML = `<option value="">Semua pembayaran</option>${state.paymentMethods.map((m) => `<option value="${m.code}">${m.name}</option>`).join('')}`;
   updateBankState();
 }
-function updateBankState() { const code = $('#payment-method').value; $('#payment-bank').disabled = !bankRequiredCodes.has(code); if (!bankRequiredCodes.has(code)) $('#payment-bank').value = ''; }
+function updateBankState() { const code = $('#payment-method').value; $('#payment-bank').disabled = !bankRequiredCodes.has(code); if (!bankRequiredCodes.has(code)) $('#payment-bank').value = ''; updateCashPaymentState(); }
 
 async function loadPosState() {
   const pos = await window.desktopAPI.getPosState();
@@ -285,6 +320,7 @@ async function submitCloseShift() {
 }
 
 async function loadHistory() {
+  if (!$('#history-from').value && !$('#history-to').value) setHistoryRange(state.historyRange || 'today');
   const data = await window.desktopAPI.getHistory({ from: $('#history-from').value.trim(), to: $('#history-to').value.trim(), guideName: $('#history-guide-filter').value, paymentMethod: $('#history-payment-filter').value, syncStatus: $('#history-sync-filter').value });
   if (!data?.ok) return;
   $('#history-omzet').textContent = `Ringkasan Omzet: ${rupiah(data.omzet)}`;
@@ -417,20 +453,27 @@ async function payNow() {
   const paymentMethod = $('#payment-method').value;
   const bankId = $('#payment-bank').value;
   if (bankRequiredCodes.has(paymentMethod) && !bankId) return alert('Bank wajib dipilih untuk non tunai');
+  const total = cartTotal();
+  let cashReceived = null; let cashChange = null;
+  if (isCashPayment(paymentMethod)) {
+    cashReceived = Number($('#cash-received')?.value || 0);
+    if (cashReceived < total) return alert('Uang diterima kurang dari total belanja.');
+    cashChange = cashReceived - total;
+  }
   state.paying = true; $('#btn-pay').disabled = true;
   try {
     const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
     const bank = state.banks.find((b) => String(b.id) === bankId) || null;
-    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null }, shift: state.activeShift, items: state.cart });
+    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null, cash_received: cashReceived, cash_change: cashChange }, shift: state.activeShift, items: state.cart });
     if (!localSave?.ok) return alert(localSave?.message || 'Gagal simpan transaksi lokal');
-    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: [...state.cart], total: state.cart.reduce((a, b) => a + b.qty * b.price_each, 0) };
+    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: [...state.cart], total, cashReceived, cashChange };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
     switchTab('receipt'); renderReceipt(); await loadPosState();
   } finally { state.paying = false; $('#btn-pay').disabled = false; }
 }
 
 function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
-function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div><button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); }; }
+function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); }; }
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
@@ -530,6 +573,9 @@ async function bootstrap() {
   document.querySelectorAll('[data-dismiss-modal]').forEach((btn) => btn.onclick = hideShiftModals);
   $('#shift-opening-cash').oninput = (e) => { e.target.dataset.touched = '1'; };
   $('#payment-method').onchange = updateBankState;
+  $('#cash-received').oninput = updateCashPaymentState;
+  document.querySelectorAll('.history-range').forEach((b) => b.onclick = async () => { setHistoryRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadHistory(); });
+  setHistoryRange('today');
   $('#btn-pay').onclick = payNow;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = null; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };

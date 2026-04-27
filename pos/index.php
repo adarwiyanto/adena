@@ -321,6 +321,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $txDiscountType = in_array($_POST['tx_discount_type'] ?? '', ['fixed', 'percent'], true)
         ? $_POST['tx_discount_type'] : 'fixed';
       if ($txDiscountType === 'percent') $txDiscountAmt = min(100.0, $txDiscountAmt);
+      $expectedTxDiscountValue = 0.0;
+      if ($txDiscountAmt > 0) {
+        $expectedTxDiscountValue = $txDiscountType === 'percent'
+          ? round($total * $txDiscountAmt / 100, 2)
+          : min($txDiscountAmt, $total);
+      }
+      $expectedFinalTotal = max(0.0, $total - $expectedTxDiscountValue);
+      $cashReceived = null;
+      $cashChange = null;
+      $isCashPayment = in_array(strtolower((string)$paymentMethod), ['cash', 'tunai'], true) || str_contains(strtolower((string)$paymentMethod), 'cash') || str_contains(strtolower((string)$paymentMethod), 'tunai');
+      if ($isCashPayment) {
+        $cashReceived = (float)($_POST['cash_received'] ?? 0);
+        if ($cashReceived < $expectedFinalTotal) {
+          throw new Exception('Uang diterima kurang dari total belanja.');
+        }
+        $cashChange = $cashReceived - $expectedFinalTotal;
+      }
       $db = db();
       $db->beginTransaction();
       $branchId = pos_safe_branch_id();
@@ -569,7 +586,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'tx_discount_type' => $txDiscountType,
         'tx_discount_value' => $txDiscountValue,
         'total' => $receiptFinalTotal,
-        'paid_amount' => $receiptFinalTotal,
+        'paid_amount' => $cashReceived !== null ? $cashReceived : $receiptFinalTotal,
+        'cash_received' => $cashReceived,
+        'cash_change' => $cashChange,
       ];
 
       $printPayload = build_pos_receipt_payload($_SESSION['pos_receipt'], [
@@ -579,7 +598,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'store_phone' => setting('store_phone', ''),
         'footer' => setting('receipt_footer', ''),
         'store_logo' => setting('store_logo', ''),
-        'paid_amount' => $receiptFinalTotal,
+        'paid_amount' => $cashReceived !== null ? $cashReceived : $receiptFinalTotal,
       ]);
       $printJob = create_pos_print_job($printPayload, [
         'sale_id' => isset($saleId) ? (int)$saleId : null,
@@ -903,6 +922,10 @@ if (!empty($rewardCart)) {
           </div>
           <div class="pos-receipt-meta">
             <div>Pembayaran: <?php echo e(strtoupper($receipt['payment'] ?? '-')); ?></div>
+            <?php if (array_key_exists('cash_received', $receipt) && $receipt['cash_received'] !== null): ?>
+              <div>Diterima: Rp <?php echo e(format_number_id((float)$receipt['cash_received'])); ?></div>
+              <div>Kembalian: Rp <?php echo e(format_number_id((float)($receipt['cash_change'] ?? 0))); ?></div>
+            <?php endif; ?>
           </div>
           <div class="pos-receipt-actions no-print">
             <a class="btn pos-print-btn" href="<?php echo e(base_url('pos/receipt.php?id=' . urlencode($receipt['id']))); ?>">Print Struk 58mm</a>
@@ -1149,6 +1172,11 @@ if (!empty($rewardCart)) {
                       <?php endif; ?>
                     </div>
                   </div>
+                  <div id="pos-cash-wrap" class="pos-cash-wrap" style="display:none;margin-top:10px">
+                    <label for="pos-cash-received" style="font-size:.85rem;margin-bottom:4px;display:block">Uang diterima</label>
+                    <input id="pos-cash-received" type="number" min="0" step="100" name="cash_received" placeholder="Masukkan uang diterima">
+                    <div id="pos-cash-change" class="pos-cash-change">Kembalian: Rp 0</div>
+                  </div>
                   <div class="pos-tx-discount">
                     <label>Diskon Total <small style="font-weight:400;opacity:.7">(opsional)</small></label>
                     <div class="pos-item-discount-row">
@@ -1172,6 +1200,24 @@ if (!empty($rewardCart)) {
   <script nonce="<?php echo e(csp_nonce()); ?>">
     (function () {
       var bankMethods = ['qris', 'edc', 'transfer', 'credit_card'];
+      var cartTotal = <?php echo json_encode((float)$total); ?>;
+      function rupiah(n) { return 'Rp ' + Math.max(0, Number(n || 0)).toLocaleString('id-ID'); }
+      function isCash(code) { code = String(code || '').toLowerCase(); return code === 'cash' || code === 'tunai' || code.indexOf('cash') !== -1 || code.indexOf('tunai') !== -1; }
+      function updateCashBox() {
+        var checked = document.querySelector('input[name="payment_method"]:checked');
+        var code = checked ? String(checked.value || '').toLowerCase() : '';
+        var wrap = document.getElementById('pos-cash-wrap');
+        var input = document.getElementById('pos-cash-received');
+        var change = document.getElementById('pos-cash-change');
+        if (!wrap || !input || !change) return;
+        var cash = isCash(code);
+        wrap.style.display = cash ? '' : 'none';
+        input.required = cash;
+        if (!cash) { input.value = ''; change.textContent = 'Kembalian: Rp 0'; change.classList.remove('negative'); return; }
+        var diff = Number(input.value || 0) - cartTotal;
+        change.textContent = diff >= 0 ? ('Kembalian: ' + rupiah(diff)) : ('Kurang: ' + rupiah(Math.abs(diff)));
+        change.classList.toggle('negative', diff < 0);
+      }
       function updateBankDropdown() {
         var wrap = document.getElementById('pos-bank-wrap');
         if (!wrap) return;
@@ -1185,9 +1231,9 @@ if (!empty($rewardCart)) {
           if (!needsBank) select.value = '';
         }
       }
-      document.addEventListener('DOMContentLoaded', updateBankDropdown);
+      document.addEventListener('DOMContentLoaded', function(){ updateBankDropdown(); updateCashBox(); var cashInput = document.getElementById('pos-cash-received'); if (cashInput) cashInput.addEventListener('input', updateCashBox); });
       document.addEventListener('change', function (e) {
-        if (e.target && e.target.name === 'payment_method') updateBankDropdown();
+        if (e.target && e.target.name === 'payment_method') { updateBankDropdown(); updateCashBox(); }
       });
     })();
 
@@ -1198,7 +1244,8 @@ if (!empty($rewardCart)) {
       userName: <?php echo json_encode($me['name'] ?? 'Kasir'); ?>,
       isShiftAdmin: <?php echo $isShiftAdmin ? 'true' : 'false'; ?>,
       hasActiveShift: <?php echo $activeShift ? 'true' : 'false'; ?>,
-      shiftState: <?php echo json_encode($activeShift ? 'active_shift_exists' : 'no_active_shift'); ?>
+      shiftState: <?php echo json_encode($activeShift ? 'active_shift_exists' : 'no_active_shift'); ?>,
+      cartTotal: <?php echo json_encode((float)$total); ?>
     };
     window.POS_STATE = {
       cartItems: <?php echo json_encode($cartItems); ?>,

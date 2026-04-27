@@ -77,15 +77,17 @@
 
     <section class="tab-panel active" data-panel="pos">
       <main class="layout">
-        <aside class="category-pane">
-          <h3>Kategori</h3>
-          <button class="category active" data-category="">Semua Produk</button>
+        <aside class="category-pane tablet-menu">
+          <h3>Menu</h3>
+          <button class="category active" data-category=""><span class="category-icon">★</span><span>Semua Produk</span></button>
           <div id="categories"></div>
         </aside>
-        <aside>
-          <h3>Produk</h3>
-          <input id="product-search" placeholder="Cari produk" />
-          <div id="products" class="products"></div>
+        <aside class="product-pane">
+          <div class="product-head">
+            <h3>Produk</h3>
+            <input id="product-search" placeholder="Cari produk" />
+          </div>
+          <div id="products" class="products tablet-products"></div>
         </aside>
 
         <section class="cart-panel">
@@ -96,6 +98,11 @@
             <label>Guide</label><select id="guide"></select>
             <label>Metode Bayar</label><select id="payment-method"></select>
             <label>Bank</label><select id="payment-bank"></select>
+            <div id="cash-payment-wrap" class="cash-payment-wrap hidden">
+              <label>Uang diterima</label>
+              <input id="cash-received" type="number" min="0" step="100" placeholder="Masukkan uang diterima" />
+              <div id="cash-change" class="cash-change">Kembalian: Rp 0</div>
+            </div>
             <button id="btn-pay">Bayar</button>
           </div>
         </section>
@@ -103,7 +110,7 @@
     </section>
 
     <section class="tab-panel" data-panel="receipt"><div id="receipt-wrap" class="card"></div></section>
-    <section class="tab-panel" data-panel="history"><div class="card"><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
+    <section class="tab-panel" data-panel="history"><div class="card"><div class="history-range-tabs"><button type="button" class="history-range active" data-range="today">Hari ini</button><button type="button" class="history-range" data-range="yesterday">Kemarin</button><button type="button" class="history-range" data-range="7days">7 hari</button><button type="button" class="history-range" data-range="month">Sebulan</button><button type="button" class="history-range" data-range="custom">Custom</button></div><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
     <section class="tab-panel" data-panel="orders"><div class="card" id="orders-list"></div></section>
   </section>
 

@@ -20,11 +20,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const bankRequiredMethods = new Set(['qris', 'edc', 'transfer']);
   const bankWrap = document.querySelector('#pos-bank-wrap');
   const bankSelect = document.querySelector('#pos-payment-bank');
+  const cashWrap = document.querySelector('#pos-cash-wrap');
+  const cashInput = document.querySelector('#pos-cash-received');
+  const cashChange = document.querySelector('#pos-cash-change');
+  const isCashMethod = () => { const code = selectedPaymentCode(); return code === 'cash' || code === 'tunai' || code.includes('cash') || code.includes('tunai'); };
+  const formatRupiah = (value) => 'Rp ' + Math.max(0, Number(value || 0)).toLocaleString('id-ID');
+
   const selectedPaymentCode = () => {
     const checkedPayment = document.querySelector('input[name="payment_method"]:checked');
     return checkedPayment ? String(checkedPayment.value || '').toLowerCase() : '';
   };
   const paymentNeedsBank = () => bankRequiredMethods.has(selectedPaymentCode());
+  const updateCashVisibility = () => {
+    if (!cashWrap || !cashInput || !cashChange) return;
+    const needsCash = isCashMethod();
+    cashWrap.style.display = needsCash ? '' : 'none';
+    cashInput.required = needsCash;
+    if (!needsCash) { cashInput.value = ''; cashChange.textContent = 'Kembalian: Rp 0'; cashChange.classList.remove('negative'); return; }
+    const total = Number((window.POS_RUNTIME && window.POS_RUNTIME.cartTotal) || 0);
+    const diff = Number(cashInput.value || 0) - total;
+    cashChange.textContent = diff >= 0 ? ('Kembalian: ' + formatRupiah(diff)) : ('Kurang: ' + formatRupiah(Math.abs(diff)));
+    cashChange.classList.toggle('negative', diff < 0);
+  };
   const updateBankVisibility = () => {
     if (!bankWrap) return;
     const needsBank = paymentNeedsBank();
@@ -34,8 +51,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!needsBank) bankSelect.value = '';
     }
   };
-  paymentOptions.forEach((option) => option.addEventListener('change', updateBankVisibility));
+  paymentOptions.forEach((option) => option.addEventListener('change', () => { updateBankVisibility(); updateCashVisibility(); }));
+  if (cashInput) cashInput.addEventListener('input', updateCashVisibility);
   updateBankVisibility();
+  updateCashVisibility();
 
   const showModal = (modal) => { if (modal) modal.hidden = false; };
   const hideModals = () => document.querySelectorAll('.pos-modal').forEach((m) => { m.hidden = true; });
@@ -173,6 +192,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const paymentBank = bankSelect ? String(bankSelect.value || '').trim() : '';
+      if (isCashMethod()) {
+        const total = Number((window.POS_RUNTIME && window.POS_RUNTIME.cartTotal) || 0);
+        const received = Number(cashInput ? cashInput.value || 0 : 0);
+        if (received < total) {
+          e.preventDefault();
+          alert('Uang diterima kurang dari total belanja.');
+          return;
+        }
+      }
       if (paymentNeedsBank() && paymentBank === '') {
         e.preventDefault();
         alert('Pilih bank terlebih dahulu.');
