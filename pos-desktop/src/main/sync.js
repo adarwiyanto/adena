@@ -189,7 +189,6 @@ async function syncMaster(_options = {}) {
 
     saveMasterData(payload, { fullSync, normalizedProducts });
 
-    if (resp.server_time) store.set('lastSyncAt', resp.server_time);
     if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
 
     return {

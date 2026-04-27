@@ -1,18 +1,27 @@
 const ElectronStore = require('electron-store');
 const Store = ElectronStore.default || ElectronStore;
 
+const DEFAULT_SETTINGS = {
+  apiBaseUrl: '',
+  apiToken: '',
+  deviceCode: '',
+  printerName: '',
+  receiptWidthMm: 58,
+  receiptMarginMm: 2,
+  lastSyncAt: null
+};
+
 const store = new Store({
   name: 'settings',
-  defaults: {
-    apiBaseUrl: '',
-    apiToken: '',
-    deviceId: 'desktop-default',
-    deviceCode: '',
-    printerName: '',
-    receiptWidthMm: 58,
-    receiptMarginMm: 2,
-    lastSyncAt: null
-  }
+  defaults: DEFAULT_SETTINGS
 });
 
-module.exports = { store };
+function getApiConfig() {
+  return {
+    apiBaseUrl: String(store.get('apiBaseUrl') || '').trim(),
+    apiToken: String(store.get('apiToken') || '').trim(),
+    deviceCode: String(store.get('deviceCode') || '').trim()
+  };
+}
+
+module.exports = { store, DEFAULT_SETTINGS, getApiConfig };

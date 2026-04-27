@@ -5,8 +5,12 @@ const { app } = require('electron');
 
 let db;
 
+function dataDirPath() {
+  return path.join(app.getPath('userData'), 'data');
+}
+
 function dbPath() {
-  const dir = path.join(app.getPath('userData'), 'data');
+  const dir = dataDirPath();
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, 'pos.sqlite');
 }
@@ -283,4 +287,10 @@ function initDb() {
   return db;
 }
 
-module.exports = { initDb };
+function closeDb() {
+  if (!db) return;
+  db.close();
+  db = null;
+}
+
+module.exports = { initDb, closeDb, dbPath, dataDirPath };
