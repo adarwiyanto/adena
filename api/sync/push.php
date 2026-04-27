@@ -219,7 +219,10 @@ try {
             }
         }
 
-        $txCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(substr($txUuid, 0, 6));
+$txCode = trim((string)($tx['transaction_code'] ?? ''));
+        if ($txCode === '') {
+            $txCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(substr($txUuid, 0, 6));
+        }
         $txGroupUuid = (string)($tx['transaction_group_uuid'] ?? $txUuid);
         $soldAt = (string)($tx['sold_at'] ?? date('Y-m-d H:i:s'));
         $payBank = (string)($tx['payment_bank'] ?? '');

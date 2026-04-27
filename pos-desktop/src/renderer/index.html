@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adena POS Desktop</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <section id="login-view" class="view active">
+    <div class="card login-card">
+      <h1>POS Login</h1>
+      <form id="login-form">
+        <input name="username" placeholder="Username" required />
+        <input name="password" placeholder="Password" type="password" required />
+        <button id="btn-login" type="submit">Login</button>
+      </form>
+      <p id="login-status" class="login-status"></p>
+      <p id="login-error" class="login-error"></p>
+      <div class="login-actions">
+        <button id="btn-open-api" class="link-btn">Setting API</button>
+        <button id="btn-open-printer" class="link-btn">Setting Printer/Program</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="sync-view" class="view">
+    <div class="card sync-card">
+      <h2>Sinkronisasi Data</h2>
+      <progress id="sync-progress" max="100" value="0"></progress>
+      <p id="sync-status-text">Menunggu sinkronisasi...</p>
+      <ul id="sync-module-status" class="sync-module-status"></ul>
+      <p id="sync-retry-count">Percobaan 0/3</p>
+      <textarea id="sync-debug" rows="8" readonly placeholder="Debug sync akan muncul di sini jika gagal."></textarea>
+      <div class="sync-actions">
+        <button id="btn-sync-retry">Coba Lagi</button>
+        <button id="btn-sync-copy-debug">Copy Debug</button>
+        <button id="btn-sync-enter-pos">Masuk POS</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="pos-view" class="view">
+    <header class="topbar">
+      <div>
+        <img id="brand-logo" class="brand-logo hidden" alt="logo" />
+        <strong id="user-label"></strong>
+        <div id="shift-status">Shift: tidak aktif</div>
+      </div>
+      <div class="topbar-right">
+        <button id="btn-shift-toggle">Buka Shift</button>
+        <button id="btn-logout">Log Out</button>
+        <span id="online-badge">offline</span>
+        <span id="sync-count">Pending: 0</span>
+        <button id="btn-manual-sync">Manual Sync</button>
+      </div>
+    </header>
+
+    <nav class="tabbar">
+      <button class="tab active" data-tab="pos">POS</button>
+      <button class="tab" data-tab="receipt">Receipt/Print</button>
+      <button class="tab" data-tab="history">Riwayat</button>
+      <button class="tab" data-tab="orders">Order Masuk</button>
+    </nav>
+
+    <section class="tab-panel active" data-panel="pos">
+      <main class="layout">
+        <aside class="category-pane">
+          <h3>Kategori</h3>
+          <button class="category active" data-category="">Semua Produk</button>
+          <div id="categories"></div>
+        </aside>
+        <aside>
+          <h3>Produk</h3>
+          <input id="product-search" placeholder="Cari produk" />
+          <div id="products" class="products"></div>
+        </aside>
+
+        <section class="cart-panel">
+          <h3>Keranjang</h3>
+          <div id="cart-items"></div>
+          <div id="cart-total" class="cart-total">Total: Rp 0</div>
+          <div class="checkout">
+            <label>Guide</label><select id="guide"></select>
+            <label>Metode Bayar</label><select id="payment-method"></select>
+            <label>Bank</label><select id="payment-bank"></select>
+            <button id="btn-pay">Bayar</button>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <section class="tab-panel" data-panel="receipt"><div id="receipt-wrap" class="card"></div></section>
+    <section class="tab-panel" data-panel="history"><div class="card"><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
+    <section class="tab-panel" data-panel="orders"><div class="card" id="orders-list"></div></section>
+  </section>
+
+  <div id="app-status" class="app-status" aria-live="polite"></div>
+  <div id="app-toast" class="app-toast" aria-live="assertive"></div>
+
+  <dialog id="api-dialog">
+    <h3>Setting API</h3>
+    <input id="api-base-url" placeholder="Base URL" />
+    <input id="api-token" type="password" placeholder="Static API token" autocomplete="off" />
+    <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
+    <div class="dialog-actions"><button id="btn-save-api">Save & Test API</button><button id="btn-test-api">Test Dengan Input Saat Ini</button><button id="btn-close-api">Tutup</button></div>
+    <p id="api-status"></p>
+  </dialog>
+
+  <dialog id="printer-dialog">
+    <h3>Setting Printer/Program</h3>
+    <label>Printer Windows</label>
+    <select id="printer-name"></select>
+    <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
+    <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
+    <p>Kode POS/Device dari web: <strong id="current-device-code">-</strong></p>
+    <div class="dialog-actions"><button id="btn-save-printer">Save Printer Setting</button><button id="btn-reset-app-data" class="danger">Reset Data Aplikasi</button><button id="btn-close-printer">Tutup</button></div>
+    <p id="printer-status"></p>
+  </dialog>
+
+  <script src="./renderer.js"></script>
+</body>
+</html>
