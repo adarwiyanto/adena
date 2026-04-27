@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { store } = require('./config');
+const { getApiConfig } = require('./config');
 
 function sanitizeBaseUrl(baseUrlRaw) {
   const baseURL = String(baseUrlRaw || '').trim().replace(/\/$/, '');
@@ -48,10 +48,11 @@ function mapAxiosError(err, context = 'Request API') {
 }
 
 function client(options = {}) {
-  const baseURLResult = sanitizeBaseUrl(options.baseURL ?? store.get('apiBaseUrl'));
+  const latestConfig = getApiConfig();
+  const baseURLResult = sanitizeBaseUrl(options.baseURL ?? latestConfig.apiBaseUrl);
   if (!baseURLResult.ok) return baseURLResult;
 
-  const token = String((options.token ?? store.get('apiToken')) || '').trim();
+  const token = String((options.token ?? latestConfig.apiToken) || '').trim();
   if (!token) {
     return { ok: false, message: 'Token API belum disetting', detail: 'apiToken empty', status: 422 };
   }

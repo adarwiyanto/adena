@@ -19,8 +19,7 @@ const store = new Store({
 function getApiConfig() {
   return {
     apiBaseUrl: String(store.get('apiBaseUrl') || '').trim(),
-    apiToken: String(store.get('apiToken') || '').trim(),
-    deviceCode: String(store.get('deviceCode') || '').trim()
+    apiToken: String(store.get('apiToken') || '').trim()
   };
 }
 
