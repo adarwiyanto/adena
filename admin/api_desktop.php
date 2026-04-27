@@ -23,6 +23,22 @@ function normalize_device_code(string $code): string {
   return preg_replace('/\s+/', '', $normalized) ?? '';
 }
 
+function deactivate_active_tokens_for_device(string $deviceCode, int $exceptId = 0): void {
+  $deviceCode = normalize_device_code($deviceCode);
+  if ($deviceCode === '') {
+    return;
+  }
+
+  if ($exceptId > 0) {
+    db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = COALESCE(revoked_at, NOW()) WHERE device_code = ? AND is_active = 1 AND id <> ?')
+      ->execute([$deviceCode, $exceptId]);
+    return;
+  }
+
+  db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = COALESCE(revoked_at, NOW()) WHERE device_code = ? AND is_active = 1')
+    ->execute([$deviceCode]);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = (string)($_POST['action'] ?? '');
@@ -36,6 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($deviceCode !== '' && !preg_match('/^[A-Z0-9]+$/', $deviceCode)) {
       $err = 'Kode POS/Device hanya boleh huruf dan angka (uppercase, tanpa spasi).';
     } else {
+      deactivate_active_tokens_for_device($deviceCode);
       $generatedToken = bin2hex(random_bytes(24));
       db()->prepare('INSERT INTO api_tokens (name, token_hash, device_code, is_active, created_at) VALUES (?, ?, ?, 1, NOW())')
         ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $deviceCode !== '' ? $deviceCode : null]);
@@ -45,6 +62,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW() WHERE id = ?')
       ->execute([$id]);
     $ok = 'Token berhasil direvoke.';
+  } elseif ($action === 'delete' && $id > 0) {
+    $stmt = db()->prepare('SELECT id FROM api_tokens WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+      $err = 'Token tidak ditemukan.';
+    } else {
+      db()->prepare('DELETE FROM api_tokens WHERE id = ?')->execute([$id]);
+      $ok = 'Token berhasil dihapus.';
+    }
   } elseif ($action === 'regenerate' && $id > 0) {
     $name = trim((string)($_POST['name'] ?? ''));
     $deviceCode = normalize_device_code((string)($_POST['device_code'] ?? ''));
@@ -54,6 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($deviceCode !== '' && !preg_match('/^[A-Z0-9]+$/', $deviceCode)) {
       $err = 'Kode POS/Device hanya boleh huruf dan angka (uppercase, tanpa spasi).';
     } else {
+      deactivate_active_tokens_for_device($deviceCode, $id);
       db()->prepare('UPDATE api_tokens SET is_active = 0, revoked_at = NOW() WHERE id = ?')
         ->execute([$id]);
       $generatedToken = bin2hex(random_bytes(24));
@@ -114,6 +141,7 @@ $customCss = setting('custom_css', '');
 
       <div class="card" style="margin-top:16px">
         <h3 style="margin-top:0">Daftar Token</h3>
+        <p><small><strong>Catatan:</strong> setiap Kode POS hanya memiliki satu token aktif. Generate token baru akan menonaktifkan token aktif sebelumnya.</small></p>
         <div class="table-wrap"><table>
           <thead><tr><th>Nama</th><th>Kode POS</th><th>Status</th><th>Last Used</th><th>Dibuat</th><th>Aksi</th></tr></thead>
           <tbody>
@@ -141,6 +169,12 @@ $customCss = setting('custom_css', '');
                   <input type="hidden" name="device_code" value="<?php echo e((string)($t['device_code'] ?? '')); ?>">
                   <button class="btn" type="submit">Generate Ulang</button>
                 </form>
+                <form method="post" class="js-confirm-delete-token">
+                  <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>">
+                  <button class="btn btn-danger" type="submit">Hapus</button>
+                </form>
               </td>
             </tr>
           <?php endforeach; ?>
@@ -150,6 +184,7 @@ $customCss = setting('custom_css', '');
     </div>
   </div>
 </div>
+<script src="<?php echo e(asset_url('assets/api_desktop.js')); ?>"></script>
 <script src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
 </body>
 </html>
