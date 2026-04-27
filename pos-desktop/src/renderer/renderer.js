@@ -128,6 +128,11 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     $('#btn-sync-enter-pos').disabled = true;
     $('#sync-retry-count').textContent = `Percobaan ${attempt}/3`;
     try {
+    const cfg = await window.apiConfig.get();
+    if (!cfg.apiToken) {
+      throw new Error('Token API belum disetting. Buka Setting API dan simpan token terlebih dahulu.');
+    }
+
     showView('sync-view');
     syncModuleList(moduleStatus);
     setSyncProgress(5, 'Cek koneksi API...');
@@ -204,27 +209,29 @@ function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceip
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
 async function saveApiSettingsAndTest() {
-  const payload = {
-    apiBaseUrl: String($('#api-base-url').value || '').trim(),
-    apiToken: String($('#api-token').value || '').trim()
-  };
+  const apiBaseUrl = document.getElementById('api-base-url').value.trim();
+  const apiToken = document.getElementById('api-token').value.trim();
 
-  if (!payload.apiBaseUrl || !payload.apiToken) {
-    $('#api-status').textContent = 'Token API belum disetting';
-    return { ok: false, message: 'Token API belum disetting' };
+  const result = await window.apiConfig.set({ apiBaseUrl, apiToken });
+
+  if (!result.ok) {
+    alert(result.message);
+    $('#api-status').textContent = `Gagal: ${result.message}`;
+    return result;
   }
 
-  const resp = await window.desktopAPI.saveApiSettings(payload);
-  if (!resp?.ok) {
-    $('#api-status').textContent = `Gagal: ${resp?.message || 'Tidak dapat menyimpan setting API'}`;
-    return resp;
-  }
+  alert(`Setting API tersimpan. Token: ${result.tokenPreview}`);
+
+  const verify = await window.apiConfig.get();
+  console.log('[config:verify]', {
+    apiBaseUrl: verify.apiBaseUrl,
+    token: verify.apiToken ? verify.apiToken.slice(0,4) + '***' + verify.apiToken.slice(-2) : '(kosong)'
+  });
 
   $('#api-token').value = '';
   await initApiDialog();
-  const settings = await window.desktopAPI.getSettings();
-  $('#api-status').textContent = `Setting API tersimpan (${settings?.apiTokenMasked || maskToken(payload.apiToken)})`;
-  return { ok: true, message: 'Setting API tersimpan', settings };
+  $('#api-status').textContent = `Setting API tersimpan (${result.tokenPreview})`;
+  return { ok: true, message: 'Setting API tersimpan', settings: verify };
 }
 
 async function testApiConnection() {

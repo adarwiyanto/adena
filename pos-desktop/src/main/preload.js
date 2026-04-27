@@ -23,3 +23,8 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   retryPendingShift: () => ipcRenderer.invoke('shift:retryPending'),
   resetAllAppData: () => ipcRenderer.invoke('app:reset-all')
 });
+
+contextBridge.exposeInMainWorld('apiConfig', {
+  get: () => ipcRenderer.invoke('config:getApi'),
+  set: (data) => ipcRenderer.invoke('config:setApi', data)
+});

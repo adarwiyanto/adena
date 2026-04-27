@@ -49,6 +49,13 @@ function mapAxiosError(err, context = 'Request API') {
 
 function client(options = {}) {
   const latestConfig = getApiConfig();
+  console.log('[config:getApi]', {
+    apiBaseUrl: latestConfig.apiBaseUrl,
+    token: latestConfig.apiToken
+      ? `${latestConfig.apiToken.slice(0, 4)}***${latestConfig.apiToken.slice(-2)}`
+      : '(kosong)'
+  });
+
   const baseURLResult = sanitizeBaseUrl(options.baseURL ?? latestConfig.apiBaseUrl);
   if (!baseURLResult.ok) return baseURLResult;
 
