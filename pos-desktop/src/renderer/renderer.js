@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)' };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -141,6 +141,25 @@ async function loadOrders() { const data = await window.desktopAPI.getOrders(); 
 
 function syncModuleList(statusMap = {}) { $('#sync-module-status').innerHTML = SYNC_MODULES.map((m) => `<li>${m}: <strong>${statusMap[m] || 'menunggu'}</strong></li>`).join(''); }
 function setSyncProgress(percent, text) { $('#sync-progress').value = percent; $('#sync-status-text').textContent = text; }
+function setSyncDebugVisibility() {
+  const panel = $('#sync-debug-panel');
+  if (!panel) return;
+  panel.classList.toggle('hidden', !state.debugMode);
+}
+function switchSettingsTab(name) {
+  document.querySelectorAll('.settings-tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.settingsTab === name));
+  document.querySelectorAll('.settings-panel').forEach((panel) => panel.classList.toggle('active', panel.dataset.settingsPanel === name));
+}
+async function initSettingsDialog(activeTab = 'api') {
+  await initApiDialog();
+  await initPrinterDialog();
+  const settings = await window.desktopAPI.getSettings();
+  state.debugMode = !!settings.debugMode;
+  $('#debug-mode').checked = state.debugMode;
+  setSyncDebugVisibility();
+  switchSettingsTab(activeTab);
+}
+
 
 function buildSyncDebug(error, resp, moduleName = 'unknown') {
   const compactBody = (() => {
@@ -180,6 +199,7 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     }
 
     showView('sync-view');
+    setSyncDebugVisibility();
     syncModuleList(moduleStatus);
     setSyncProgress(5, 'Cek koneksi API...');
     const conn = await window.desktopAPI.testConnection();
@@ -219,16 +239,20 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     state.syncSuccess = true;
     $('#btn-sync-enter-pos').disabled = false;
     showToast('Sinkronisasi berhasil', 'success');
+    if (!state.debugMode) {
+      showView('pos-view');
+    }
       return;
     } catch (error) {
       lastError = error;
       setSyncProgress(100, `Sinkronisasi gagal: ${error.message}`);
       $('#sync-debug').value = buildSyncDebug(error, error.resp || null, error.module || 'Unknown');
+      $('#sync-debug-panel').classList.remove('hidden');
       state.syncSuccess = false;
       showToast(error.message || 'Sinkronisasi gagal');
     }
   }
-  if (lastError) $('#sync-debug').value = buildSyncDebug(lastError, lastError.resp || null, lastError.module || 'Unknown');
+  if (lastError) { $('#sync-debug').value = buildSyncDebug(lastError, lastError.resp || null, lastError.module || 'Unknown'); $('#sync-debug-panel').classList.remove('hidden'); }
 }
 
 async function payNow() {
@@ -294,17 +318,24 @@ async function testApiConnection() {
 async function initPrinterDialog() { const s = await window.desktopAPI.getSettings(); $('#receipt-width').value = s.receiptWidthMm || 58; $('#receipt-margin').value = s.receiptMarginMm || 2; $('#current-device-code').textContent = s.deviceCode || '-'; const printers = await window.desktopAPI.getPrinters(); $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`; $('#printer-name').value = s.printerName || ''; }
 
 async function bootstrap() {
-  await initApiDialog(); await initPrinterDialog(); showView('login-view');
+  await initSettingsDialog('api'); showView('login-view');
   syncModuleList();
-  $('#btn-open-api').onclick = async () => { await initApiDialog(); $('#api-dialog').showModal(); };
-  $('#btn-open-printer').onclick = async () => { await initPrinterDialog(); $('#printer-dialog').showModal(); };
-  $('#btn-close-api').onclick = () => $('#api-dialog').close();
-  $('#btn-close-printer').onclick = () => $('#printer-dialog').close();
+  setSyncDebugVisibility();
+  $('#btn-open-settings').onclick = async () => { await initSettingsDialog('api'); $('#settings-dialog').showModal(); };
+  $('#btn-close-settings').onclick = () => $('#settings-dialog').close();
+  document.querySelectorAll('.settings-tab').forEach((btn) => btn.onclick = () => switchSettingsTab(btn.dataset.settingsTab));
   $('#btn-save-api').onclick = async () => { const resp = await saveApiSettingsAndTest(); if (resp?.ok) showToast('Setting API tersimpan', 'success'); };
   $('#btn-test-api').onclick = async () => { const resp = await testApiConnection(); if (resp?.ok) showToast('Test koneksi OK', 'success'); };
   $('#btn-save-printer').onclick = async () => {
     await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
     showToast('Setting printer/program tersimpan', 'success');
+  };
+  $('#btn-save-debug').onclick = async () => {
+    state.debugMode = !!$('#debug-mode').checked;
+    await window.desktopAPI.setSettings({ debugMode: state.debugMode });
+    setSyncDebugVisibility();
+    $('#debug-status').textContent = state.debugMode ? 'Debug Mode aktif' : 'Debug Mode nonaktif';
+    showToast('Setting debug tersimpan', 'success');
   };
   $('#btn-reset-app-data').onclick = async () => {
     const warning = 'Semua data lokal, token API, printer, produk, transaksi lokal, dan cache akan dihapus. Data server tidak terpengaruh.';

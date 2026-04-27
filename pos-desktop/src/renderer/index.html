@@ -7,9 +7,12 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <section id="login-view" class="view active">
-    <div class="card login-card">
-      <h1>POS Login</h1>
+  <section id="login-view" class="view active login-screen">
+    <button id="btn-open-settings" class="settings-corner" type="button">Setting</button>
+    <div class="card login-card premium-card">
+      <img class="login-logo" src="./assets/adena-logo.jpg" alt="Adena" />
+      <h1>Adena POS</h1>
+      <p class="login-subtitle">Desktop cashier system</p>
       <form id="login-form">
         <input name="username" placeholder="Username" required />
         <input name="password" placeholder="Password" type="password" required />
@@ -17,25 +20,24 @@
       </form>
       <p id="login-status" class="login-status"></p>
       <p id="login-error" class="login-error"></p>
-      <div class="login-actions">
-        <button id="btn-open-api" class="link-btn">Setting API</button>
-        <button id="btn-open-printer" class="link-btn">Setting Printer/Program</button>
-      </div>
     </div>
   </section>
 
-  <section id="sync-view" class="view">
-    <div class="card sync-card">
-      <h2>Sinkronisasi Data</h2>
+  <section id="sync-view" class="view sync-screen">
+    <div class="sync-hero">
+      <img class="sync-logo" src="./assets/adena-logo.jpg" alt="Adena" />
+      <h1>Adena POS</h1>
+      <p id="sync-status-text" class="sync-status-text">Menunggu sinkronisasi...</p>
       <progress id="sync-progress" max="100" value="0"></progress>
-      <p id="sync-status-text">Menunggu sinkronisasi...</p>
-      <ul id="sync-module-status" class="sync-module-status"></ul>
-      <p id="sync-retry-count">Percobaan 0/3</p>
-      <textarea id="sync-debug" rows="8" readonly placeholder="Debug sync akan muncul di sini jika gagal."></textarea>
-      <div class="sync-actions">
-        <button id="btn-sync-retry">Coba Lagi</button>
-        <button id="btn-sync-copy-debug">Copy Debug</button>
-        <button id="btn-sync-enter-pos">Masuk POS</button>
+      <p id="sync-retry-count" class="sync-retry-count">Percobaan 0/3</p>
+      <div id="sync-debug-panel" class="sync-debug-panel hidden">
+        <ul id="sync-module-status" class="sync-module-status"></ul>
+        <textarea id="sync-debug" rows="8" readonly placeholder="Debug sync akan muncul di sini jika gagal."></textarea>
+        <div class="sync-actions">
+          <button id="btn-sync-retry">Coba Lagi</button>
+          <button id="btn-sync-copy-debug">Copy Debug</button>
+          <button id="btn-sync-enter-pos">Masuk POS</button>
+        </div>
       </div>
     </div>
   </section>
@@ -98,24 +100,57 @@
   <div id="app-status" class="app-status" aria-live="polite"></div>
   <div id="app-toast" class="app-toast" aria-live="assertive"></div>
 
-  <dialog id="api-dialog">
-    <h3>Setting API</h3>
-    <input id="api-base-url" placeholder="Base URL" />
-    <input id="api-token" type="password" placeholder="Static API token" autocomplete="off" />
-    <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
-    <div class="dialog-actions"><button id="btn-save-api">Save & Test API</button><button id="btn-test-api">Test Dengan Input Saat Ini</button><button id="btn-close-api">Tutup</button></div>
-    <p id="api-status"></p>
-  </dialog>
+  <dialog id="settings-dialog" class="settings-dialog">
+    <div class="settings-header">
+      <div>
+        <h3>Setting Program</h3>
+        <p>Konfigurasi API, printer, dan debug POS Desktop.</p>
+      </div>
+      <button id="btn-close-settings" class="icon-btn" type="button">×</button>
+    </div>
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-settings-tab="api" type="button">API</button>
+      <button class="settings-tab" data-settings-tab="printer" type="button">Printer</button>
+      <button class="settings-tab" data-settings-tab="debug" type="button">Debug</button>
+    </div>
 
-  <dialog id="printer-dialog">
-    <h3>Setting Printer/Program</h3>
-    <label>Printer Windows</label>
-    <select id="printer-name"></select>
-    <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
-    <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
-    <p>Kode POS/Device dari web: <strong id="current-device-code">-</strong></p>
-    <div class="dialog-actions"><button id="btn-save-printer">Save Printer Setting</button><button id="btn-reset-app-data" class="danger">Reset Data Aplikasi</button><button id="btn-close-printer">Tutup</button></div>
-    <p id="printer-status"></p>
+    <section class="settings-panel active" data-settings-panel="api">
+      <label>Base URL</label>
+      <input id="api-base-url" placeholder="https://adena.co.id" />
+      <label>Static API Token</label>
+      <input id="api-token" type="password" placeholder="Masukkan token API" autocomplete="off" />
+      <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
+      <div class="dialog-actions">
+        <button id="btn-save-api" type="button">Save & Test API</button>
+        <button id="btn-test-api" type="button">Test Dengan Setting Tersimpan</button>
+      </div>
+      <p id="api-status"></p>
+    </section>
+
+    <section class="settings-panel" data-settings-panel="printer">
+      <label>Printer Windows</label>
+      <select id="printer-name"></select>
+      <label>Layout struk (mm)</label>
+      <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
+      <label>Margin (mm)</label>
+      <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
+      <p>Kode POS/Device dari web: <strong id="current-device-code">-</strong></p>
+      <div class="dialog-actions">
+        <button id="btn-save-printer" type="button">Save Printer Setting</button>
+        <button id="btn-reset-app-data" class="danger" type="button">Reset Data Aplikasi</button>
+      </div>
+      <p id="printer-status"></p>
+    </section>
+
+    <section class="settings-panel" data-settings-panel="debug">
+      <label class="checkbox-row">
+        <input id="debug-mode" type="checkbox" />
+        <span>Debug Mode</span>
+      </label>
+      <p class="muted-text">Jika aktif, halaman sinkronisasi menampilkan detail modul, debug yang bisa dicopy, dan tidak otomatis masuk POS setelah sync berhasil.</p>
+      <button id="btn-save-debug" type="button">Save Debug Setting</button>
+      <p id="debug-status"></p>
+    </section>
   </dialog>
 
   <script src="./renderer.js"></script>

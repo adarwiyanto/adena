@@ -59,3 +59,190 @@ dialog { border: none; border-radius: 12px; width: 420px; }
 #sync-debug { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 button.danger { background:#b91c1c; color:#fff; }
+
+/* Adena POS premium login + sync screen */
+.login-screen,
+.sync-screen {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(249, 115, 22, .12), transparent 26%),
+    radial-gradient(circle at 80% 0%, rgba(15, 23, 42, .08), transparent 28%),
+    linear-gradient(135deg, #ffffff 0%, #fff7ed 50%, #f8fafc 100%);
+  position: relative;
+  overflow: hidden;
+}
+.login-screen::before,
+.sync-screen::before {
+  content: '';
+  position: absolute;
+  width: 520px;
+  height: 520px;
+  right: -180px;
+  bottom: -240px;
+  background: rgba(249, 115, 22, .10);
+  transform: rotate(-18deg);
+  border-radius: 90px;
+}
+.premium-card {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .14);
+  border: 1px solid rgba(15, 23, 42, .08);
+}
+.login-logo {
+  width: 190px;
+  max-width: 78%;
+  height: auto;
+  display: block;
+  margin: 8px auto 8px;
+  object-fit: contain;
+}
+.login-card h1 {
+  margin: 4px 0 2px;
+  font-size: 30px;
+  letter-spacing: -0.03em;
+}
+.login-subtitle {
+  margin: 0 0 16px;
+  color: var(--desktop-muted);
+  font-size: 13px;
+}
+.settings-corner {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 20;
+  width: auto;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .92);
+  color: #fff;
+  box-shadow: 0 12px 35px rgba(15, 23, 42, .24);
+}
+.sync-hero {
+  position: relative;
+  z-index: 1;
+  width: min(520px, calc(100vw - 48px));
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.sync-logo {
+  width: 250px;
+  max-width: 82%;
+  height: auto;
+  object-fit: contain;
+  margin-bottom: 18px;
+  filter: drop-shadow(0 16px 30px rgba(15, 23, 42, .10));
+}
+.sync-hero h1 {
+  margin: 0 0 10px;
+  font-size: 38px;
+  letter-spacing: -0.04em;
+  color: #111827;
+}
+.sync-status-text {
+  color: #64748b;
+  margin: 0 0 18px;
+}
+.sync-hero progress {
+  width: 100%;
+  height: 13px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e5e7eb;
+}
+.sync-hero progress::-webkit-progress-bar {
+  background: #e5e7eb;
+  border-radius: 999px;
+}
+.sync-hero progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #f97316, #ea580c);
+  border-radius: 999px;
+}
+.sync-retry-count {
+  margin-top: 12px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+.sync-debug-panel {
+  width: min(880px, calc(100vw - 64px));
+  margin-top: 18px;
+  background: rgba(255, 255, 255, .92);
+  border: 1px solid rgba(15, 23, 42, .08);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .12);
+  text-align: left;
+}
+.sync-debug-panel.hidden,
+.hidden {
+  display: none !important;
+}
+.settings-dialog {
+  width: min(680px, calc(100vw - 32px));
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 26px 85px rgba(15, 23, 42, .28);
+}
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.settings-header h3 { margin: 0; }
+.settings-header p { margin: 4px 0 0; color: var(--desktop-muted); font-size: 13px; }
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 22px;
+  line-height: 1;
+}
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px 0;
+}
+.settings-tab {
+  width: auto;
+  background: #e5e7eb;
+  color: #111827;
+  padding: 9px 14px;
+}
+.settings-tab.active {
+  background: #f97316;
+  color: #fff;
+}
+.settings-panel {
+  display: none;
+  padding: 18px 20px 20px;
+}
+.settings-panel.active { display: block; }
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+.checkbox-row input {
+  width: auto;
+  margin: 0;
+}
+.muted-text {
+  color: var(--desktop-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
