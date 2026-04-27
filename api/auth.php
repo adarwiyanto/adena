@@ -25,7 +25,7 @@ if ($username === '' || $password === '') api_err('Username dan password wajib d
 
 ensure_rbac_schema();
 $stmt = db()->prepare("
-  SELECT u.id, u.username, u.name, u.password_hash, u.role, u.role_id,
+  SELECT u.id, u.username, u.name, u.avatar_path, u.password_hash, u.role, u.role_id,
          r.role_key, r.role_name
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
@@ -56,6 +56,8 @@ api_ok([
         'name' => (string)($u['name'] ?? $u['username']),
         'role' => $roleKey,
         'role_name' => (string)($u['role_name'] ?? $roleKey),
+        'avatar_path' => (string)($u['avatar_path'] ?? ''),
+        'avatar_url' => !empty($u['avatar_path']) ? upload_url($u['avatar_path'], 'image') : '',
     ],
     'token' => $token,
 ]);

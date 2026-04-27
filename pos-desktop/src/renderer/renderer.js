@@ -88,6 +88,28 @@ function renderCategories() {
 
 function noPhotoHtml() { return `<div class="no-photo">NO PHOTO</div>`; }
 
+function renderUserProfile() {
+  const holder = $("#desktop-user-photo");
+  if (!holder) return;
+  const user = state.user || {};
+  const avatar = user.avatar_url || toAbsoluteImageUrl(user.avatar_path || "");
+  holder.innerHTML = "";
+  holder.classList.remove("has-photo");
+  if (avatar) {
+    const img = document.createElement("img");
+    img.src = avatar;
+    img.alt = user.name || "User";
+    img.onerror = () => {
+      holder.classList.remove("has-photo");
+      holder.innerHTML = "No<br>Photo";
+    };
+    holder.classList.add("has-photo");
+    holder.appendChild(img);
+  } else {
+    holder.innerHTML = "No<br>Photo";
+  }
+}
+
 function renderProducts(filter = '') {
   const wrap = $('#products');
   const q = filter.toLowerCase();
@@ -460,7 +482,8 @@ async function bootstrap() {
     const resp = await window.desktopAPI.login({ username: fd.get('username'), password: fd.get('password') });
     if (!resp?.ok) return alert(resp.message || 'Login gagal');
     state.user = resp.user;
-    $('#user-label').textContent = `${state.user.name} (${state.user.role})`;
+    $("#user-label").textContent = `${state.user.name} (${state.user.role})`;
+    renderUserProfile();
     await runSyncFlow({ allowOffline: true });
   };
 
@@ -471,7 +494,7 @@ async function bootstrap() {
   $('#btn-logout').onclick = async () => {
     const result = await window.desktopAPI.logoutWithPrompt();
     if (!result?.ok) return;
-    state.user = null; state.cart = []; state.latestReceipt = null; state.syncSuccess = false;
+    state.user = null; state.cart = []; state.latestReceipt = null; state.syncSuccess = false; renderUserProfile();
     $('#login-form').reset(); showView('login-view');
   };
 

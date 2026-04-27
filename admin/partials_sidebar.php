@@ -23,9 +23,10 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
       <button class="profile-trigger" type="button" data-toggle-submenu="#profile-menu">
         <div class="avatar">
           <?php if ($avatarUrl): ?>
-            <img src="<?php echo e($avatarUrl); ?>" alt="<?php echo e($u['name'] ?? 'User'); ?>">
+            <img src="<?php echo e($avatarUrl); ?>" alt="<?php echo e($u['name'] ?? 'User'); ?>" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+            <span class="avatar-no-photo" style="display:none">No<br>Photo</span>
           <?php else: ?>
-            <?php echo e($initial); ?>
+            <span class="avatar-no-photo">No<br>Photo</span>
           <?php endif; ?>
         </div>
         <div class="p-text">
