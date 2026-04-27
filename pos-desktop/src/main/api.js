@@ -1,5 +1,4 @@
 const axios = require('axios');
-const { getApiConfig } = require('./config');
 
 function sanitizeBaseUrl(baseUrlRaw) {
   const baseURL = String(baseUrlRaw || '').trim().replace(/\/$/, '');
@@ -47,8 +46,18 @@ function mapAxiosError(err, context = 'Request API') {
   return { ok: false, message: apiMessage || `${context} gagal`, detail: err.message, status };
 }
 
-function client(options = {}) {
-  const latestConfig = getApiConfig();
+async function getLatestConfig() {
+  if (globalThis.window?.apiConfig) {
+    return await globalThis.window.apiConfig.get();
+  }
+
+  // fallback untuk main process
+  const { getApiConfig } = require('./config');
+  return getApiConfig();
+}
+
+async function client(options = {}) {
+  const latestConfig = await getLatestConfig();
   console.log('[config:getApi]', {
     apiBaseUrl: latestConfig.apiBaseUrl,
     token: latestConfig.apiToken
@@ -61,7 +70,12 @@ function client(options = {}) {
 
   const token = String((options.token ?? latestConfig.apiToken) || '').trim();
   if (!token) {
-    return { ok: false, message: 'Token API belum disetting', detail: 'apiToken empty', status: 422 };
+    console.log('[api:error] token kosong dari IPC');
+    return {
+      ok: false,
+      message: 'Token API belum disetting',
+      status: 422
+    };
   }
 
   const instance = axios.create({
@@ -95,7 +109,7 @@ function client(options = {}) {
 }
 
 async function testConnection(overrides = {}) {
-  const apiClient = client(overrides);
+  const apiClient = await client(overrides);
   if (!apiClient.get) return apiClient;
   try {
     const res = await apiClient.get('/api/auth.php');
@@ -106,7 +120,7 @@ async function testConnection(overrides = {}) {
 }
 
 async function login(username, password) {
-  const apiClient = client();
+  const apiClient = await client();
   if (!apiClient.post) return apiClient;
   try {
     const res = await apiClient.post('/api/auth.php', { username, password });
@@ -131,7 +145,7 @@ async function login(username, password) {
 
 async function pullMaster() {
   try {
-    const apiClient = client();
+    const apiClient = await client();
     if (!apiClient.get) return apiClient;
     console.log('[sync:master:req]', 'GET', '/api/sync/pull.php');
     const res = await apiClient.get('/api/sync/pull.php');
@@ -143,7 +157,7 @@ async function pullMaster() {
 
 async function pushTransactions(payload) {
   try {
-    const apiClient = client();
+    const apiClient = await client();
     if (!apiClient.post) return apiClient;
     const res = await apiClient.post('/api/sync/push.php', payload);
     return res.data;
@@ -153,7 +167,7 @@ async function pushTransactions(payload) {
 }
 
 async function shiftAction(action, payload = {}) {
-  const apiClient = client();
+  const apiClient = await client();
   if (!apiClient.post) return apiClient;
   try {
     const res = await apiClient.post('/api/sync/shift.php', { action, ...payload });
