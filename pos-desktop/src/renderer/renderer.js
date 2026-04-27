@@ -7,6 +7,7 @@ let toastTimer;
 function showView(id) { ['login-view', 'sync-view', 'pos-view'].forEach((v) => document.getElementById(v).classList.toggle('active', v === id)); }
 function rupiah(v) { return `Rp ${Number(v || 0).toLocaleString('id-ID')}`; }
 function showToast(message, type = 'error') { const el = $('#app-toast'); el.textContent = message; el.classList.add('show'); el.classList.toggle('success', type === 'success'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 3000); }
+function maskToken(token) { const t = String(token || '').trim(); if (!t) return '(kosong)'; if (t.length <= 6) return `${t.slice(0, 2)}***`; return `${t.slice(0, 4)}***${t.slice(-2)}`; }
 
 function toAbsoluteImageUrl(path) {
   const p = String(path || '').trim();
@@ -103,8 +104,7 @@ function buildSyncDebug(error, resp, moduleName = 'unknown') {
     const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
     return text.length > 500 ? `${text.slice(0, 500)}...` : text;
   })();
-  const token = String($('#api-token').value || '');
-  const maskedToken = token ? `${token.slice(0, 4)}***${token.slice(-2)}` : '';
+  const maskedToken = String(resp?.settings?.apiTokenMasked || '');
   return JSON.stringify({
     timestamp: new Date().toISOString(),
     failed_module: moduleName,
@@ -113,7 +113,7 @@ function buildSyncDebug(error, resp, moduleName = 'unknown') {
     response_body: compactBody,
     error_message: error?.message || resp?.message || null,
     stack_short: (error?.stack || '').split('\n').slice(0, 4).join('\n') || null,
-    token: maskedToken,
+    token: maskedToken || '(kosong)',
     settings: { apiBaseUrl: $('#api-base-url').value.trim() }
   }, null, 2);
 }
@@ -203,15 +203,15 @@ function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceip
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
-async function saveApiSettingsAndTest({ useCurrentInput = true } = {}) {
+async function saveApiSettingsAndTest() {
   const payload = {
     apiBaseUrl: String($('#api-base-url').value || '').trim(),
     apiToken: String($('#api-token').value || '').trim()
   };
 
   if (!payload.apiBaseUrl || !payload.apiToken) {
-    $('#api-status').textContent = 'Base URL dan Token wajib diisi manual.';
-    return { ok: false, message: 'Base URL dan Token wajib diisi manual.' };
+    $('#api-status').textContent = 'Token API belum disetting';
+    return { ok: false, message: 'Token API belum disetting' };
   }
 
   const resp = await window.desktopAPI.saveApiSettings(payload);
@@ -222,10 +222,19 @@ async function saveApiSettingsAndTest({ useCurrentInput = true } = {}) {
 
   $('#api-token').value = '';
   await initApiDialog();
+  const settings = await window.desktopAPI.getSettings();
+  $('#api-status').textContent = `Setting API tersimpan (${settings?.apiTokenMasked || maskToken(payload.apiToken)})`;
+  return { ok: true, message: 'Setting API tersimpan', settings };
+}
 
-  if (!useCurrentInput) return resp;
-  const testResp = await window.desktopAPI.testConnection(payload);
-  $('#api-status').textContent = testResp?.ok ? 'Koneksi OK' : `Gagal: ${testResp?.message || 'Test koneksi gagal'}`;
+async function testApiConnection() {
+  const settings = await window.desktopAPI.getSettings();
+  if (!settings?.hasApiToken) {
+    $('#api-status').textContent = 'Token API belum disetting';
+    return { ok: false, message: 'Token API belum disetting' };
+  }
+  const testResp = await window.desktopAPI.testConnection();
+  $('#api-status').textContent = testResp?.ok ? `Koneksi OK (${settings.apiTokenMasked})` : `Gagal: ${testResp?.message || 'Test koneksi gagal'}`;
   return testResp;
 }
 
@@ -238,8 +247,8 @@ async function bootstrap() {
   $('#btn-open-printer').onclick = async () => { await initPrinterDialog(); $('#printer-dialog').showModal(); };
   $('#btn-close-api').onclick = () => $('#api-dialog').close();
   $('#btn-close-printer').onclick = () => $('#printer-dialog').close();
-  $('#btn-save-api').onclick = async () => { const resp = await saveApiSettingsAndTest({ useCurrentInput: true }); if (resp?.ok) showToast('Setting API tersimpan dan koneksi OK', 'success'); };
-  $('#btn-test-api').onclick = async () => { const resp = await saveApiSettingsAndTest({ useCurrentInput: true }); if (resp?.ok) showToast('Test koneksi OK', 'success'); };
+  $('#btn-save-api').onclick = async () => { const resp = await saveApiSettingsAndTest(); if (resp?.ok) showToast('Setting API tersimpan', 'success'); };
+  $('#btn-test-api').onclick = async () => { const resp = await testApiConnection(); if (resp?.ok) showToast('Test koneksi OK', 'success'); };
   $('#btn-save-printer').onclick = async () => {
     await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });
     showToast('Setting printer/program tersimpan', 'success');
@@ -253,7 +262,7 @@ async function bootstrap() {
   $('#login-form').onsubmit = async (e) => {
     e.preventDefault();
     const currentSettings = await window.desktopAPI.getSettings();
-    if (!currentSettings?.apiBaseUrl || !currentSettings?.apiTokenMasked) return alert('Setting API wajib diisi sebelum login.');
+    if (!currentSettings?.apiBaseUrl || !currentSettings?.hasApiToken) return alert('Token API belum disetting');
     const fd = new FormData(e.target);
     const resp = await window.desktopAPI.login({ username: fd.get('username'), password: fd.get('password') });
     if (!resp?.ok) return alert(resp.message || 'Login gagal');

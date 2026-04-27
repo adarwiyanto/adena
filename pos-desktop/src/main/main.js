@@ -17,15 +17,24 @@ function isApiConfigured() {
   return !!(cfg.apiBaseUrl && cfg.apiToken);
 }
 
+function maskToken(token) {
+  const t = String(token || '').trim();
+  if (!t) return '(kosong)';
+  if (t.length <= 6) return `${t.slice(0, 2)}***`;
+  return `${t.slice(0, 4)}***${t.slice(-2)}`;
+}
+
 function getPublicSettings() {
   const cfg = getApiConfig();
-  const tokenMasked = cfg.apiToken ? `${cfg.apiToken.slice(0, 4)}***${cfg.apiToken.slice(-2)}` : '';
+  const deviceCode = String(store.get('deviceCode') || '').trim();
+  const tokenMasked = maskToken(cfg.apiToken);
   return {
     ...store.store,
     apiBaseUrl: cfg.apiBaseUrl,
     apiToken: '',
+    hasApiToken: !!cfg.apiToken,
     apiTokenMasked: tokenMasked,
-    deviceCode: cfg.deviceCode
+    deviceCode
   };
 }
 
@@ -131,8 +140,9 @@ ipcMain.handle('settings:saveApi', async (_, payload) => {
   const apiBaseUrl = String(payload?.apiBaseUrl || '').trim();
   const apiToken = String(payload?.apiToken || '').trim();
   if (!apiBaseUrl || !apiToken) {
-    return { ok: false, message: 'Base URL dan Token API wajib diisi.' };
+    return { ok: false, message: 'Token API belum disetting' };
   }
+  console.log('[settings:saveApi]', 'tokenLength', apiToken.length, 'token', maskToken(apiToken));
   store.set('apiBaseUrl', apiBaseUrl);
   store.set('apiToken', apiToken);
   store.set('deviceCode', '');
@@ -146,7 +156,7 @@ ipcMain.handle('settings:saveApi', async (_, payload) => {
     store.set('deviceCode', String(testResp.token.device_code).trim().toUpperCase());
   }
 
-  return { ok: true, data: getPublicSettings(), connection: testResp };
+  return { ok: true, data: getPublicSettings() };
 });
 ipcMain.handle('settings:printers', async () => {
   if (!mainWindow) return [];
