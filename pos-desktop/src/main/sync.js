@@ -20,6 +20,27 @@ function toNumeric(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function stablePositiveInteger(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (Number.isInteger(n) && n > 0) return n;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const hash = crypto.createHash('md5').update(raw).digest('hex').slice(0, 8);
+  return parseInt(hash, 16) % 2147480000 || 1;
+}
+
+function normalizeCategory(record = {}) {
+  const name = record.name ?? record.category_name ?? record.label ?? record.category ?? '';
+  if (!String(name).trim()) return null;
+  const rawId = record.id ?? record.category_id ?? record.value ?? name;
+  return {
+    id: stablePositiveInteger(rawId ?? name),
+    name: String(name).trim(),
+    image_path: record.image_path || null
+  };
+}
+
 function normalizeProduct(record = {}) {
   const rawCategoryId = record.category_id;
   const numericCategoryId = toNumeric(rawCategoryId);
@@ -142,7 +163,17 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
     }));
 
     const upsertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=excluded.image_path');
-    (data.categories || []).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
+    const rawCategories = Array.isArray(data.categories) && data.categories.length ? data.categories : (data.product_categories || []);
+    const categoryMap = new Map();
+    rawCategories.forEach((r) => {
+      const cat = normalizeCategory(r || {});
+      if (cat) categoryMap.set(String(cat.id), cat);
+    });
+    normalizedProducts.forEach((r) => {
+      const cat = normalizeCategory({ id: r.category_id ?? r.category_name, name: r.category_name || r.category });
+      if (cat) categoryMap.set(String(cat.id), cat);
+    });
+    Array.from(categoryMap.values()).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
 
     const methods = (data.payment_methods && data.payment_methods.length) ? data.payment_methods : PAYMENT_METHOD_FALLBACK;
     const upsertPm = db.prepare('INSERT INTO payment_methods (code,name,is_active,sort_order,requires_bank) VALUES (?,?,?,?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name,is_active=excluded.is_active,sort_order=excluded.sort_order,requires_bank=excluded.requires_bank');
@@ -244,7 +275,7 @@ async function syncMaster(_options = {}) {
       fullSync,
       counts: {
         products: (payload.products || []).length,
-        categories: (payload.categories || []).length,
+        categories: (payload.categories || payload.product_categories || []).length,
         guides: (payload.guides || []).length,
         banks: getBanks(payload).length,
         payment_methods: (payload.payment_methods || []).length,

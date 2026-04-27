@@ -38,6 +38,32 @@ function getPublicSettings() {
   };
 }
 
+function activeShiftLocal() {
+  const db = initDb();
+  return db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get() || null;
+}
+
+function calculateShiftSummary(shift = null) {
+  const db = initDb();
+  const active = shift || activeShiftLocal();
+  if (!active) {
+    return { opening_cash: 0, cash_sales: 0, cash_refund: 0, cash_in: 0, cash_out: 0, non_cash_sales: 0, expected_cash: 0 };
+  }
+  const openingCash = Number(active.opening_cash_actual ?? active.opening_cash_default ?? 0);
+  const salesRows = db.prepare(`SELECT LOWER(COALESCE(payment_method,'')) AS method, SUM(total) AS total FROM sales WHERE shift_id = ? GROUP BY LOWER(COALESCE(payment_method,''))`).all(active.id);
+  let cashSales = 0;
+  let nonCashSales = 0;
+  for (const row of salesRows) {
+    const method = String(row.method || '').toLowerCase();
+    if (method === 'cash' || method === 'tunai') cashSales += Number(row.total || 0);
+    else nonCashSales += Number(row.total || 0);
+  }
+  const cashIn = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'in'").get(active.id)?.total || 0;
+  const cashOut = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'out'").get(active.id)?.total || 0;
+  const expectedCash = openingCash + cashSales + Number(cashIn || 0) - Number(cashOut || 0);
+  return { opening_cash: openingCash, cash_sales: cashSales, cash_refund: 0, cash_in: Number(cashIn || 0), cash_out: Number(cashOut || 0), non_cash_sales: nonCashSales, expected_cash: expectedCash };
+}
+
 async function handleSyncBeforeExit() {
   const choice = await dialog.showMessageBox(mainWindow, {
     type: 'question',
@@ -227,12 +253,12 @@ ipcMain.handle('pos:state', () => {
   const guides = db.prepare('SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name').all();
   const paymentMethods = db.prepare('SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, id').all();
   const banks = db.prepare('SELECT id, name FROM qris_banks WHERE is_active = 1 ORDER BY sort_order, id').all();
-  const activeShift = db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY id DESC LIMIT 1").get() || null;
+  const activeShift = activeShiftLocal();
   const pendingSyncCount = db.prepare("SELECT COUNT(DISTINCT local_transaction_id) as c FROM sales WHERE sync_status IN ('pending','failed')").get().c;
   const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
   const syncedSettings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
-  return { products, categories, guides, paymentMethods, banks, activeShift, pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
+  return { products, categories, guides, paymentMethods, banks, activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
 });
 
 ipcMain.handle('history:list', (_, filters = {}) => {
@@ -274,7 +300,7 @@ ipcMain.handle('orders:list', () => {
 });
 
 ipcMain.handle('print:receipt', async (_, payload) => printReceipt(payload));
-ipcMain.handle('shift:status', async () => shiftAction('status'));
+ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); return { ok: true, shift, has_active_shift: !!shift, state: shift ? 'active_shift_exists' : 'no_active_shift', summary: calculateShiftSummary(shift) }; });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));
 ipcMain.handle('shift:retryPending', async () => retryPendingShiftSync());

@@ -97,6 +97,43 @@
     <section class="tab-panel" data-panel="orders"><div class="card" id="orders-list"></div></section>
   </section>
 
+
+  <div class="pos-modal" id="open-shift-modal" hidden>
+    <div class="pos-modal-card">
+      <h3>Buka Shift</h3>
+      <p>Default kas awal: <strong id="shift-default-opening">Rp 0</strong></p>
+      <label>Kas awal aktual</label>
+      <input id="shift-opening-cash" type="number" step="0.01" value="0" required />
+      <div class="pos-modal-actions">
+        <button id="btn-open-shift-submit" type="button">Simpan</button>
+        <button type="button" data-dismiss-modal>Batal</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-modal" id="close-shift-modal" hidden>
+    <div class="pos-modal-card">
+      <h3>Closing Shift</h3>
+      <div class="pos-close-summary">
+        <div>Kas Awal: <strong id="close-opening-cash">Rp 0</strong></div>
+        <div>Penjualan Tunai: <strong id="close-cash-sales">Rp 0</strong></div>
+        <div>Pengembalian Tunai: <strong id="close-cash-refund">Rp 0</strong></div>
+        <div>Kas Masuk: <strong id="close-cash-in">Rp 0</strong></div>
+        <div>Kas Keluar: <strong id="close-cash-out">Rp 0</strong></div>
+        <div>Non Tunai: <strong id="close-non-cash-sales">Rp 0</strong></div>
+        <div class="expected-cash">Kas Seharusnya: <strong id="close-expected-cash">Rp 0</strong></div>
+      </div>
+      <label>Uang fisik dihitung</label>
+      <input id="shift-counted-cash" type="number" step="0.01" placeholder="Uang fisik dihitung" required />
+      <label>Catatan closing</label>
+      <textarea id="shift-close-notes" placeholder="Catatan closing"></textarea>
+      <div class="pos-modal-actions">
+        <button id="btn-close-shift-submit" type="button">Tutup Shift</button>
+        <button type="button" data-dismiss-modal>Batal</button>
+      </div>
+    </div>
+  </div>
+
   <div id="app-status" class="app-status" aria-live="polite"></div>
   <div id="app-toast" class="app-toast" aria-live="assertive"></div>
 

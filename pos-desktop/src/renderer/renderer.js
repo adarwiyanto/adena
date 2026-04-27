@@ -75,8 +75,15 @@ function matchesCategory(product, activeCategory) {
 
 function renderCategories() {
   const wrap = $('#categories');
-  wrap.innerHTML = state.categories.map((c) => `<button class="category ${(state.activeCategory && String(c.id) === String(state.activeCategory.id)) ? 'active' : ''}" data-category-id="${c.id}" data-category-name="${c.name}">${c.name}</button>`).join('');
-  wrap.querySelectorAll('button').forEach((b) => b.onclick = () => { state.activeCategory = { id: b.dataset.categoryId, name: b.dataset.categoryName }; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.remove('active'); });
+  const allBtn = document.querySelector('[data-category=""]');
+  if (allBtn) allBtn.classList.toggle('active', !state.activeCategory);
+  const cats = (state.categories || []).filter((c) => c && c.name);
+  wrap.innerHTML = cats.map((c) => `<button class="category ${(state.activeCategory && String(c.id) === String(state.activeCategory.id)) ? 'active' : ''}" data-category-id="${c.id ?? ''}" data-category-name="${c.name}">${c.name}</button>`).join('') || '<div class="empty small">Kategori belum tersinkron.</div>';
+  wrap.querySelectorAll('button').forEach((b) => b.onclick = () => {
+    state.activeCategory = { id: b.dataset.categoryId, name: b.dataset.categoryName };
+    renderProducts($('#product-search').value);
+    renderCategories();
+  });
 }
 
 function renderProducts(filter = '') {
@@ -104,8 +111,43 @@ function renderProducts(filter = '') {
   });
 }
 
-function addToCart(product) { const found = state.cart.find((x) => x.product_id === product.id); if (found) found.qty += 1; else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price) }); renderCart(); }
-function renderCart() { $('#cart-items').innerHTML = state.cart.map((i) => `<div class="cart-row"><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join(''); $('#cart-total').textContent = `Total: ${rupiah(state.cart.reduce((a, b) => a + b.qty * b.price_each, 0))}`; }
+function addToCart(product) {
+  const found = state.cart.find((x) => String(x.product_id) === String(product.id));
+  if (found) found.qty += 1;
+  else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price) });
+  renderCart();
+}
+
+function updateCartQty(productId, qty) {
+  const item = state.cart.find((x) => String(x.product_id) === String(productId));
+  if (!item) return;
+  const n = Math.max(1, Math.floor(Number(qty) || 1));
+  item.qty = n;
+  renderCart();
+}
+
+function removeCartItem(productId) {
+  state.cart = state.cart.filter((x) => String(x.product_id) !== String(productId));
+  renderCart();
+}
+
+function renderCart() {
+  const wrap = $('#cart-items');
+  if (!state.cart.length) {
+    wrap.innerHTML = '<div class="empty small">Keranjang kosong.</div>';
+  } else {
+    wrap.innerHTML = state.cart.map((i) => `
+      <div class="cart-row cart-row-edit">
+        <div class="cart-name">${i.name}<small>${rupiah(i.price_each)}</small></div>
+        <input class="cart-qty" type="number" min="1" step="1" value="${i.qty}" data-qty-id="${i.product_id}" />
+        <strong>${rupiah(i.qty * i.price_each)}</strong>
+        <button class="cart-remove" title="Hapus" data-remove-id="${i.product_id}">×</button>
+      </div>`).join('');
+    wrap.querySelectorAll('[data-qty-id]').forEach((el) => el.onchange = () => updateCartQty(el.dataset.qtyId, el.value));
+    wrap.querySelectorAll('[data-remove-id]').forEach((el) => el.onclick = () => removeCartItem(el.dataset.removeId));
+  }
+  $('#cart-total').textContent = `Total: ${rupiah(state.cart.reduce((a, b) => a + b.qty * b.price_each, 0))}`;
+}
 
 function renderPaymentOptions() {
   $('#guide').innerHTML = `<option value="">Pilih Guide</option>${state.guides.map((g) => `<option value="${g.id}">${g.name}</option>`).join('')}`;
@@ -122,11 +164,64 @@ async function loadPosState() {
   state.products = pos.products || []; state.categories = pos.categories || []; state.guides = pos.guides || []; state.paymentMethods = pos.paymentMethods || []; state.banks = pos.banks || []; state.theme = pos.syncedSettings || {};
   applyTheme(state.theme);
   $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0} | Shift: ${pos.pendingShiftSync || 0}`;
-  const shiftActive = !!pos.activeShift;
-  $('#shift-status').textContent = shiftActive ? `Shift aktif: ${pos.activeShift.shift_code || pos.activeShift.id}` : 'Shift: tidak aktif';
+  state.activeShift = pos.activeShift || null;
+  state.shiftSummary = pos.shiftSummary || null;
+  const shiftActive = !!state.activeShift;
+  $('#shift-status').textContent = shiftActive ? `Shift aktif: ${state.activeShift.shift_code || state.activeShift.id}` : 'Shift: belum aktif';
   $('#btn-shift-toggle').textContent = shiftActive ? 'Tutup Shift' : 'Buka Shift';
-  renderCategories(); renderProducts(); renderPaymentOptions();
+  $('#btn-pay').disabled = !shiftActive;
+  renderCategories(); renderProducts(); renderPaymentOptions(); renderShiftModals();
   return pos;
+}
+
+function renderShiftModals() {
+  const defaultOpening = Number(state.theme.pos_default_opening_cash || state.theme.default_opening_cash || 0);
+  const openInput = $('#shift-opening-cash');
+  if (openInput && !openInput.dataset.touched) openInput.value = String(defaultOpening);
+  $('#shift-default-opening').textContent = rupiah(defaultOpening);
+
+  const s = state.shiftSummary || {};
+  $('#close-opening-cash').textContent = rupiah(s.opening_cash || 0);
+  $('#close-cash-sales').textContent = rupiah(s.cash_sales || 0);
+  $('#close-cash-refund').textContent = rupiah(s.cash_refund || 0);
+  $('#close-cash-in').textContent = rupiah(s.cash_in || 0);
+  $('#close-cash-out').textContent = rupiah(s.cash_out || 0);
+  $('#close-non-cash-sales').textContent = rupiah(s.non_cash_sales || 0);
+  $('#close-expected-cash').textContent = rupiah(s.expected_cash || 0);
+}
+
+function showShiftModal(kind) {
+  renderShiftModals();
+  const id = kind === 'close' ? '#close-shift-modal' : '#open-shift-modal';
+  const modal = $(id);
+  if (modal) modal.hidden = false;
+}
+
+function hideShiftModals() {
+  document.querySelectorAll('.pos-modal').forEach((m) => { m.hidden = true; });
+}
+
+async function submitOpenShift() {
+  const opening = Number($('#shift-opening-cash').value || 0);
+  const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening });
+  if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal buka shift');
+  hideShiftModals();
+  await window.desktopAPI.syncMaster({ incremental: false });
+  await loadPosState();
+  showToast(actionResp?.sync_status === 'pending' ? 'Buka shift tersimpan lokal dan menunggu sync' : 'Shift dibuka', 'success');
+}
+
+async function submitCloseShift() {
+  const counted = Number($('#shift-counted-cash').value || 0);
+  const notes = $('#shift-close-notes').value || '';
+  const pending = await window.desktopAPI.syncPending();
+  await window.desktopAPI.retryPendingShift();
+  const actionResp = await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: counted, notes, sync_status: pending?.ok ? 'synced' : 'partial' });
+  if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal tutup shift');
+  hideShiftModals();
+  await window.desktopAPI.syncMaster({ incremental: false });
+  await loadPosState();
+  showToast(actionResp?.sync_status === 'pending' ? 'Closing shift tersimpan lokal dan menunggu sync' : 'Shift ditutup', 'success');
 }
 
 async function loadHistory() {
@@ -257,6 +352,7 @@ async function runSyncFlow({ allowOffline = false } = {}) {
 
 async function payNow() {
   if (state.paying) return;
+  if (!state.activeShift) return alert('Shift belum aktif. Buka shift terlebih dahulu.');
   if (!state.cart.length) return alert('Keranjang kosong');
   const paymentMethod = $('#payment-method').value;
   const bankId = $('#payment-bank').value;
@@ -265,7 +361,7 @@ async function payNow() {
   try {
     const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
     const bank = state.banks.find((b) => String(b.id) === bankId) || null;
-    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null }, items: state.cart });
+    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null }, shift: state.activeShift, items: state.cart });
     if (!localSave?.ok) return alert(localSave?.message || 'Gagal simpan transaksi lokal');
     state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: [...state.cart], total: state.cart.reduce((a, b) => a + b.qty * b.price_each, 0) };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
@@ -367,7 +463,11 @@ async function bootstrap() {
   };
 
   document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => { switchTab(t.dataset.tab); if (t.dataset.tab === 'history') await loadHistory(); if (t.dataset.tab === 'orders') await loadOrders(); });
-  $('#btn-shift-toggle').onclick = async () => { const status = await window.desktopAPI.shiftStatus(); const hasShift = !!(status?.shift || status?.has_active_shift); const actionResp = hasShift ? await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: 0, notes: 'Closed from POS Desktop' }) : await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: 0 }); if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal update shift'); await window.desktopAPI.syncMaster({ incremental: false }); await loadPosState(); };
+  $('#btn-shift-toggle').onclick = async () => { await loadPosState(); showShiftModal(state.activeShift ? 'close' : 'open'); };
+  $('#btn-open-shift-submit').onclick = submitOpenShift;
+  $('#btn-close-shift-submit').onclick = submitCloseShift;
+  document.querySelectorAll('[data-dismiss-modal]').forEach((btn) => btn.onclick = hideShiftModals);
+  $('#shift-opening-cash').oninput = (e) => { e.target.dataset.touched = '1'; };
   $('#payment-method').onchange = updateBankState;
   $('#btn-pay').onclick = payNow;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
