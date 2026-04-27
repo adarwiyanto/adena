@@ -128,6 +128,36 @@ process.on('uncaughtException', (error) => {
 });
 
 ipcMain.handle('settings:get', () => getPublicSettings());
+ipcMain.handle('config:getApi', async () => getApiConfig());
+ipcMain.handle('config:setApi', async (_event, data) => {
+  const apiBaseUrl = String(data?.apiBaseUrl || '').trim().replace(/\/$/, '');
+  const apiToken = String(data?.apiToken || '').trim();
+
+  if (!apiBaseUrl) {
+    return { ok: false, message: 'Base URL API belum disetting' };
+  }
+
+  if (!/^https?:\/\//i.test(apiBaseUrl)) {
+    return { ok: false, message: 'Base URL harus diawali http:// atau https://' };
+  }
+
+  if (!apiToken) {
+    return { ok: false, message: 'Token API wajib diisi' };
+  }
+
+  store.set('apiBaseUrl', apiBaseUrl);
+  store.set('apiToken', apiToken);
+
+  const saved = getApiConfig();
+
+  return {
+    ok: true,
+    apiBaseUrl: saved.apiBaseUrl,
+    tokenPreview: saved.apiToken
+      ? `${saved.apiToken.slice(0, 4)}***${saved.apiToken.slice(-2)}`
+      : '(kosong)'
+  };
+});
 ipcMain.handle('settings:set', (_, patch) => {
   const normalized = { ...(patch || {}) };
   if (Object.prototype.hasOwnProperty.call(normalized, 'deviceCode')) {
