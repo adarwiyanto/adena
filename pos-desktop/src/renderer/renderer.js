@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today' };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today' };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -116,9 +116,29 @@ function setHistoryRange(range) {
   if (range === 'custom') { from.disabled = false; to.disabled = false; return; }
   if (range === 'yesterday') { a.setDate(now.getDate()-1); b.setDate(now.getDate()-1); }
   if (range === '7days') { a.setDate(now.getDate()-6); }
-  if (range === 'month') { a.setMonth(now.getMonth()-1); }
+  if (range === 'month') { a = new Date(now.getFullYear(), now.getMonth(), 1); }
   from.value = dateStart(a); to.value = dateEnd(b);
   from.disabled = true; to.disabled = true;
+}
+
+function setQuickRange(range, fromSelector, toSelector, buttonSelector, stateKey) {
+  state[stateKey] = range;
+  document.querySelectorAll(buttonSelector).forEach((b) => b.classList.toggle('active', b.dataset.range === range));
+  const from = $(fromSelector); const to = $(toSelector);
+  const now = new Date();
+  let a = new Date(now); let b = new Date(now);
+  if (range === 'custom') { from.disabled = false; to.disabled = false; return; }
+  if (range === 'yesterday') { a.setDate(now.getDate()-1); b.setDate(now.getDate()-1); }
+  if (range === '7days') { a.setDate(now.getDate()-6); }
+  if (range === 'month') { a = new Date(now.getFullYear(), now.getMonth(), 1); }
+  from.value = dateStart(a); to.value = dateEnd(b);
+  from.disabled = true; to.disabled = true;
+}
+
+function setRecapRange(range) { setQuickRange(range, '#recap-from', '#recap-to', '.recap-range', 'recapRange'); }
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 }
 
 function matchesCategory(product, activeCategory) {
@@ -323,9 +343,33 @@ async function loadHistory() {
   if (!$('#history-from').value && !$('#history-to').value) setHistoryRange(state.historyRange || 'today');
   const data = await window.desktopAPI.getHistory({ from: $('#history-from').value.trim(), to: $('#history-to').value.trim(), guideName: $('#history-guide-filter').value, paymentMethod: $('#history-payment-filter').value, syncStatus: $('#history-sync-filter').value });
   if (!data?.ok) return;
-  $('#history-omzet').textContent = `Ringkasan Omzet: ${rupiah(data.omzet)}`;
-  $('#history-list').innerHTML = data.rows.map((r) => `<div class='row'><strong>${r.transaction_code}</strong> | ${r.sold_at} | ${r.guide_name || '-'} | ${r.payment_method} ${r.payment_bank || ''} | ${r.sync_status} | ${rupiah(r.total)} <button data-id='${r.transaction_group_id}'>Detail</button></div>`).join('');
-  $('#history-list').querySelectorAll('button').forEach((b) => b.onclick = async () => { const d = await window.desktopAPI.getHistoryDetail(b.dataset.id); alert(d.items.map((i) => `${i.product_name} x${i.qty} ${rupiah(i.total)}`).join('\n')); });
+  $('#history-omzet').textContent = 'Ringkasan Omzet: ' + rupiah(data.omzet);
+  $('#history-list').innerHTML = data.rows.map((r) => {
+    const meta = [r.sold_at, r.guide_name || '-', [r.payment_method, r.payment_bank].filter(Boolean).join(' '), r.sync_status].filter(Boolean).join(' | ');
+    return '<div class="history-item"><div class="history-main"><strong>' + escapeHtml(r.transaction_code) + '</strong><span>' + escapeHtml(meta) + '</span></div><div class="history-side"><strong>' + rupiah(r.total) + '</strong><button class="history-detail-btn" data-id="' + escapeHtml(r.transaction_group_id) + '">Detail</button></div></div>';
+  }).join('') || '<div class="empty">Tidak ada transaksi pada filter ini.</div>';
+  $('#history-list').querySelectorAll('button[data-id]').forEach((b) => b.onclick = async () => showHistoryDetail(b.dataset.id));
+}
+
+async function showHistoryDetail(transactionGroupId) {
+  const d = await window.desktopAPI.getHistoryDetail(transactionGroupId);
+  const items = d.items || [];
+  if (!items.length) return showToast('Detail transaksi tidak ditemukan');
+  const h = items[0];
+  const total = items.reduce((a, i) => a + Number(i.total || 0), 0);
+  const rows = items.map((i) => '<div class="receipt-line"><span>' + escapeHtml(i.product_name || 'Produk') + ' x' + Number(i.qty || 0) + '<small>' + rupiah(i.price_each || 0) + '</small></span><strong>' + rupiah(i.total || 0) + '</strong></div>').join('');
+  $('#history-detail-content').innerHTML = '<div class="receipt-meta"><strong>' + escapeHtml(h.transaction_code || '-') + '</strong><div>Waktu: ' + escapeHtml(h.sold_at || '-') + '</div><div>Guide: ' + escapeHtml(h.guide_name || '-') + '</div><div>Pembayaran: ' + escapeHtml([h.payment_method, h.payment_bank].filter(Boolean).join(' - ') || '-') + '</div><div>Status sync: ' + escapeHtml(h.sync_status || '-') + '</div></div><div class="receipt-items">' + rows + '</div><div class="receipt-total">Total: ' + rupiah(total) + '</div>' + (isCashPayment(h.payment_method) ? '<div>Diterima: ' + rupiah(h.cash_received || total) + '</div><div>Kembalian: ' + rupiah(h.cash_change || 0) + '</div>' : '');
+  $('#history-detail-modal').hidden = false;
+}
+
+async function loadRecap() {
+  if (!$('#recap-from').value && !$('#recap-to').value) setRecapRange(state.recapRange || 'today');
+  const data = await window.desktopAPI.getHistoryRecap({ from: $('#recap-from').value.trim(), to: $('#recap-to').value.trim() });
+  if (!data?.ok) return;
+  const rows = data.rows || [];
+  $('#recap-summary').innerHTML = '<div class="recap-total"><div><small>Total Transaksi</small><strong>' + Number(data.total?.trx_count || 0) + '</strong></div><div><small>Total Omzet</small><strong>' + rupiah(data.total?.omzet || 0) + '</strong></div></div>' +
+    '<div class="recap-table"><div class="recap-row head"><span>Metode</span><span>Bank</span><span>Transaksi</span><span>Omzet</span></div>' +
+    (rows.map((r) => '<div class="recap-row"><span>' + escapeHtml(r.payment_method || '-') + '</span><span>' + escapeHtml(r.payment_bank || '-') + '</span><span>' + Number(r.trx_count || 0) + '</span><strong>' + rupiah(r.total || 0) + '</strong></div>').join('') || '<div class="empty">Belum ada transaksi.</div>') + '</div>';
 }
 
 async function loadOrders() { const data = await window.desktopAPI.getOrders(); const grouped = new Map(); (data.items || []).forEach((i) => { if (!grouped.has(i.order_id)) grouped.set(i.order_id, []); grouped.get(i.order_id).push(i); }); $('#orders-list').innerHTML = (data.orders || []).map((o) => `<div class='row'><strong>${o.order_code}</strong> | ${o.created_at} | ${o.customer_name || '-'} | ${o.customer_contact || '-'} | ${o.status}<br/>${(grouped.get(o.id) || []).map((x) => `${x.product_name} x${x.qty}`).join(', ')}</div>`).join('') || 'Belum ada order masuk.'; }
@@ -477,52 +521,135 @@ function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceip
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
-async function saveApiSettingsAndTest() {
-  const apiBaseUrl = document.getElementById('api-base-url').value.trim();
-  const apiToken = document.getElementById('api-token').value.trim();
-
-  const result = await window.apiConfig.set({ apiBaseUrl, apiToken });
-
-  if (!result.ok) {
-    alert(result.message);
-    $('#api-status').textContent = `Gagal: ${result.message}`;
-    return result;
-  }
-
-  alert(`Setting API tersimpan. Token: ${result.tokenPreview}`);
-
-  const verify = await window.apiConfig.get();
-  console.log('[config:verify]', {
-    apiBaseUrl: verify.apiBaseUrl,
-    token: verify.apiToken ? verify.apiToken.slice(0,4) + '***' + verify.apiToken.slice(-2) : '(kosong)'
+function unlockSettingsInputs() {
+  const dlg = document.getElementById('settings-dialog');
+  if (!dlg) return;
+  dlg.classList.remove('settings-busy', 'is-loading', 'error-lock');
+  dlg.removeAttribute('inert');
+  dlg.removeAttribute('aria-busy');
+  dlg.querySelectorAll('input, select, textarea, button').forEach((el) => {
+    el.disabled = false;
+    el.readOnly = false;
+    el.removeAttribute('disabled');
+    el.removeAttribute('readonly');
+    el.removeAttribute('aria-disabled');
+    el.style.pointerEvents = '';
   });
+}
 
-  $('#api-token').value = '';
-  await initApiDialog();
-  $('#api-status').textContent = `Setting API tersimpan (${result.tokenPreview})`;
-  return { ok: true, message: 'Setting API tersimpan', settings: verify };
+function setSettingsBusy(isBusy, message = '') {
+  const dlg = document.getElementById('settings-dialog');
+  if (!dlg) return;
+  dlg.classList.toggle('settings-busy', !!isBusy);
+  dlg.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+  const saveBtn = document.getElementById('btn-save-api');
+  const testBtn = document.getElementById('btn-test-api');
+  if (saveBtn) {
+    saveBtn.disabled = !!isBusy;
+    saveBtn.textContent = isBusy ? 'Memproses...' : 'Save & Test API';
+  }
+  if (testBtn) testBtn.disabled = !!isBusy;
+  if (message && document.getElementById('api-status')) $('#api-status').textContent = message;
+  if (!isBusy) unlockSettingsInputs();
+}
+
+async function saveApiSettingsAndTest() {
+  const baseInput = document.getElementById('api-base-url');
+  const tokenInput = document.getElementById('api-token');
+  const apiBaseUrl = String(baseInput?.value || '').trim();
+  const apiToken = String(tokenInput?.value || '').trim();
+
+  setSettingsBusy(true, 'Menyimpan dan mengetes API...');
+  try {
+    const result = await window.apiConfig.set({ apiBaseUrl, apiToken });
+
+    if (!result?.ok) {
+      const message = result?.message || 'Setting API gagal disimpan';
+      $('#api-status').textContent = `Gagal: ${message}`;
+      showToast(message);
+      return { ok: false, message };
+    }
+
+    const testResp = await window.desktopAPI.testConnection({ baseURL: result.apiBaseUrl, token: apiToken });
+    if (!testResp?.ok) {
+      const message = testResp?.message || 'Test koneksi gagal';
+      $('#api-status').textContent = `Setting tersimpan, tetapi test gagal: ${message}`;
+      showToast(message);
+      return { ok: false, message, settingsSaved: true };
+    }
+
+    const verify = await window.apiConfig.get();
+    state.apiTokenMasked = result.tokenPreview || maskToken(verify.apiToken);
+    $('#api-token').value = '';
+    await initApiDialog();
+    $('#api-status').textContent = `Setting API tersimpan (${state.apiTokenMasked})`;
+    return { ok: true, message: 'Setting API tersimpan', settings: verify };
+  } catch (error) {
+    const message = error?.message || 'Setting API gagal diproses';
+    $('#api-status').textContent = `Gagal: ${message}`;
+    showToast(message);
+    return { ok: false, message };
+  } finally {
+    setSettingsBusy(false);
+    unlockSettingsInputs();
+    setTimeout(unlockSettingsInputs, 0);
+  }
 }
 
 async function testApiConnection() {
-  const settings = await window.desktopAPI.getSettings();
-  if (!settings?.hasApiToken) {
-    $('#api-status').textContent = 'Token API belum disetting';
-    return { ok: false, message: 'Token API belum disetting' };
+  setSettingsBusy(true, 'Mengetes koneksi API...');
+  try {
+    const settings = await window.desktopAPI.getSettings();
+    if (!settings?.hasApiToken) {
+      $('#api-status').textContent = 'Token API belum disetting';
+      return { ok: false, message: 'Token API belum disetting' };
+    }
+    const testResp = await window.desktopAPI.testConnection();
+    $('#api-status').textContent = testResp?.ok ? `Koneksi OK (${settings.apiTokenMasked})` : `Gagal: ${testResp?.message || 'Test koneksi gagal'}`;
+    return testResp;
+  } catch (error) {
+    const message = error?.message || 'Test koneksi gagal';
+    $('#api-status').textContent = `Gagal: ${message}`;
+    return { ok: false, message };
+  } finally {
+    setSettingsBusy(false);
+    unlockSettingsInputs();
+    setTimeout(unlockSettingsInputs, 0);
   }
-  const testResp = await window.desktopAPI.testConnection();
-  $('#api-status').textContent = testResp?.ok ? `Koneksi OK (${settings.apiTokenMasked})` : `Gagal: ${testResp?.message || 'Test koneksi gagal'}`;
-  return testResp;
 }
 
 async function initPrinterDialog() { const s = await window.desktopAPI.getSettings(); $('#receipt-width').value = s.receiptWidthMm || 58; $('#receipt-margin').value = s.receiptMarginMm || 2; $('#current-device-code').textContent = s.deviceCode || '-'; const printers = await window.desktopAPI.getPrinters(); $('#printer-name').innerHTML = `<option value=''>Default Sistem</option>${printers.map((p) => `<option value="${p.name}">${p.displayName}${p.isDefault ? ' (default)' : ''}</option>`).join('')}`; $('#printer-name').value = s.printerName || ''; }
+
+function openSettingsModal() {
+  const dlg = $("#settings-dialog");
+  if (!dlg) return;
+  dlg.hidden = false;
+  dlg.setAttribute("aria-hidden", "false");
+  document.body.classList.add("settings-open");
+  unlockSettingsInputs();
+  setTimeout(() => { unlockSettingsInputs(); $("#api-base-url")?.focus(); }, 80);
+}
+
+function closeSettingsModal() {
+  const dlg = $("#settings-dialog");
+  if (!dlg) return;
+  dlg.hidden = true;
+  dlg.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("settings-open");
+}
 
 async function bootstrap() {
   await initSettingsDialog('api'); showView('login-view');
   syncModuleList();
   setSyncDebugVisibility();
-  $('#btn-open-settings').onclick = async () => { await initSettingsDialog('api'); $('#settings-dialog').showModal(); };
-  $('#btn-close-settings').onclick = () => $('#settings-dialog').close();
-  document.querySelectorAll('.settings-tab').forEach((btn) => btn.onclick = () => switchSettingsTab(btn.dataset.settingsTab));
+  $("#btn-open-settings").onclick = async () => { await initSettingsDialog("api"); openSettingsModal(); };
+  $("#btn-close-settings").onclick = closeSettingsModal;
+  $("#settings-dialog").addEventListener("click", (ev) => { if (ev.target === $("#settings-dialog")) closeSettingsModal(); });
+  $(".settings-dialog-card")?.addEventListener("click", (ev) => ev.stopPropagation());
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("#settings-dialog")?.hidden) closeSettingsModal(); });
+  document.querySelectorAll('.settings-tab').forEach((btn) => btn.onclick = () => { unlockSettingsInputs(); switchSettingsTab(btn.dataset.settingsTab); });
+  $('#settings-dialog')?.addEventListener('focusin', unlockSettingsInputs);
+  $('#settings-dialog')?.addEventListener('pointerdown', unlockSettingsInputs);
   $('#btn-save-api').onclick = async () => { const resp = await saveApiSettingsAndTest(); if (resp?.ok) showToast('Setting API tersimpan', 'success'); };
   $('#btn-test-api').onclick = async () => { const resp = await testApiConnection(); if (resp?.ok) showToast('Test koneksi OK', 'success'); };
   $('#btn-save-printer').onclick = async () => {
@@ -566,7 +693,7 @@ async function bootstrap() {
     $('#login-form').reset(); showView('login-view');
   };
 
-  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => { switchTab(t.dataset.tab); if (t.dataset.tab === 'history') await loadHistory(); if (t.dataset.tab === 'orders') await loadOrders(); });
+  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => { switchTab(t.dataset.tab); if (t.dataset.tab === 'history') await loadHistory(); if (t.dataset.tab === 'recap') await loadRecap(); if (t.dataset.tab === 'orders') await loadOrders(); });
   $('#btn-shift-toggle').onclick = async () => { await loadPosState(); showShiftModal(state.activeShift ? 'close' : 'open'); };
   $('#btn-open-shift-submit').onclick = submitOpenShift;
   $('#btn-close-shift-submit').onclick = submitCloseShift;
@@ -575,7 +702,8 @@ async function bootstrap() {
   $('#payment-method').onchange = updateBankState;
   $('#cash-received').oninput = updateCashPaymentState;
   document.querySelectorAll('.history-range').forEach((b) => b.onclick = async () => { setHistoryRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadHistory(); });
-  setHistoryRange('today');
+  document.querySelectorAll('.recap-range').forEach((b) => b.onclick = async () => { setRecapRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadRecap(); });
+  setHistoryRange('today'); setRecapRange('today');
   $('#btn-pay').onclick = payNow;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = null; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };
@@ -586,6 +714,7 @@ async function bootstrap() {
     await loadPosState();
   };
   $('#btn-load-history').onclick = loadHistory;
+  $('#btn-load-recap').onclick = loadRecap;
 }
 
 bootstrap().catch((error) => showToast(error.message || 'Inisialisasi gagal'));

@@ -72,6 +72,7 @@
       <button class="tab active" data-tab="pos">POS</button>
       <button class="tab" data-tab="receipt">Receipt/Print</button>
       <button class="tab" data-tab="history">Riwayat</button>
+      <button class="tab" data-tab="recap">Rekapitulasi</button>
       <button class="tab" data-tab="orders">Order Masuk</button>
     </nav>
 
@@ -110,7 +111,8 @@
     </section>
 
     <section class="tab-panel" data-panel="receipt"><div id="receipt-wrap" class="card"></div></section>
-    <section class="tab-panel" data-panel="history"><div class="card"><div class="history-range-tabs"><button type="button" class="history-range active" data-range="today">Hari ini</button><button type="button" class="history-range" data-range="yesterday">Kemarin</button><button type="button" class="history-range" data-range="7days">7 hari</button><button type="button" class="history-range" data-range="month">Sebulan</button><button type="button" class="history-range" data-range="custom">Custom</button></div><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
+    <section class="tab-panel" data-panel="history"><div class="card"><div class="history-range-tabs"><button type="button" class="history-range active" data-range="today">Hari ini</button><button type="button" class="history-range" data-range="yesterday">Kemarin</button><button type="button" class="history-range" data-range="7days">7 hari</button><button type="button" class="history-range" data-range="month">Bulan ini</button><button type="button" class="history-range" data-range="custom">Custom</button></div><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
+    <section class="tab-panel" data-panel="recap"><div class="card"><div class="history-range-tabs"><button type="button" class="recap-range active" data-range="today">Hari ini</button><button type="button" class="recap-range" data-range="yesterday">Kemarin</button><button type="button" class="recap-range" data-range="7days">7 hari</button><button type="button" class="recap-range" data-range="month">Bulan ini</button><button type="button" class="recap-range" data-range="custom">Custom</button></div><div class="filters recap-filters"><input id="recap-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="recap-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><button id="btn-load-recap">Filter</button></div><div id="recap-summary"></div></div></section>
     <section class="tab-panel" data-panel="orders"><div class="card" id="orders-list"></div></section>
   </section>
 
@@ -151,16 +153,19 @@
     </div>
   </div>
 
+  <div class="pos-modal" id="history-detail-modal" hidden><div class="pos-modal-card history-detail-card"><h3>Detail Transaksi</h3><div id="history-detail-content"></div><div class="pos-modal-actions"><button type="button" data-dismiss-modal>Tutup</button></div></div></div>
+
   <div id="app-status" class="app-status" aria-live="polite"></div>
   <div id="app-toast" class="app-toast" aria-live="assertive"></div>
 
-  <dialog id="settings-dialog" class="settings-dialog">
+  <div id="settings-dialog" class="settings-dialog" hidden aria-hidden="true">
+    <div class="settings-dialog-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="settings-header">
       <div>
-        <h3>Setting Program</h3>
+        <h3 id="settings-title">Setting Program</h3>
         <p>Konfigurasi API, printer, dan debug POS Desktop.</p>
       </div>
-      <button id="btn-close-settings" class="icon-btn" type="button">×</button>
+      <button id="btn-close-settings" class="icon-btn" type="button" aria-label="Tutup setting">×</button>
     </div>
     <div class="settings-tabs">
       <button class="settings-tab active" data-settings-tab="api" type="button">API</button>
@@ -169,10 +174,14 @@
     </div>
 
     <section class="settings-panel active" data-settings-panel="api">
-      <label>Base URL</label>
-      <input id="api-base-url" placeholder="https://adena.co.id" />
-      <label>Static API Token</label>
-      <input id="api-token" type="password" placeholder="Masukkan token API" autocomplete="off" />
+      <div class="settings-field">
+        <label for="api-base-url">Base URL</label>
+        <input id="api-base-url" type="url" inputmode="url" placeholder="https://adena.co.id" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="settings-field">
+        <label for="api-token">Static API Token</label>
+        <input id="api-token" type="password" placeholder="Masukkan token API" autocomplete="off" spellcheck="false" />
+      </div>
       <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
       <div class="dialog-actions">
         <button id="btn-save-api" type="button">Save & Test API</button>
@@ -182,12 +191,18 @@
     </section>
 
     <section class="settings-panel" data-settings-panel="printer">
-      <label>Printer Windows</label>
-      <select id="printer-name"></select>
-      <label>Layout struk (mm)</label>
-      <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
-      <label>Margin (mm)</label>
-      <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
+      <div class="settings-field">
+        <label for="printer-name">Printer Windows</label>
+        <select id="printer-name"></select>
+      </div>
+      <div class="settings-field">
+        <label for="receipt-width">Layout struk (mm)</label>
+        <input id="receipt-width" placeholder="Layout struk (mm)" type="number" value="58" />
+      </div>
+      <div class="settings-field">
+        <label for="receipt-margin">Margin (mm)</label>
+        <input id="receipt-margin" placeholder="Margin (mm)" type="number" value="2" />
+      </div>
       <p>Kode POS/Device dari web: <strong id="current-device-code">-</strong></p>
       <div class="dialog-actions">
         <button id="btn-save-printer" type="button">Save Printer Setting</button>
@@ -205,7 +220,8 @@
       <button id="btn-save-debug" type="button">Save Debug Setting</button>
       <p id="debug-status"></p>
     </section>
-  </dialog>
+    </div>
+  </div>
 
   <script src="./renderer.js"></script>
 </body>

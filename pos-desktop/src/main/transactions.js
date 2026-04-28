@@ -37,8 +37,8 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
      payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, shift_id, sold_at,
-     local_device_id, local_transaction_id, sync_status)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+     local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     for (const item of items) {
@@ -61,7 +61,9 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
         nowLocal,
         store.get('deviceId'),
         localTransactionId,
-        'pending'
+        'pending',
+        payment.cash_received ?? null,
+        payment.cash_change ?? null
       );
     }
   });

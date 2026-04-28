@@ -202,12 +202,14 @@ async function handleSyncBeforeExit() {
 }
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '../../assets/icon.ico');
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 1200,
     minHeight: 760,
     autoHideMenuBar: true,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -388,7 +390,7 @@ ipcMain.handle('history:list', (_, filters = {}) => {
     if (filters.paymentMethod) { where.push('payment_method = ?'); params.push(filters.paymentMethod); }
     if (filters.syncStatus) { where.push('sync_status = ?'); params.push(filters.syncStatus); }
     const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const rows = db.prepare(`SELECT transaction_code, COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS transaction_group_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, SUM(total) AS total
+    const rows = db.prepare(`SELECT transaction_code, COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS transaction_group_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, MAX(cash_received) AS cash_received, MAX(cash_change) AS cash_change, SUM(total) AS total
       FROM sales ${sqlWhere}
       GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)
       ORDER BY sold_at DESC LIMIT 300`).all(...params);
@@ -401,11 +403,25 @@ ipcMain.handle('history:list', (_, filters = {}) => {
 
 ipcMain.handle('history:detail', (_, transactionGroupId) => {
   const db = initDb();
-  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.qty, s.price_each, s.total, p.name AS product_name
+  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, p.name AS product_name
     FROM sales s LEFT JOIN products p ON p.id = s.product_id
     WHERE COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code) = ?
     ORDER BY s.id`).all(transactionGroupId);
   return { items };
+});
+
+ipcMain.handle('history:recap', (_, filters = {}) => {
+  try {
+    const db = initDb();
+    const where = [];
+    const params = [];
+    if (filters.from) { where.push('sold_at >= ?'); params.push(filters.from); }
+    if (filters.to) { where.push('sold_at <= ?'); params.push(filters.to); }
+    const sqlWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const rows = db.prepare("SELECT payment_method, COALESCE(payment_bank,'') AS payment_bank, COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS trx_count, COALESCE(SUM(total),0) AS total FROM sales " + sqlWhere + " GROUP BY payment_method, COALESCE(payment_bank,'') ORDER BY payment_method, payment_bank").all(...params);
+    const total = db.prepare("SELECT COUNT(*) AS trx_count, COALESCE(SUM(total),0) AS omzet FROM (SELECT SUM(total) AS total FROM sales " + sqlWhere + " GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code))").get(...params);
+    return { ok: true, rows, total: { trx_count: Number(total?.trx_count || 0), omzet: Number(total?.omzet || 0) } };
+  } catch (error) { return { ok: false, message: error.message }; }
 });
 
 ipcMain.handle('orders:list', () => {

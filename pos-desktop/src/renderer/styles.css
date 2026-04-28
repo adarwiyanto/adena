@@ -8,12 +8,14 @@
   --desktop-text:#0f172a;
   --desktop-muted:#64748b;
 }
+* { box-sizing: border-box; }
 body { font-family: Inter, Segoe UI, sans-serif; margin: 0; background: #f3f4f6; color: var(--desktop-text); }
 .view { display: none; }
 .view.active { display: block; }
 .card { background: var(--desktop-surface); border-radius: 12px; border: 1px solid #e5e7eb; padding: 14px; }
 .login-card { width: 360px; margin: 10vh auto; }
 input, select, button { width: 100%; padding: 10px; margin: 6px 0; border-radius: 10px; border: 1px solid #d1d5db; }
+input, select, textarea { min-width: 0; max-width: 100%; background: #fff; color: #0f172a; }
 button { background: var(--desktop-secondary); color: #fff; border: 0; cursor: pointer; }
 .link-btn { background: var(--desktop-accent); }
 .login-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -189,8 +191,11 @@ button.danger { background:#b91c1c; color:#fff; }
 .settings-dialog {
   width: min(680px, calc(100vw - 32px));
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 26px 85px rgba(15, 23, 42, .28);
+}
+.settings-dialog::backdrop {
+  background: rgba(15, 23, 42, .35);
 }
 .settings-header {
   display: flex;
@@ -229,8 +234,39 @@ button.danger { background:#b91c1c; color:#fff; }
 .settings-panel {
   display: none;
   padding: 18px 20px 20px;
+  pointer-events: none;
 }
-.settings-panel.active { display: block; }
+.settings-panel.active {
+  display: block;
+  pointer-events: auto;
+}
+.settings-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.settings-field label {
+  font-weight: 700;
+  color: #334155;
+}
+.settings-panel input,
+.settings-panel select {
+  width: 100%;
+  display: block;
+  margin: 0;
+  position: relative;
+  z-index: 1;
+}
+.settings-panel .dialog-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-panel .dialog-actions button {
+  width: auto;
+  flex: 1 1 220px;
+}
+
 .checkbox-row {
   display: flex;
   align-items: center;
@@ -419,3 +455,135 @@ button.danger { background:#b91c1c; color:#fff; }
 .history-range { width:auto; background:#e5e7eb; color:#111827; padding:9px 14px; margin:0; border-radius:999px; font-weight:700; }
 .history-range.active { background:var(--desktop-accent); color:#fff; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 92px 1fr; } .cart-panel { grid-column: 1 / -1; position: static; } .products.tablet-products { max-height:none; } }
+
+/* Patch 2026-04-28: blue POS theme + compact history + recap */
+:root {
+  --desktop-primary:#274b9f;
+  --desktop-secondary:#315aa9;
+  --desktop-accent:#2f61c3;
+  --desktop-header:#2f5597;
+}
+button { background: var(--desktop-secondary); }
+.topbar { background: linear-gradient(90deg, #2f5597, #254b8e); }
+#online-badge { background:#ef4444; }
+.tab.active,
+.category.active,
+.history-range.active,
+.recap-range.active { background: var(--desktop-accent); color:#fff; }
+.settings-corner,
+.app-status { background:#274b9f; }
+#btn-pay,
+#btn-load-history,
+#btn-load-recap,
+.history-detail-btn { background:#2f5597; }
+.history-item {
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  align-items:center;
+  padding:12px 0;
+  border-bottom:1px solid #e5e7eb;
+}
+.history-main { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.history-main strong { color:#0f172a; }
+.history-main span { color:#64748b; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-side { display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+.history-detail-btn { width:auto; margin:0; padding:8px 14px; border-radius:10px; }
+.history-detail-card { max-width:560px; }
+.receipt-meta { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:10px; line-height:1.6; }
+.receipt-items { margin-top:10px; border-top:1px dashed #cbd5e1; border-bottom:1px dashed #cbd5e1; padding:8px 0; }
+.receipt-line { display:flex; justify-content:space-between; gap:12px; padding:6px 0; }
+.receipt-line span { display:flex; flex-direction:column; }
+.receipt-line small { color:#64748b; }
+.receipt-total { font-weight:900; font-size:18px; margin:10px 0; text-align:right; }
+.recap-range { width:auto; background:#e5e7eb; color:#111827; padding:9px 14px; margin:0; border-radius:999px; font-weight:700; }
+.recap-filters { grid-template-columns: 1fr 1fr 220px; }
+.recap-total { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.recap-total > div { background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:14px; }
+.recap-total small { display:block; color:#64748b; margin-bottom:4px; }
+.recap-total strong { font-size:24px; color:#1e3a8a; }
+.recap-table { border:1px solid #e5e7eb; border-radius:14px; overflow:hidden; }
+.recap-row { display:grid; grid-template-columns: 1fr 1fr 120px 160px; gap:10px; padding:10px 12px; border-top:1px solid #e5e7eb; align-items:center; }
+.recap-row.head { border-top:0; background:#eff6ff; color:#1e3a8a; font-weight:900; }
+.recap-row strong { text-align:right; }
+@media (max-width: 860px) {
+  .history-item { align-items:flex-start; }
+  .history-side { flex-direction:column; align-items:flex-end; }
+  .recap-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* Patch: stable settings modal for Electron.
+   Native <dialog> + hidden panels can steal focus after tab changes on some Windows/Electron builds. */
+.settings-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: auto;
+  height: auto;
+  padding: 18px;
+  border: 0;
+  background: rgba(15, 23, 42, .35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  pointer-events: auto;
+}
+.settings-dialog[hidden] {
+  display: none !important;
+}
+.settings-dialog-card {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 26px 85px rgba(15, 23, 42, .28);
+}
+.settings-dialog::backdrop {
+  display: none;
+}
+.settings-panel {
+  pointer-events: auto !important;
+}
+.settings-panel:not(.active) {
+  display: none !important;
+}
+.settings-panel.active {
+  display: block !important;
+}
+.settings-panel input,
+.settings-panel select,
+.settings-panel button,
+.settings-tabs button {
+  pointer-events: auto !important;
+  user-select: auto;
+}
+.settings-field input,
+.settings-field select {
+  min-height: 42px;
+}
+
+/* Patch: API setting error must never lock form fields. */
+.settings-dialog,
+.settings-dialog-card,
+.settings-dialog-card * {
+  pointer-events: auto !important;
+}
+.settings-dialog input,
+.settings-dialog select,
+.settings-dialog textarea {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+.settings-dialog.settings-busy input,
+.settings-dialog.settings-busy select,
+.settings-dialog.settings-busy textarea {
+  opacity: 1 !important;
+  cursor: text !important;
+}
+.settings-dialog.settings-busy #btn-save-api,
+.settings-dialog.settings-busy #btn-test-api {
+  opacity: .72;
+  cursor: progress;
+}
