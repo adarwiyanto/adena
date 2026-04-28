@@ -159,6 +159,8 @@ try {
     foreach ($settingKeys as $key) {
         $settings[$key] = safe_setting($pdo, $key, $debugNotes);
     }
+    // URL siap pakai untuk POS Desktop. Nilai store_logo biasanya hanya nama file private_uploads.
+    $settings['store_logo_url'] = !empty($settings['store_logo']) ? upload_url($settings['store_logo'], 'image') : '';
 
     $shiftsSql = "SELECT id, shift_code, branch_id, opened_at, opened_by, opening_cash_default,
                          opening_cash_actual, status, closed_at, closed_by, expected_cash_total,

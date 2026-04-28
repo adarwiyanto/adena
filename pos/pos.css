@@ -821,3 +821,23 @@
 .pos-modal-card input,.pos-modal-card select,.pos-modal-card textarea{width:100%;min-height:42px}
 .pos-modal-actions{display:flex;gap:10px;justify-content:flex-end}
 .pos-close-summary{font-size:13px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:10px;display:grid;gap:6px}
+
+/* Patch 2026-04-28: cash received/change helper */
+.pos-cash-wrap{
+  border:1px dashed rgba(148,163,184,.8);
+  background:#f8fafc;
+  border-radius:14px;
+  padding:10px;
+}
+.pos-cash-wrap input{
+  width:100%;
+  border:1px solid #d1d5db;
+  border-radius:10px;
+  padding:10px;
+}
+.pos-cash-change{
+  margin-top:6px;
+  font-weight:800;
+  color:#166534;
+}
+.pos-cash-change.negative{color:#b91c1c}

@@ -12,6 +12,7 @@ require_admin();
 ensure_rbac_schema();
 ensure_owner_role();
 ensure_user_invites_table();
+ensure_user_profile_columns();
 ensure_rbac_schema();
 $me = require_menu_access('users', 'view');
 
@@ -132,7 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $rolesActive = db()->query("SELECT id, role_key, role_name FROM roles WHERE is_active=1 ORDER BY role_name ASC")->fetchAll();
 $users = db()->query("
-  SELECT u.id, u.username, u.name, u.role_id, u.created_at, r.role_key, r.role_name
+  SELECT u.id, u.username, u.name, u.avatar_path, u.role_id, u.created_at, r.role_key, r.role_name
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
   ORDER BY u.id DESC
@@ -149,6 +150,13 @@ $mailCfg = mail_settings();
   <link rel="icon" href="<?php echo e(favicon_url()); ?>">
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
+  <style>
+    .user-name-cell{display:flex;align-items:center;gap:10px;min-width:170px}
+    .user-photo-thumb{width:42px;height:42px;border-radius:12px;object-fit:cover;border:1px solid var(--border);background:#f8fafc;flex:0 0 auto}
+    .user-photo-placeholder{width:42px;height:42px;border-radius:12px;border:1px dashed #cbd5e1;background:linear-gradient(135deg,#f8fafc,#e2e8f0);color:#64748b;display:flex;align-items:center;justify-content:center;text-align:center;font-size:9px;font-weight:800;line-height:1.05;letter-spacing:.03em;box-sizing:border-box;flex:0 0 auto;text-transform:uppercase}
+    .user-photo-thumb.is-hidden{display:none}
+    .user-photo-name{font-weight:600}
+  </style>
 </head>
 <body>
 <div class="container">
@@ -203,7 +211,18 @@ $mailCfg = mail_settings();
                 ?>
                 <tr>
                   <td><?php echo e($u['username']); ?></td>
-                  <td><?php echo e($u['name']); ?></td>
+                  <td>
+                    <?php $userAvatarUrl = !empty($u['avatar_path']) ? upload_url($u['avatar_path'], 'image') : ''; ?>
+                    <div class="user-name-cell">
+                      <?php if ($userAvatarUrl): ?>
+                        <img class="user-photo-thumb" src="<?php echo e($userAvatarUrl); ?>" alt="<?php echo e($u['name'] ?: $u['username']); ?>" onerror="this.classList.add('is-hidden');this.nextElementSibling.style.display='flex';">
+                        <div class="user-photo-placeholder" style="display:none">No<br>Photo</div>
+                      <?php else: ?>
+                        <div class="user-photo-placeholder">No<br>Photo</div>
+                      <?php endif; ?>
+                      <span class="user-photo-name"><?php echo e($u['name']); ?></span>
+                    </div>
+                  </td>
                   <td>
                     <?php if ($roleMissing): ?>
                       <span class="badge" style="background:#fee2e2;color:#991b1b">role_id invalid</span>

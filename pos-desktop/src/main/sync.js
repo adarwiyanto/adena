@@ -20,6 +20,27 @@ function toNumeric(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function stablePositiveInteger(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (Number.isInteger(n) && n > 0) return n;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const hash = crypto.createHash('md5').update(raw).digest('hex').slice(0, 8);
+  return parseInt(hash, 16) % 2147480000 || 1;
+}
+
+function normalizeCategory(record = {}) {
+  const name = record.name ?? record.category_name ?? record.label ?? record.category ?? '';
+  if (!String(name).trim()) return null;
+  const rawId = record.id ?? record.category_id ?? record.value ?? name;
+  return {
+    id: stablePositiveInteger(rawId ?? name),
+    name: String(name).trim(),
+    image_path: record.image_path || null
+  };
+}
+
 function normalizeProduct(record = {}) {
   const rawCategoryId = record.category_id;
   const numericCategoryId = toNumeric(rawCategoryId);
@@ -61,6 +82,71 @@ function toAbsoluteImageUrl(imagePath) {
   if (/^https?:\/\//i.test(raw) || raw.startsWith('data:')) return raw;
   const baseURL = String(store.get('apiBaseUrl') || '').trim().replace(/\/$/, '');
   return baseURL ? `${baseURL}/${raw.replace(/^\//, '')}` : '';
+}
+
+function safeReadJson(filePath, fallback = {}) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function cacheDir() {
+  const dir = path.join(app.getPath('userData'), 'cache');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function storeCachePath() {
+  return path.join(cacheDir(), 'store.json');
+}
+
+async function cacheStoreIdentity(settings = {}) {
+  const storeInfo = {
+    name: String(settings.store_name || 'Adena').trim() || 'Adena',
+    address: String(settings.store_address || '').trim(),
+    phone: String(settings.store_phone || '').trim(),
+    logo_source: String(settings.store_logo_url || settings.store_logo || '').trim(),
+    logo_path: '',
+    cached_at: localDateTimeString()
+  };
+
+  const previous = safeReadJson(storeCachePath(), {});
+  if (!storeInfo.address && previous.address) storeInfo.address = previous.address;
+  if (!storeInfo.phone && previous.phone) storeInfo.phone = previous.phone;
+  if (!storeInfo.logo_source && previous.logo_source) storeInfo.logo_source = previous.logo_source;
+  if (previous.logo_path && fs.existsSync(previous.logo_path)) storeInfo.logo_path = previous.logo_path;
+
+  const logoURL = toAbsoluteImageUrl(storeInfo.logo_source);
+  if (logoURL && !logoURL.startsWith('data:')) {
+    try {
+      const apiToken = String(store.get('apiToken') || '').trim();
+      const response = await axios.get(logoURL, {
+        responseType: 'arraybuffer',
+        timeout: 15000,
+        headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {}
+      });
+      let ext = 'png';
+      try {
+        const candidate = new URL(logoURL).pathname.split('.').pop();
+        if (candidate && /^[a-zA-Z0-9]{2,5}$/.test(candidate)) ext = candidate.toLowerCase();
+      } catch (_) {}
+      const logoPath = path.join(cacheDir(), `store-logo.${ext}`);
+      fs.writeFileSync(logoPath, response.data);
+      storeInfo.logo_path = logoPath;
+    } catch (error) {
+      console.warn('[store:logo] cache failed', error.message);
+    }
+  }
+
+  fs.writeFileSync(storeCachePath(), JSON.stringify(storeInfo, null, 2));
+  store.set('storeCachePath', storeCachePath());
+  store.set('storeLogoPath', storeInfo.logo_path || '');
+  store.set('storeAddress', storeInfo.address || '');
+  store.set('storeName', storeInfo.name || 'Adena');
+  return storeInfo;
 }
 
 function productImageEndpoint(productId, imagePath) {
@@ -142,7 +228,17 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
     }));
 
     const upsertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=excluded.image_path');
-    (data.categories || []).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
+    const rawCategories = Array.isArray(data.categories) && data.categories.length ? data.categories : (data.product_categories || []);
+    const categoryMap = new Map();
+    rawCategories.forEach((r) => {
+      const cat = normalizeCategory(r || {});
+      if (cat) categoryMap.set(String(cat.id), cat);
+    });
+    normalizedProducts.forEach((r) => {
+      const cat = normalizeCategory({ id: r.category_id ?? r.category_name, name: r.category_name || r.category });
+      if (cat) categoryMap.set(String(cat.id), cat);
+    });
+    Array.from(categoryMap.values()).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
 
     const methods = (data.payment_methods && data.payment_methods.length) ? data.payment_methods : PAYMENT_METHOD_FALLBACK;
     const upsertPm = db.prepare('INSERT INTO payment_methods (code,name,is_active,sort_order,requires_bank) VALUES (?,?,?,?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name,is_active=excluded.is_active,sort_order=excluded.sort_order,requires_bank=excluded.requires_bank');
@@ -236,6 +332,7 @@ async function syncMaster(_options = {}) {
     }
 
     saveMasterData(payload, { fullSync, normalizedProducts });
+    const storeIdentity = await cacheStoreIdentity(payload.settings || {});
 
     if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
 
@@ -244,7 +341,7 @@ async function syncMaster(_options = {}) {
       fullSync,
       counts: {
         products: (payload.products || []).length,
-        categories: (payload.categories || []).length,
+        categories: (payload.categories || payload.product_categories || []).length,
         guides: (payload.guides || []).length,
         banks: getBanks(payload).length,
         payment_methods: (payload.payment_methods || []).length,
@@ -252,7 +349,8 @@ async function syncMaster(_options = {}) {
         sales_history: (payload.sales_history || []).length,
         pending_orders: (payload.pending_orders || []).length,
         thumbnails_downloaded: thumbnailDownloaded,
-        thumbnails_failed: thumbnailFailed
+        thumbnails_failed: thumbnailFailed,
+        store_logo_cached: storeIdentity?.logo_path ? 1 : 0
       },
       device_code: resp?.token?.device_code || null
     };

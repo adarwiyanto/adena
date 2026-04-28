@@ -280,6 +280,8 @@ function initDb() {
   safeExec('ALTER TABLE orders ADD COLUMN total_amount REAL DEFAULT 0');
   safeExec('ALTER TABLE order_items ADD COLUMN product_name TEXT');
   safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
+  safeExec('ALTER TABLE sales ADD COLUMN cash_received REAL');
+  safeExec('ALTER TABLE sales ADD COLUMN cash_change REAL');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');

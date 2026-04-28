@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   printerName: '',
   receiptWidthMm: 58,
   receiptMarginMm: 2,
+  debugMode: false,
   lastSyncAt: null
 };
 
