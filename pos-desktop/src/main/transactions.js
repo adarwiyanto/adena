@@ -11,11 +11,10 @@ function ensureDeviceCode() {
   return { ok: true, value: raw };
 }
 
-function formatTransactionCode(deviceCode) {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
-  const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+function formatTransactionCode(deviceCode, localTimestamp = localDateTimeString()) {
+  const compact = String(localTimestamp || localDateTimeString()).replace(/[-: ]/g, '');
+  const date = compact.slice(0, 8);
+  const time = compact.slice(8, 14);
   return `TRX-${date}-${time}-post${deviceCode}`;
 }
 
@@ -29,8 +28,8 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
   const transactionUuid = uuidv4();
   const localTransactionId = transactionUuid;
   const transactionGroupUuid = transactionUuid;
-  const transactionCode = formatTransactionCode(device.value);
   const nowLocal = localDateTimeString();
+  const transactionCode = formatTransactionCode(device.value, nowLocal);
   const activeShift = shift || db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get();
   if (!activeShift) return { ok: false, message: 'Shift belum aktif. Buka shift terlebih dahulu.' };
 

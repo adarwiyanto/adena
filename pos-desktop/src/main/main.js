@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, session, nativeImage } = require('electron');
 const { initDb, closeDb } = require('./db');
 const { store, DEFAULT_SETTINGS, getApiConfig } = require('./config');
 const { testConnection, login, shiftAction } = require('./api');
@@ -8,9 +8,15 @@ const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
 const { saveSaleLocally } = require('./transactions');
 const { printReceipt } = require('./print');
+const { localDateTimeString } = require('./time');
 
 let mainWindow;
 let isQuittingConfirmed = false;
+
+function resolveAppIconPath() {
+  const iconPath = path.join(__dirname, '../../assets/icon.ico');
+  return fs.existsSync(iconPath) ? iconPath : null;
+}
 
 function isApiConfigured() {
   const cfg = getApiConfig();
@@ -203,7 +209,8 @@ async function handleSyncBeforeExit() {
 
 function createWindow() {
   app.setName('Adena POS ver 1.3');
-  const iconPath = path.join(__dirname, '../../assets/icon.ico');
+  const iconPath = resolveAppIconPath();
+  const windowIcon = iconPath ? nativeImage.createFromPath(iconPath) : undefined;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -211,7 +218,7 @@ function createWindow() {
     minHeight: 760,
     autoHideMenuBar: true,
     title: 'Adena POS ver 1.3',
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: windowIcon && !windowIcon.isEmpty() ? windowIcon : (iconPath || undefined),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -266,6 +273,8 @@ async function resetAllAppData() {
   }, 250);
   return { ok: true };
 }
+
+app.setAppUserModelId('com.adena.posdesktop');
 
 app.whenReady().then(() => {
   initDb();
