@@ -142,9 +142,9 @@ function buildShiftClosePrintHtml(data) {
     @page { margin: 2mm; size: 58mm auto; }
     body { width: 54mm; margin: 0 auto; font-family: "Courier New", monospace; font-size: 10px; color: #111; }
     .center { text-align: center; }
-    .receipt-logo { display:block; max-width: 30mm; max-height: 16mm; object-fit: contain; margin: 0 auto 2mm; }
-    .receipt-logo-text { text-align:center; font-weight:bold; font-size:14px; letter-spacing:1px; margin-bottom:1mm; }
-    .receipt-address { text-align:center; font-size:9px; line-height:1.25; margin-bottom:2mm; white-space:normal; }
+    .receipt-logo { display:block; max-width: 30mm; max-height: 16mm; object-fit: contain; margin: 0 auto 0.4mm; padding:0; vertical-align:bottom; }
+    .receipt-logo-text { text-align:center; font-weight:bold; font-size:14px; letter-spacing:1px; margin-bottom:0.4mm; line-height:1.05; }
+    .receipt-address { text-align:center; font-size:9px; line-height:1.15; margin-top:0.2mm; margin-bottom:1mm; white-space:normal; }
     .title { text-align:center; margin: 1mm 0 2mm; }
     .row { display:flex; justify-content:space-between; gap:5px; line-height:1.35; }
     .row span:first-child { white-space: nowrap; }
@@ -202,6 +202,7 @@ async function handleSyncBeforeExit() {
 }
 
 function createWindow() {
+  app.setName('Adena POS ver 1.3');
   const iconPath = path.join(__dirname, '../../assets/icon.ico');
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -209,6 +210,7 @@ function createWindow() {
     minWidth: 1200,
     minHeight: 760,
     autoHideMenuBar: true,
+    title: 'Adena POS ver 1.3',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -231,12 +233,18 @@ function createWindow() {
 
 async function resetAllAppData() {
   const userDataPath = app.getPath('userData');
+  const dataPath = path.join(userDataPath, 'data');
+  const cachePath = path.join(userDataPath, 'cache');
+  const dbFiles = ['pos.sqlite', 'pos.sqlite-wal', 'pos.sqlite-shm'].map((name) => path.join(dataPath, name));
+
   closeDb();
 
   try {
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();
-  } catch (_) {}
+  } catch (error) {
+    console.warn('[reset] clear session failed', error.message);
+  }
 
   store.clear();
   Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => store.set(key, value));
@@ -244,11 +252,18 @@ async function resetAllAppData() {
   store.delete('allowIncrementalSyncOnce');
   store.delete('lastSyncAt');
 
-  fs.rmSync(userDataPath, { recursive: true, force: true });
-  fs.mkdirSync(userDataPath, { recursive: true });
+  try {
+    for (const file of dbFiles) fs.rmSync(file, { force: true });
+    fs.rmSync(cachePath, { recursive: true, force: true });
+    fs.mkdirSync(dataPath, { recursive: true });
+  } catch (error) {
+    console.warn('[reset] local data cleanup failed', error.message);
+  }
 
-  app.relaunch();
-  app.exit(0);
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 250);
   return { ok: true };
 }
 

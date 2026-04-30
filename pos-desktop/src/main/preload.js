@@ -24,7 +24,8 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   openShift: (payload) => ipcRenderer.invoke('shift:open', payload),
   closeShift: (payload) => ipcRenderer.invoke('shift:close', payload),
   retryPendingShift: () => ipcRenderer.invoke('shift:retryPending'),
-  resetAllAppData: () => ipcRenderer.invoke('app:reset-all')
+  resetAllAppData: () => ipcRenderer.invoke('app:reset-all'),
+  getAdenaLogoDataUrl: () => ipcRenderer.invoke('asset:adena-logo-data-url')
 });
 
 contextBridge.exposeInMainWorld('apiConfig', {

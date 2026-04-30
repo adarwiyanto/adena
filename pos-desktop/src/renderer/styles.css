@@ -587,3 +587,13 @@ button { background: var(--desktop-secondary); }
   opacity: .72;
   cursor: progress;
 }
+
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.settings-grid-2 .settings-field {
+  margin-bottom: 12px;
+}

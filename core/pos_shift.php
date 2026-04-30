@@ -83,6 +83,28 @@ function ensure_pos_shift_schema(): void {
     ) ENGINE=InnoDB");
   } catch (Throwable $e) {}
 
+
+  $addColumnIfMissing = function (string $table, string $column, string $definition): void {
+    try {
+      $stmt = db()->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+      $stmt->execute([$column]);
+      if (!$stmt->fetch()) db()->exec("ALTER TABLE `$table` ADD COLUMN $definition");
+    } catch (Throwable $e) {}
+  };
+
+  $addColumnIfMissing('pos_shifts', 'branch_id', 'branch_id INT NULL AFTER shift_code');
+  $addColumnIfMissing('pos_shifts', 'opening_cash_default', 'opening_cash_default DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER opened_by');
+  $addColumnIfMissing('pos_shifts', 'opening_cash_actual', 'opening_cash_actual DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER opening_cash_default');
+  $addColumnIfMissing('pos_shifts', 'expected_cash_total', 'expected_cash_total DECIMAL(15,2) NULL AFTER closed_by');
+  $addColumnIfMissing('pos_shifts', 'counted_cash_total', 'counted_cash_total DECIMAL(15,2) NULL AFTER expected_cash_total');
+  $addColumnIfMissing('pos_shifts', 'cash_difference', 'cash_difference DECIMAL(15,2) NULL AFTER counted_cash_total');
+  $addColumnIfMissing('pos_shifts', 'notes', 'notes TEXT NULL AFTER cash_difference');
+  $addColumnIfMissing('pos_shifts', 'offline_open_uuid', 'offline_open_uuid VARCHAR(80) NULL AFTER notes');
+  $addColumnIfMissing('pos_shifts', 'offline_close_uuid', 'offline_close_uuid VARCHAR(80) NULL AFTER offline_open_uuid');
+  $addColumnIfMissing('pos_shifts', 'sync_status', "sync_status VARCHAR(20) NOT NULL DEFAULT 'synced' AFTER offline_close_uuid");
+  $addColumnIfMissing('pos_cash_movements', 'offline_uuid', 'offline_uuid VARCHAR(80) NULL AFTER created_at');
+  $addColumnIfMissing('pos_cash_movements', 'sync_status', "sync_status VARCHAR(20) NOT NULL DEFAULT 'synced' AFTER offline_uuid");
+
   try {
     if (!(bool)db()->query("SHOW COLUMNS FROM sales LIKE 'shift_id'")->fetch()) {
       db()->exec("ALTER TABLE sales ADD COLUMN shift_id BIGINT NULL AFTER branch_id");

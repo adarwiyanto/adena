@@ -84,15 +84,24 @@ document.addEventListener('DOMContentLoaded', () => {
       body: form,
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
-    const body = await res.json();
-    if (!body.ok) throw new Error(body.error || 'Gagal');
+    const text = await res.text();
+    let body;
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch (error) {
+      console.error('[shift:web] invalid response', text);
+      throw new Error('Server shift mengirim response tidak valid. Cek error PHP/server.');
+    }
+    if (!res.ok || !body.ok) throw new Error(body.error || body.message || `Gagal (${res.status})`);
     return body;
   };
 
   if (openShiftForm) {
     openShiftForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const submitBtn = openShiftForm.querySelector('button[type="submit"]');
       const fd = new FormData(openShiftForm);
+      if (submitBtn) submitBtn.disabled = true;
       try {
         if (!navigator.onLine) {
           if (window.POSOfflineSync) {
@@ -107,7 +116,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         window.location.reload();
       } catch (err) {
-        alert(err.message);
+        console.error('[shift:web:open] failed', err);
+        alert(err.message || 'Gagal buka shift');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
   }
@@ -144,7 +156,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (closeShiftForm) {
     closeShiftForm.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const submitBtn = closeShiftForm.querySelector('button[type="submit"]');
       const fd = new FormData(closeShiftForm);
+      if (submitBtn) submitBtn.disabled = true;
       try {
         const queueCount = window.POSOfflineSync ? window.POSOfflineSync.loadQueue().length : 0;
         if (!navigator.onLine && window.POSOfflineSync) {
@@ -164,7 +178,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         window.location.reload();
       } catch (err) {
-        alert(err.message);
+        console.error('[shift:web:close] failed', err);
+        alert(err.message || 'Gagal tutup shift');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
   }

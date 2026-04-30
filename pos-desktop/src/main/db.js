@@ -283,6 +283,27 @@ function initDb() {
   safeExec('ALTER TABLE sales ADD COLUMN cash_received REAL');
   safeExec('ALTER TABLE sales ADD COLUMN cash_change REAL');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN shift_code TEXT');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN branch_id INTEGER');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN opened_at TEXT');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN opened_by INTEGER');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN opening_cash_default REAL DEFAULT 0');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN opening_cash_actual REAL DEFAULT 0');
+  safeExec("ALTER TABLE pos_shifts ADD COLUMN status TEXT DEFAULT 'open'");
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN closed_at TEXT');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN closed_by INTEGER');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN expected_cash_total REAL');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN counted_cash_total REAL');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN cash_difference REAL');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN notes TEXT');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN offline_open_uuid TEXT');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN offline_close_uuid TEXT');
+  safeExec("ALTER TABLE pos_shifts ADD COLUMN sync_status TEXT DEFAULT 'synced'");
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN created_at TEXT');
+  safeExec('ALTER TABLE pos_shifts ADD COLUMN updated_at TEXT');
+  safeExec("ALTER TABLE pos_cash_movements ADD COLUMN sync_status TEXT DEFAULT 'synced'");
+  safeExec('ALTER TABLE shift_sync_queue ADD COLUMN error_message TEXT');
+  safeExec('ALTER TABLE shift_sync_queue ADD COLUMN synced_at TEXT');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');
 

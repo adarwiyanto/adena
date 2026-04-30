@@ -6,8 +6,16 @@ const DEFAULT_SETTINGS = {
   apiToken: '',
   deviceCode: '',
   printerName: '',
-  receiptWidthMm: 58,
+  receiptWidthMm: 80,
   receiptMarginMm: 2,
+  receiptLogoVisible: true,
+  receiptLogoSizeMm: 22,
+  receiptPrintMode: 'auto',
+  receiptAutoCut: true,
+  receiptFeedBeforeCutLines: 3,
+  receiptUseFixedPageHeight: true,
+  receiptPageHeightMm: 220,
+  receiptBottomFeedMm: 18,
   debugMode: false,
   lastSyncAt: null
 };

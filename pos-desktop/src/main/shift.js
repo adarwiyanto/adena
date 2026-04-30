@@ -45,7 +45,12 @@ function localCloseShift(payload = {}, syncStatus = 'pending') {
 
 async function performShift(action, payload = {}) {
   const normalizedPayload = { ...payload, offline_uuid: payload.offline_uuid || uuid() };
-  const resp = await shiftAction(action, normalizedPayload);
+  let resp;
+  try {
+    resp = await shiftAction(action, normalizedPayload);
+  } catch (error) {
+    resp = { ok: false, message: error?.message || 'Sync shift gagal', status: 0 };
+  }
   if (resp?.ok) {
     const db = initDb();
     db.prepare('UPDATE shift_sync_queue SET sync_status = ?, synced_at = CURRENT_TIMESTAMP, error_message = NULL WHERE offline_uuid = ?')

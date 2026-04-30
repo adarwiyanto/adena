@@ -308,35 +308,60 @@ function hideShiftModals() {
 }
 
 async function submitOpenShift() {
+  const btn = $('#btn-open-shift-submit');
   const opening = Number($('#shift-opening-cash').value || 0);
-  const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening });
-  if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal buka shift');
-  hideShiftModals();
-  await window.desktopAPI.syncMaster({ incremental: false });
-  await loadPosState();
-  showToast(actionResp?.sync_status === 'pending' ? 'Buka shift tersimpan lokal dan menunggu sync' : 'Shift dibuka', 'success');
+  if (btn) btn.disabled = true;
+  try {
+    const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening });
+    if (!actionResp?.ok && actionResp?.sync_status !== 'pending') {
+      showToast(actionResp?.message || 'Gagal buka shift');
+      return;
+    }
+    hideShiftModals();
+    try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
+    await loadPosState();
+    showToast(actionResp?.sync_status === 'pending' ? 'Buka shift tersimpan lokal dan menunggu sync' : 'Shift dibuka', 'success');
+  } catch (error) {
+    console.error('[shift:open] failed', error);
+    showToast(error?.message || 'Gagal buka shift');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function submitCloseShift() {
+  const btn = $('#btn-close-shift-submit');
   const counted = Number($('#shift-counted-cash').value || 0);
   const notes = $('#shift-close-notes').value || '';
-  const closeReport = await window.desktopAPI.getShiftCloseReport({ counted_cash_total: counted, user: state.user });
-  const pending = await window.desktopAPI.syncPending();
-  await window.desktopAPI.retryPendingShift();
-  const actionResp = await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: counted, notes, sync_status: pending?.ok ? 'synced' : 'partial' });
-  if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal tutup shift');
-  hideShiftModals();
-  if (closeReport?.ok && closeReport.html) {
-    try {
-      const settings = await window.desktopAPI.getSettings();
-      await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
-    } catch (error) {
-      showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
+  if (btn) btn.disabled = true;
+  try {
+    const closeReport = await window.desktopAPI.getShiftCloseReport({ counted_cash_total: counted, user: state.user });
+    let pending = { ok: false };
+    try { pending = await window.desktopAPI.syncPending(); } catch (error) { console.warn('[shift:close] syncPending failed', error); }
+    try { await window.desktopAPI.retryPendingShift(); } catch (error) { console.warn('[shift:close] retryPendingShift failed', error); }
+    const actionResp = await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: counted, notes, sync_status: pending?.ok ? 'synced' : 'partial' });
+    if (!actionResp?.ok && actionResp?.sync_status !== 'pending') {
+      showToast(actionResp?.message || 'Gagal tutup shift');
+      return;
     }
+    hideShiftModals();
+    if (closeReport?.ok && closeReport.html) {
+      try {
+        const settings = await window.desktopAPI.getSettings();
+        await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+      } catch (error) {
+        showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
+      }
+    }
+    try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
+    await loadPosState();
+    showToast(actionResp?.sync_status === 'pending' ? 'Closing shift tersimpan lokal dan menunggu sync' : 'Shift ditutup', 'success');
+  } catch (error) {
+    console.error('[shift:close] failed', error);
+    showToast(error?.message || 'Gagal tutup shift');
+  } finally {
+    if (btn) btn.disabled = false;
   }
-  try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
-  await loadPosState();
-  showToast(actionResp?.sync_status === 'pending' ? 'Closing shift tersimpan lokal dan menunggu sync' : 'Shift ditutup', 'success');
 }
 
 async function loadHistory() {
