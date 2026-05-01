@@ -101,12 +101,19 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </button>
         <div class="submenu" id="m-stok">
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stocks.php')); ?>">Daftar Stok</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/branch_stock_inputs.php')); ?>">Approval Stok Masuk Cabang</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname')): ?><a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname', 'approve')): ?><a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a><?php endif; ?>
         </div>
       </div>
     <?php endif; ?>
+
+    <div class="item">
+      <a href="<?php echo e(base_url('cabang/pilih.php')); ?>">
+        <div class="mi">🏬</div><div class="label">Halaman Cabang</div>
+      </a>
+    </div>
 
     <?php if (has_menu_access($u, 'pos')): ?>
     <div class="item">
@@ -124,6 +131,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </button>
         <div class="submenu" id="m-admin">
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/branches.php')); ?>">Master Cabang</a><?php endif; ?>
           <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
           <?php endif; ?>

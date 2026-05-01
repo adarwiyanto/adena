@@ -348,7 +348,7 @@ async function submitCloseShift() {
     if (closeReport?.ok && closeReport.html) {
       try {
         const settings = await window.desktopAPI.getSettings();
-        await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+        await window.desktopAPI.printReceipt({ html: closeReport.html, rawReceipt: closeReport.rawReceipt || null, printerName: settings.printerName, silent: true });
       } catch (error) {
         showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
       }
@@ -391,10 +391,54 @@ async function loadRecap() {
   if (!$('#recap-from').value && !$('#recap-to').value) setRecapRange(state.recapRange || 'today');
   const data = await window.desktopAPI.getHistoryRecap({ from: $('#recap-from').value.trim(), to: $('#recap-to').value.trim() });
   if (!data?.ok) return;
+  state.lastRecap = data;
   const rows = data.rows || [];
   $('#recap-summary').innerHTML = '<div class="recap-total"><div><small>Total Transaksi</small><strong>' + Number(data.total?.trx_count || 0) + '</strong></div><div><small>Total Omzet</small><strong>' + rupiah(data.total?.omzet || 0) + '</strong></div></div>' +
     '<div class="recap-table"><div class="recap-row head"><span>Metode</span><span>Bank</span><span>Transaksi</span><span>Omzet</span></div>' +
     (rows.map((r) => '<div class="recap-row"><span>' + escapeHtml(r.payment_method || '-') + '</span><span>' + escapeHtml(r.payment_bank || '-') + '</span><span>' + Number(r.trx_count || 0) + '</span><strong>' + rupiah(r.total || 0) + '</strong></div>').join('') || '<div class="empty">Belum ada transaksi.</div>') + '</div>';
+}
+
+function buildRecapPrintHtml(recap, settings = {}) {
+  const from = $('#recap-from').value.trim() || '-';
+  const to = $('#recap-to').value.trim() || '-';
+  const rows = recap.rows || [];
+  const storeName = settings.store_name || 'Adena POS ver 1.3';
+  const storeAddress = settings.store_address || settings.store_subtitle || '';
+  const rowHtml = rows.map((r) => '<div class="row"><span>' + escapeHtml([r.payment_method || '-', r.payment_bank || ''].filter(Boolean).join(' - ')) + ' (' + Number(r.trx_count || 0) + ')</span><span>' + rupiah(r.total || 0) + '</span></div>').join('') || '<div class="row"><span>Belum ada transaksi</span><span>Rp 0</span></div>';
+  return '<div class="receipt-header">' + escapeHtml(storeName) + '</div>' + (storeAddress ? '<div class="receipt-address">' + escapeHtml(storeAddress) + '</div>' : '') + '<hr/><div class="receipt-header">REKAPITULASI OMSET</div><div>Periode: ' + escapeHtml(from) + ' s/d ' + escapeHtml(to) + '</div><div>Dicetak: ' + escapeHtml(new Date().toLocaleString('sv-SE')) + '</div><div>Kasir: ' + escapeHtml(state.user?.name || '-') + '</div><hr/>' + rowHtml + '<hr/><div class="row"><span>Total Transaksi</span><span>' + Number(recap.total?.trx_count || 0) + '</span></div><div class="receipt-total">Total Omzet: ' + rupiah(recap.total?.omzet || 0) + '</div>';
+}
+
+function buildRecapPrintPayload(recap, settings = {}) {
+  const from = $('#recap-from').value.trim() || '-';
+  const to = $('#recap-to').value.trim() || '-';
+  const logo = settings.store_logo_local_uri || settings.store_logo_url || settings.store_logo || '';
+  const rows = recap.rows || [];
+  return {
+    html: buildRecapPrintHtml(recap, settings),
+    printerName: settings.printerName,
+    silent: true,
+    rawReceipt: {
+      storeName: settings.store_name || 'Adena POS ver 1.3',
+      storeAddress: settings.store_address || settings.store_subtitle || '',
+      logo: logo && (/^file:|^https?:|^data:/i.test(String(logo)) ? logo : toAbsoluteImageUrl(logo)),
+      transactionCode: 'REKAPITULASI OMSET',
+      soldAt: from + ' s/d ' + to,
+      cashierName: state.user?.name || '-',
+      guideName: '-',
+      paymentMethod: 'Rekap',
+      paymentBank: '',
+      items: rows.map((r) => ({ name: [r.payment_method || '-', r.payment_bank || ''].filter(Boolean).join(' - ') + ' (' + Number(r.trx_count || 0) + ')', qty: 1, total: Number(r.total || 0), totalText: rupiah(r.total || 0) })),
+      total: Number(recap.total?.omzet || 0),
+      totalText: rupiah(recap.total?.omzet || 0)
+    }
+  };
+}
+
+async function printRecap() {
+  if (!state.lastRecap) await loadRecap();
+  if (!state.lastRecap?.ok) return showToast('Data rekapitulasi belum tersedia');
+  const settings = await window.desktopAPI.getSettings();
+  await window.desktopAPI.printReceipt(buildRecapPrintPayload(state.lastRecap, settings));
 }
 
 async function loadOrders() { const data = await window.desktopAPI.getOrders(); const grouped = new Map(); (data.items || []).forEach((i) => { if (!grouped.has(i.order_id)) grouped.set(i.order_id, []); grouped.get(i.order_id).push(i); }); $('#orders-list').innerHTML = (data.orders || []).map((o) => `<div class='row'><strong>${o.order_code}</strong> | ${o.created_at} | ${o.customer_name || '-'} | ${o.customer_contact || '-'} | ${o.status}<br/>${(grouped.get(o.id) || []).map((x) => `${x.product_name} x${x.qty}`).join(', ')}</div>`).join('') || 'Belum ada order masuk.'; }
@@ -542,7 +586,49 @@ async function payNow() {
 }
 
 function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
-function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); }; }
+function buildReceiptPrintPayload(settings = {}) {
+  const receipt = state.latestReceipt || {};
+  const logo = settings.store_logo_local_uri || settings.store_logo_url || settings.store_logo || '';
+  return {
+    html: $('#receipt-wrap')?.innerHTML || '',
+    printerName: settings.printerName,
+    silent: true,
+    rawReceipt: {
+      storeName: settings.store_name || 'Adena POS ver 1.3',
+      storeAddress: settings.store_address || settings.store_subtitle || '',
+      logo: logo && (/^file:|^https?:|^data:/i.test(String(logo)) ? logo : toAbsoluteImageUrl(logo)),
+      transactionCode: receipt.transactionCode || '-',
+      soldAt: receipt.soldAt || '-',
+      cashierName: state.user?.name || '-',
+      guideName: receipt.guideName || '-',
+      paymentMethod: receipt.paymentMethod || '-',
+      paymentBank: receipt.paymentBank || '',
+      items: Array.isArray(receipt.items) ? receipt.items.map((item) => {
+        const qty = Number(item.qty || 0);
+        const price = Number(item.price_each || item.price || 0);
+        const lineTotal = qty * price;
+        return { name: item.name || 'Item', qty, price_each: price, total: lineTotal, totalText: rupiah(lineTotal) };
+      }) : [],
+      total: receipt.total || 0,
+      totalText: rupiah(receipt.total || 0),
+      cashReceived: receipt.cashReceived || 0,
+      cashReceivedText: receipt.cashReceived != null ? rupiah(receipt.cashReceived || 0) : '',
+      cashChange: receipt.cashChange || 0,
+      cashChangeText: receipt.cashChange != null ? rupiah(receipt.cashChange || 0) : ''
+    }
+  };
+}
+
+function renderReceipt() {
+  const w = $('#receipt-wrap');
+  if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
+  w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`;
+  $('#btn-print').onclick = async () => {
+    const settings = await window.desktopAPI.getSettings();
+    await window.desktopAPI.printReceipt(buildReceiptPrintPayload(settings));
+  };
+  $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); };
+}
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
@@ -740,6 +826,7 @@ async function bootstrap() {
   };
   $('#btn-load-history').onclick = loadHistory;
   $('#btn-load-recap').onclick = loadRecap;
+  $('#btn-print-recap').onclick = printRecap;
 }
 
 bootstrap().catch((error) => showToast(error.message || 'Inisialisasi gagal'));

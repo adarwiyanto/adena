@@ -197,6 +197,36 @@ function buildShiftClosePrintHtml(data) {
   </body></html>`;
 }
 
+function buildShiftCloseRawReceiptData(data) {
+  const paymentItems = (data.paymentRows || []).map((row) => {
+    const method = String(row.payment_method || '-').toUpperCase();
+    const bank = String(row.label || '').trim();
+    const label = [method, bank && bank.toUpperCase() !== method ? bank : ''].filter(Boolean).join(' - ');
+    return {
+      name: `${label || 'Pembayaran'} (${Number(row.tx_count || 0)})`,
+      qty: 1,
+      total: Number(row.total || 0),
+      totalText: `Rp ${formatNumber(row.total || 0)}`
+    };
+  });
+  return {
+    storeName: data.store.name || 'Adena POS ver 1.3',
+    storeAddress: data.store.address || '',
+    logo: data.store.logoUri || '',
+    transactionCode: 'TUTUP SHIFT',
+    soldAt: `${data.shift.opened_at || '-'} s/d ${data.printedAt || '-'}`,
+    cashierName: data.cashier || '-',
+    guideName: `Transaksi ${Number(data.transactionCount || 0)}`,
+    paymentMethod: 'Rekap Omset',
+    paymentBank: '',
+    items: paymentItems.length ? paymentItems : [{ name: 'Belum ada transaksi', qty: 1, total: 0, totalText: 'Rp 0' }],
+    total: Number(data.totalSales || 0),
+    totalText: `Rp ${formatNumber(data.totalSales || 0)}`,
+    cashReceivedText: `Kas Aktual Rp ${formatNumber(data.countedCash || 0)}`,
+    cashChangeText: `Selisih Rp ${formatNumber(data.cashDifference || 0)}`
+  };
+}
+
 async function handleSyncBeforeExit() {
   try {
     await syncPendingTransactions();
@@ -460,7 +490,7 @@ ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); r
 ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
   const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
   if (!data.ok) return data;
-  return { ...data, html: buildShiftClosePrintHtml(data) };
+  return { ...data, html: buildShiftClosePrintHtml(data), rawReceipt: buildShiftCloseRawReceiptData(data) };
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));
