@@ -595,6 +595,10 @@ function format_rupiah($amount)
           </div>
         </div>
 
+        <?php if (in_array($role, ['owner','admin'], true)): ?>
+          <?php include __DIR__ . '/dashboard_branch_customer.php'; ?>
+        <?php endif; ?>
+
         <?php if ($role === 'owner'): ?>
           <div class="card" style="margin-top:16px">
             <h3 style="margin-top:0">KPI Owner</h3>

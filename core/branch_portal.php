@@ -29,7 +29,7 @@ function ensure_branch_portal_schema(): void {
       qty DECIMAL(18,4) NOT NULL,
       unit_cost DECIMAL(18,2) NULL,
       notes TEXT NULL,
-      status ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
+      status ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'approved',
       created_by INT NOT NULL,
       approved_by INT NULL,
       approved_at TIMESTAMP NULL DEFAULT NULL,
@@ -43,18 +43,22 @@ function ensure_branch_portal_schema(): void {
       KEY idx_branch_stock_inputs_approved_by (approved_by)
     ) ENGINE=InnoDB");
   } catch (Throwable $e) {}
+
+  try { db()->exec("ALTER TABLE branch_stock_inputs MODIFY status ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'approved'"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE customers ADD COLUMN domicile VARCHAR(120) NULL AFTER birth_date"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE customers ADD COLUMN instagram VARCHAR(120) NULL AFTER domicile"); } catch (Throwable $e) {}
 }
 
 function branch_portal_current_user(): array {
   start_secure_session();
-  require_admin();
+  $u = require_menu_access('branch_page', 'view');
   ensure_branch_portal_schema();
-  return current_user() ?? [];
+  return $u;
 }
 
 function branch_portal_is_owner(array $u): bool {
   $resolved = resolve_user_role($u);
-  return (string)($resolved['role_key'] ?? '') === 'owner';
+  return in_array((string)($resolved['role_key'] ?? ''), ['owner', 'admin'], true);
 }
 
 function branch_portal_all_branches(bool $activeOnly = true): array {
@@ -152,11 +156,31 @@ function branch_portal_generate_input_no(PDO $db): string {
 function branch_portal_create_stock_input(int $branchId, int $productId, float $qty, ?float $unitCost, string $notes, int $userId): int {
   if ($qty <= 0) throw new Exception('Jumlah stok masuk wajib lebih dari 0.');
   $db = db();
-  $no = branch_portal_generate_input_no($db);
-  $stmt = $db->prepare("INSERT INTO branch_stock_inputs (input_no,branch_id,product_id,qty,unit_cost,notes,status,created_by)
-    VALUES (?,?,?,?,?,?, 'pending', ?)");
-  $stmt->execute([$no, $branchId, $productId, $qty, $unitCost, $notes !== '' ? $notes : null, $userId]);
-  return (int)$db->lastInsertId();
+  $db->beginTransaction();
+  try {
+    $no = branch_portal_generate_input_no($db);
+    $stmt = $db->prepare("INSERT INTO branch_stock_inputs (input_no,branch_id,product_id,qty,unit_cost,notes,status,created_by,approved_by,approved_at,approval_note)
+      VALUES (?,?,?,?,?,?, 'approved', ?, ?, NOW(), 'Auto masuk dari halaman cabang')");
+    $stmt->execute([$no, $branchId, $productId, $qty, $unitCost, $notes !== '' ? $notes : null, $userId, $userId]);
+    $id = (int)$db->lastInsertId();
+    add_stock_ledger([
+      'branch_id' => $branchId,
+      'product_id' => $productId,
+      'trans_type' => 'branch_stock_input',
+      'ref_table' => 'branch_stock_inputs',
+      'ref_id' => $id,
+      'qty_in' => $qty,
+      'qty_out' => 0,
+      'unit_cost' => $unitCost,
+      'note' => 'Stok masuk cabang ' . $no,
+      'created_by' => $userId,
+    ]);
+    $db->commit();
+    return $id;
+  } catch (Throwable $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    throw $e;
+  }
 }
 
 function branch_portal_approve_stock_input(int $id, int $userId, string $note = ''): void {

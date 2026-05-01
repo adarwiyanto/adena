@@ -67,6 +67,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $password = (string)($_POST['password'] ?? '');
       $gender = trim((string)($_POST['gender'] ?? ''));
       $birthDate = trim((string)($_POST['birth_date'] ?? ''));
+      $domicile = trim((string)($_POST['domicile'] ?? ''));
+      $instagram = trim((string)($_POST['instagram'] ?? ''));
+      if ($instagram !== '' && $instagram[0] === '@') $instagram = substr($instagram, 1);
 
       if ($name === '') throw new Exception('Nama wajib diisi.');
       if ($username === '') throw new Exception('Username wajib diisi.');
@@ -93,6 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Pilih jenis kelamin.');
       }
       if ($birthDate === '') throw new Exception('Tanggal lahir wajib diisi.');
+      if ($domicile === '') throw new Exception('Domisili wajib diisi.');
       $birth = DateTimeImmutable::createFromFormat('Y-m-d', $birthDate);
       if (!$birth) throw new Exception('Tanggal lahir tidak valid.');
       if ($recaptchaSecretKey === '') {
@@ -103,18 +107,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new Exception('Verifikasi reCAPTCHA gagal.');
       }
 
-      $stmt = db()->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
-      $stmt->execute([$phone]);
-      if ($stmt->fetch()) {
-        throw new Exception('Nomor telepon sudah terdaftar.');
+      if ($phone !== '') {
+        $stmt = db()->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
+        $stmt->execute([$phone]);
+        if ($stmt->fetch()) {
+          throw new Exception('Nomor telepon sudah terdaftar.');
+        }
       }
 
       $hash = password_hash($password, PASSWORD_DEFAULT);
       $stmt = db()->prepare("
-        INSERT INTO customers (name, username, email, phone, password_hash, gender, birth_date)
-        VALUES (?,?,?,?,?,?,?)
+        INSERT INTO customers (name, username, email, phone, password_hash, gender, birth_date, domicile, instagram)
+        VALUES (?,?,?,?,?,?,?,?,?)
       ");
-      $stmt->execute([$name, $username, $email, $phone, $hash, $gender, $birthDate]);
+      $stmt->execute([$name, $username, $email !== '' ? $email : null, $phone !== '' ? $phone : null, $hash, $gender, $birthDate, $domicile, $instagram !== '' ? $instagram : null]);
       $customerId = (int)db()->lastInsertId();
       $stmt = db()->prepare("SELECT * FROM customers WHERE id = ? LIMIT 1");
       $stmt->execute([$customerId]);
@@ -186,8 +192,8 @@ $customCss = setting('custom_css', '');
           <input type="hidden" name="action" value="register">
           <div class="row"><label>Nama</label><input name="name" required></div>
           <div class="row"><label>Username</label><input name="username" required></div>
-          <div class="row"><label>Email</label><input name="email" type="email" required></div>
-          <div class="row"><label>Nomor Telepon</label><input name="phone" type="tel" inputmode="tel" required></div>
+          <div class="row"><label>Email (opsional)</label><input name="email" type="email"></div>
+          <div class="row"><label>No HP / WhatsApp (opsional)</label><input name="phone" type="tel" inputmode="tel"></div>
           <div class="row"><label>Password</label><input name="password" type="password" minlength="6" required></div>
           <div class="row">
             <label>Jenis Kelamin</label>
@@ -199,6 +205,8 @@ $customCss = setting('custom_css', '');
             </select>
           </div>
           <div class="row"><label>Tanggal Lahir</label><input name="birth_date" type="date" required></div>
+          <div class="row"><label>Domisili / Kota</label><input name="domicile" required placeholder="contoh: Belitung"></div>
+          <div class="row"><label>Instagram (opsional)</label><input name="instagram" placeholder="contoh: adena.food"></div>
           <?php if (!empty($recaptchaSiteKey)): ?>
             <input type="hidden" name="g-recaptcha-response" id="recaptcha-register-token">
           <?php else: ?>

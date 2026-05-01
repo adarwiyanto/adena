@@ -9,6 +9,7 @@ $err=''; $msg=''; $search=trim((string)($_GET['search'] ?? ''));
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   try {
+    if (!has_menu_access($u, 'branch_page', 'create')) { throw new Exception('User tidak memiliki izin input halaman cabang.'); }
     $items=[];
     foreach (($_POST['physical_qty'] ?? []) as $pid => $qtyRaw) {
       $qtyText=trim((string)$qtyRaw);
