@@ -63,6 +63,20 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
     </div>
     <?php endif; ?>
 
+    <?php if (current_user_is_owner() || has_menu_access($u, 'dashboard') || has_menu_access($u, 'inventori')): ?>
+    <div class="item">
+      <button type="button" data-toggle-submenu="#m-area-web">
+        <div class="mi">🏬</div><div class="label">Area Web</div>
+        <div class="chev">▾</div>
+      </button>
+      <div class="submenu" id="m-area-web">
+        <a href="<?php echo e(base_url('admin/dashboard.php')); ?>">Admin Area</a>
+        <a href="<?php echo e(base_url('kitchen/index.php')); ?>">Dapur Produksi</a>
+        <a href="<?php echo e(base_url('branch/index.php')); ?>">Toko / Cabang</a>
+      </div>
+    </div>
+    <?php endif; ?>
+
     <div class="item">
       <button type="button" data-toggle-submenu="#m-produk">
         <div class="mi">📦</div><div class="label">Produk & Inventori</div>
@@ -101,20 +115,11 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </button>
         <div class="submenu" id="m-stok">
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stocks.php')); ?>">Daftar Stok</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/branch_stock_inputs.php')); ?>">Audit Stok Masuk Cabang</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname')): ?><a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname', 'approve')): ?><a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a><?php endif; ?>
         </div>
       </div>
-    <?php endif; ?>
-
-    <?php if (has_menu_access($u, 'branch_page')): ?>
-    <div class="item">
-      <a href="<?php echo e(base_url('cabang/pilih.php')); ?>">
-        <div class="mi">🏬</div><div class="label">Halaman Cabang</div>
-      </a>
-    </div>
     <?php endif; ?>
 
     <?php if (has_menu_access($u, 'pos')): ?>
@@ -133,7 +138,6 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </button>
         <div class="submenu" id="m-admin">
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/branches.php')); ?>">Master Cabang</a><?php endif; ?>
           <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
           <?php endif; ?>

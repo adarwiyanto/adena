@@ -68,6 +68,8 @@ function normalizeProduct(record = {}) {
     is_best_seller: record.is_best_seller ?? 0,
     show_on_pos: record.show_on_pos ?? 1,
     track_stock: record.track_stock ?? 0,
+    is_price_editable: record.is_price_editable ?? 0,
+    include_in_sales_report: record.include_in_sales_report ?? 1,
     updated_at: record.updated_at || record.created_at || localDateTimeString()
   };
 }
@@ -203,12 +205,12 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
         .forEach((table) => db.prepare(`DELETE FROM ${table}`).run());
     }
 
-    const upsertProduct = db.prepare(`INSERT INTO products (id, name, price, category, category_id, category_name, image_path, local_image_path, image_downloaded_at, is_favorite, is_best_seller, show_on_pos, track_stock, updated_at)
-      VALUES (@id, @name, @price, @category, @category_id, @category_name, @image_path, @local_image_path, @image_downloaded_at, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @updated_at)
+    const upsertProduct = db.prepare(`INSERT INTO products (id, name, price, category, category_id, category_name, image_path, local_image_path, image_downloaded_at, is_favorite, is_best_seller, show_on_pos, track_stock, is_price_editable, include_in_sales_report, updated_at)
+      VALUES (@id, @name, @price, @category, @category_id, @category_name, @image_path, @local_image_path, @image_downloaded_at, @is_favorite, @is_best_seller, @show_on_pos, @track_stock, @is_price_editable, @include_in_sales_report, @updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name=excluded.name, price=excluded.price, category=excluded.category, category_id=excluded.category_id,
         category_name=excluded.category_name, image_path=excluded.image_path, local_image_path=excluded.local_image_path, image_downloaded_at=excluded.image_downloaded_at, is_favorite=excluded.is_favorite,
-        is_best_seller=excluded.is_best_seller, show_on_pos=excluded.show_on_pos, track_stock=excluded.track_stock,
+        is_best_seller=excluded.is_best_seller, show_on_pos=excluded.show_on_pos, track_stock=excluded.track_stock, is_price_editable=excluded.is_price_editable, include_in_sales_report=excluded.include_in_sales_report,
         updated_at=excluded.updated_at`);
     normalizedProducts.forEach((r) => upsertProduct.run({
       id: r.id,
@@ -224,6 +226,8 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
       is_best_seller: r.is_best_seller ?? 0,
       show_on_pos: r.show_on_pos ?? 1,
       track_stock: r.track_stock ?? 0,
+      is_price_editable: r.is_price_editable ?? 0,
+      include_in_sales_report: r.include_in_sales_report ?? 1,
       updated_at: r.updated_at || localDateTimeString()
     }));
 
@@ -422,13 +426,15 @@ function buildPendingPayload() {
         payment_bank: row.payment_bank,
         guide_id: row.guide_id,
         guide_name: row.guide_name,
+        tx_discount_amount: row.tx_discount_amount || 0,
+        tx_discount_type: row.tx_discount_type || 'fixed',
         user_id: row.created_by,
         sold_at: row.sold_at,
         source: 'desktop',
         items: []
       });
     }
-    grouped.get(key).items.push({ product_id: row.product_id, qty: row.qty, price_each: row.price_each, total: row.total });
+    grouped.get(key).items.push({ product_id: row.product_id, qty: row.qty, price_each: row.price_each, total: row.total, discount_amount: row.discount_amount || 0, discount_type: row.discount_type || 'fixed', include_in_sales_report: row.include_in_sales_report ?? 1, line_subtotal: row.line_subtotal || (row.qty * row.price_each), line_net_total: row.line_net_total || row.total });
   }
 
   return { shifts: [], cash_movements: [], transactions: Array.from(grouped.values()) };

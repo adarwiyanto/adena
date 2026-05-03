@@ -4,6 +4,7 @@
  * Download data master untuk POS Desktop.
  */
 require_once __DIR__ . '/../helpers.php';
+require_once __DIR__ . '/../../core/ops14.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     api_err('Method tidak diizinkan.', 405);
@@ -85,6 +86,7 @@ function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
 try {
     $user = api_verify_token();
     $pdo = db();
+    ensure_adena14_schema();
 
     $sinceRaw = safe_string($_GET['since'] ?? '');
     $sinceParam = parse_since_param($sinceRaw, $debugNotes);
@@ -92,7 +94,7 @@ try {
 
     $productSql = "SELECT id, name, price, category, category AS category_id, image_path,
                           is_favorite, is_best_seller, show_on_pos,
-                          track_stock, base_unit, updated_at
+                          track_stock, is_price_editable, include_in_sales_report, base_unit, updated_at
                    FROM products
                    WHERE show_on_pos = 1" .
                    ($hasFilter ? " AND updated_at >= ?" : "") .

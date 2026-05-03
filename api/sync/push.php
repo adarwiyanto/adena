@@ -4,6 +4,7 @@
  * Upload transaksi, shift, dan cash movements dari POS Desktop ke server.
  */
 require_once __DIR__ . '/../helpers.php';
+require_once __DIR__ . '/../../core/ops14.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
@@ -12,6 +13,7 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $pdo = db();
+ensure_adena14_schema();
 $safeExec = static function (string $sql) use ($pdo): void {
     try { $pdo->exec($sql); } catch (Throwable $_) {}
 };
@@ -175,7 +177,7 @@ try {
             if (empty($item['product_id'])) $missing[] = 'product_id';
             if (!isset($item['qty'])) $missing[] = 'qty';
             if (!isset($item['price_each']) && !isset($item['price'])) $missing[] = 'price_each/price';
-            if (!isset($item['total']) && !isset($item['subtotal'])) $missing[] = 'total/subtotal';
+            if (!isset($item['total']) && !isset($item['subtotal']) && !isset($item['line_net_total'])) $missing[] = 'total/subtotal/line_net_total';
             if ($missing) {
                 $validationErrors[] = 'item #' . ($idx + 1) . ' missing: ' . implode(', ', $missing);
             }
@@ -239,14 +241,15 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
             foreach ($items as $idx => $item) {
                 $itemUuid = $idx === 0 ? $txUuid : null;
                 $priceEach = isset($item['price_each']) ? (float)$item['price_each'] : (float)($item['price'] ?? 0);
-                $itemTotal = isset($item['total']) ? (float)$item['total'] : (float)($item['subtotal'] ?? 0);
+                $itemSubtotal = isset($item['line_subtotal']) ? (float)$item['line_subtotal'] : ((float)($item['subtotal'] ?? 0) ?: ((float)($item['qty'] ?? 1) * $priceEach));
+                $itemTotal = isset($item['line_net_total']) ? (float)$item['line_net_total'] : (isset($item['total']) ? (float)$item['total'] : (float)($item['subtotal'] ?? 0));
 
                 $pdo->prepare("
                     INSERT INTO sales
                         (transaction_code, transaction_group_uuid, offline_uuid,
                          product_id, qty, price_each, total,
                          discount_amount, discount_type,
-                         tx_discount_amount, tx_discount_type,
+                         tx_discount_amount, tx_discount_type, include_in_sales_report, line_subtotal, line_net_total,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
                          local_device_id, local_transaction_id,
                          created_by, shift_id, sold_at,
@@ -257,7 +260,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                         (?, ?, ?,
                          ?, ?, ?, ?,
                          ?, ?,
-                         ?, ?,
+                         ?, ?, ?, ?, ?,
                          ?, ?, ?, ?, ?, ?,
                          ?, ?, ?, ?, ?,
                          'synced', ?,
@@ -271,7 +274,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     $itemTotal,
                     (float)($item['discount_amount'] ?? 0),
                     (string)($item['discount_type'] ?? 'fixed'),
-                    $txDiscAmt, $txDiscType,
+                    $txDiscAmt, $txDiscType, (int)($item['include_in_sales_report'] ?? 1), $itemSubtotal, $itemTotal,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
                     $deviceId ?: null, $localTxId ?: $txUuid,
                     $cashierId, $shiftServerId, $soldAt,

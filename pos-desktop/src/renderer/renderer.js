@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today' };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', activePendingId: null };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -88,7 +88,26 @@ function applyTheme(settings = {}) {
 }
 
 
-function cartTotal() { return state.cart.reduce((a, b) => a + Number(b.qty || 0) * Number(b.price_each || 0), 0); }
+
+function calcDiscount(base, amount, type) {
+  const b = Math.max(0, Number(base || 0));
+  const a = Math.max(0, Number(amount || 0));
+  return String(type || 'fixed') === 'percent' ? Math.min(b, b * a / 100) : Math.min(b, a);
+}
+function itemSubtotal(item) { return Number(item.qty || 0) * Number(item.price_each || 0); }
+function itemDiscount(item) { return calcDiscount(itemSubtotal(item), item.discount_amount || 0, item.discount_type || 'fixed'); }
+function txDiscountAmount() { return Number($('#tx-discount-amount')?.value || 0); }
+function txDiscountType() { return $('#tx-discount-type')?.value || 'fixed'; }
+function cartSubtotal() { return state.cart.reduce((a, b) => a + itemSubtotal(b), 0); }
+function cartItemDiscountTotal() { return state.cart.reduce((a, b) => a + itemDiscount(b), 0); }
+function cartTotal() {
+  const afterItem = Math.max(0, cartSubtotal() - cartItemDiscountTotal());
+  return Math.max(0, afterItem - calcDiscount(afterItem, txDiscountAmount(), txDiscountType()));
+}
+function decorateCartItemsForSave() {
+  return state.cart.map((i) => ({ ...i, total: Math.max(0, itemSubtotal(i) - itemDiscount(i)), include_in_sales_report: Number(i.include_in_sales_report ?? 1) ? 1 : 0 }));
+}
+
 function isCashPayment(code) { const v = String(code || '').toLowerCase(); return v === 'cash' || v === 'tunai' || v.includes('cash') || v.includes('tunai'); }
 function updateCashPaymentState() {
   const wrap = $('#cash-payment-wrap');
@@ -219,7 +238,7 @@ function renderProducts(filter = '') {
 function addToCart(product) {
   const found = state.cart.find((x) => String(x.product_id) === String(product.id));
   if (found) found.qty += 1;
-  else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price) });
+  else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price), discount_amount: 0, discount_type: 'fixed', is_price_editable: Number(product.is_price_editable || 0), include_in_sales_report: Number(product.include_in_sales_report ?? 1) });
   renderCart();
 }
 
@@ -229,6 +248,25 @@ function updateCartQty(productId, qty) {
   const n = Math.max(1, Math.floor(Number(qty) || 1));
   item.qty = n;
   renderCart();
+}
+
+function updateCartPrice(productId, price) {
+  const item = state.cart.find((x) => String(x.product_id) === String(productId));
+  if (!item || !Number(item.is_price_editable)) return;
+  item.price_each = Math.max(0, Number(price || 0));
+  renderCart();
+}
+function updateCartDiscount(productId, amount, type) {
+  const item = state.cart.find((x) => String(x.product_id) === String(productId));
+  if (!item) return;
+  item.discount_amount = Math.max(0, Number(amount || 0));
+  item.discount_type = String(type || item.discount_type || 'fixed');
+  renderCart();
+}
+function updateCartReportFlag(productId, include) {
+  const item = state.cart.find((x) => String(x.product_id) === String(productId));
+  if (!item) return;
+  item.include_in_sales_report = include ? 1 : 0;
 }
 
 function removeCartItem(productId) {
@@ -241,16 +279,33 @@ function renderCart() {
   if (!state.cart.length) {
     wrap.innerHTML = '<div class="empty small">Keranjang kosong.</div>';
   } else {
-    wrap.innerHTML = state.cart.map((i) => `
-      <div class="cart-row cart-row-edit">
-        <div class="cart-name">${i.name}<small>${rupiah(i.price_each)}</small></div>
+    wrap.innerHTML = state.cart.map((i) => {
+      const editablePrice = Number(i.is_price_editable || 0) === 1;
+      const subtotal = itemSubtotal(i);
+      const discount = itemDiscount(i);
+      return `
+      <div class="cart-row cart-row-edit cart-row-v14">
+        <div class="cart-name">${escapeHtml(i.name)}<small>${editablePrice ? 'Harga bisa diubah' : rupiah(i.price_each)}</small></div>
         <input class="cart-qty" type="number" min="1" step="1" value="${i.qty}" data-qty-id="${i.product_id}" />
-        <strong>${rupiah(i.qty * i.price_each)}</strong>
+        ${editablePrice ? `<input class="cart-price" type="number" min="0" step="0.01" value="${i.price_each}" data-price-id="${i.product_id}" title="Harga editable" />` : `<span class="cart-price-label">${rupiah(i.price_each)}</span>`}
+        <select class="cart-disc-type" data-disc-type-id="${i.product_id}"><option value="fixed" ${i.discount_type !== 'percent' ? 'selected' : ''}>Rp</option><option value="percent" ${i.discount_type === 'percent' ? 'selected' : ''}>%</option></select>
+        <input class="cart-disc" type="number" min="0" step="0.01" value="${i.discount_amount || 0}" data-disc-id="${i.product_id}" title="Diskon item" />
+        <label class="cart-report"><input type="checkbox" ${Number(i.include_in_sales_report ?? 1) ? 'checked' : ''} data-report-id="${i.product_id}" /> Laporan</label>
+        <strong>${rupiah(Math.max(0, subtotal - discount))}</strong>
         <button class="cart-remove" title="Hapus" data-remove-id="${i.product_id}">×</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     wrap.querySelectorAll('[data-qty-id]').forEach((el) => el.onchange = () => updateCartQty(el.dataset.qtyId, el.value));
+    wrap.querySelectorAll('[data-price-id]').forEach((el) => el.onchange = () => updateCartPrice(el.dataset.priceId, el.value));
+    wrap.querySelectorAll('[data-disc-id]').forEach((el) => el.onchange = () => updateCartDiscount(el.dataset.discId, el.value, wrap.querySelector(`[data-disc-type-id="${el.dataset.discId}"]`)?.value));
+    wrap.querySelectorAll('[data-disc-type-id]').forEach((el) => el.onchange = () => updateCartDiscount(el.dataset.discTypeId, wrap.querySelector(`[data-disc-id="${el.dataset.discTypeId}"]`)?.value, el.value));
+    wrap.querySelectorAll('[data-report-id]').forEach((el) => el.onchange = () => updateCartReportFlag(el.dataset.reportId, el.checked));
     wrap.querySelectorAll('[data-remove-id]').forEach((el) => el.onclick = () => removeCartItem(el.dataset.removeId));
   }
+  if ($('#cart-subtotal')) $('#cart-subtotal').textContent = `Subtotal: ${rupiah(cartSubtotal())}`;
+  const afterItem = Math.max(0, cartSubtotal() - cartItemDiscountTotal());
+  const txDisc = calcDiscount(afterItem, txDiscountAmount(), txDiscountType());
+  if ($('#cart-discount')) $('#cart-discount').textContent = `Diskon: ${rupiah(cartItemDiscountTotal() + txDisc)}`;
   $('#cart-total').textContent = `Total: ${rupiah(cartTotal())}`;
   updateCashPaymentState();
 }
@@ -308,60 +363,35 @@ function hideShiftModals() {
 }
 
 async function submitOpenShift() {
-  const btn = $('#btn-open-shift-submit');
   const opening = Number($('#shift-opening-cash').value || 0);
-  if (btn) btn.disabled = true;
-  try {
-    const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening });
-    if (!actionResp?.ok && actionResp?.sync_status !== 'pending') {
-      showToast(actionResp?.message || 'Gagal buka shift');
-      return;
-    }
-    hideShiftModals();
-    try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
-    await loadPosState();
-    showToast(actionResp?.sync_status === 'pending' ? 'Buka shift tersimpan lokal dan menunggu sync' : 'Shift dibuka', 'success');
-  } catch (error) {
-    console.error('[shift:open] failed', error);
-    showToast(error?.message || 'Gagal buka shift');
-  } finally {
-    if (btn) btn.disabled = false;
-  }
+  const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening });
+  if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal buka shift');
+  hideShiftModals();
+  await window.desktopAPI.syncMaster({ incremental: false });
+  await loadPosState();
+  showToast(actionResp?.sync_status === 'pending' ? 'Buka shift tersimpan lokal dan menunggu sync' : 'Shift dibuka', 'success');
 }
 
 async function submitCloseShift() {
-  const btn = $('#btn-close-shift-submit');
   const counted = Number($('#shift-counted-cash').value || 0);
   const notes = $('#shift-close-notes').value || '';
-  if (btn) btn.disabled = true;
-  try {
-    const closeReport = await window.desktopAPI.getShiftCloseReport({ counted_cash_total: counted, user: state.user });
-    let pending = { ok: false };
-    try { pending = await window.desktopAPI.syncPending(); } catch (error) { console.warn('[shift:close] syncPending failed', error); }
-    try { await window.desktopAPI.retryPendingShift(); } catch (error) { console.warn('[shift:close] retryPendingShift failed', error); }
-    const actionResp = await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: counted, notes, sync_status: pending?.ok ? 'synced' : 'partial' });
-    if (!actionResp?.ok && actionResp?.sync_status !== 'pending') {
-      showToast(actionResp?.message || 'Gagal tutup shift');
-      return;
+  const closeReport = await window.desktopAPI.getShiftCloseReport({ counted_cash_total: counted, user: state.user });
+  const pending = await window.desktopAPI.syncPending();
+  await window.desktopAPI.retryPendingShift();
+  const actionResp = await window.desktopAPI.closeShift({ user_id: state.user?.id, counted_cash_total: counted, notes, sync_status: pending?.ok ? 'synced' : 'partial' });
+  if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal tutup shift');
+  hideShiftModals();
+  if (closeReport?.ok && closeReport.html) {
+    try {
+      const settings = await window.desktopAPI.getSettings();
+      await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+    } catch (error) {
+      showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
     }
-    hideShiftModals();
-    if (closeReport?.ok && closeReport.html) {
-      try {
-        const settings = await window.desktopAPI.getSettings();
-        await window.desktopAPI.printReceipt({ html: closeReport.html, rawReceipt: closeReport.rawReceipt || null, printerName: settings.printerName, silent: true });
-      } catch (error) {
-        showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
-      }
-    }
-    try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
-    await loadPosState();
-    showToast(actionResp?.sync_status === 'pending' ? 'Closing shift tersimpan lokal dan menunggu sync' : 'Shift ditutup', 'success');
-  } catch (error) {
-    console.error('[shift:close] failed', error);
-    showToast(error?.message || 'Gagal tutup shift');
-  } finally {
-    if (btn) btn.disabled = false;
   }
+  try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
+  await loadPosState();
+  showToast(actionResp?.sync_status === 'pending' ? 'Closing shift tersimpan lokal dan menunggu sync' : 'Shift ditutup', 'success');
 }
 
 async function loadHistory() {
@@ -391,54 +421,10 @@ async function loadRecap() {
   if (!$('#recap-from').value && !$('#recap-to').value) setRecapRange(state.recapRange || 'today');
   const data = await window.desktopAPI.getHistoryRecap({ from: $('#recap-from').value.trim(), to: $('#recap-to').value.trim() });
   if (!data?.ok) return;
-  state.lastRecap = data;
   const rows = data.rows || [];
   $('#recap-summary').innerHTML = '<div class="recap-total"><div><small>Total Transaksi</small><strong>' + Number(data.total?.trx_count || 0) + '</strong></div><div><small>Total Omzet</small><strong>' + rupiah(data.total?.omzet || 0) + '</strong></div></div>' +
     '<div class="recap-table"><div class="recap-row head"><span>Metode</span><span>Bank</span><span>Transaksi</span><span>Omzet</span></div>' +
     (rows.map((r) => '<div class="recap-row"><span>' + escapeHtml(r.payment_method || '-') + '</span><span>' + escapeHtml(r.payment_bank || '-') + '</span><span>' + Number(r.trx_count || 0) + '</span><strong>' + rupiah(r.total || 0) + '</strong></div>').join('') || '<div class="empty">Belum ada transaksi.</div>') + '</div>';
-}
-
-function buildRecapPrintHtml(recap, settings = {}) {
-  const from = $('#recap-from').value.trim() || '-';
-  const to = $('#recap-to').value.trim() || '-';
-  const rows = recap.rows || [];
-  const storeName = settings.store_name || 'Adena POS ver 1.3';
-  const storeAddress = settings.store_address || settings.store_subtitle || '';
-  const rowHtml = rows.map((r) => '<div class="row"><span>' + escapeHtml([r.payment_method || '-', r.payment_bank || ''].filter(Boolean).join(' - ')) + ' (' + Number(r.trx_count || 0) + ')</span><span>' + rupiah(r.total || 0) + '</span></div>').join('') || '<div class="row"><span>Belum ada transaksi</span><span>Rp 0</span></div>';
-  return '<div class="receipt-header">' + escapeHtml(storeName) + '</div>' + (storeAddress ? '<div class="receipt-address">' + escapeHtml(storeAddress) + '</div>' : '') + '<hr/><div class="receipt-header">REKAPITULASI OMSET</div><div>Periode: ' + escapeHtml(from) + ' s/d ' + escapeHtml(to) + '</div><div>Dicetak: ' + escapeHtml(new Date().toLocaleString('sv-SE')) + '</div><div>Kasir: ' + escapeHtml(state.user?.name || '-') + '</div><hr/>' + rowHtml + '<hr/><div class="row"><span>Total Transaksi</span><span>' + Number(recap.total?.trx_count || 0) + '</span></div><div class="receipt-total">Total Omzet: ' + rupiah(recap.total?.omzet || 0) + '</div>';
-}
-
-function buildRecapPrintPayload(recap, settings = {}) {
-  const from = $('#recap-from').value.trim() || '-';
-  const to = $('#recap-to').value.trim() || '-';
-  const logo = settings.store_logo_local_uri || settings.store_logo_url || settings.store_logo || '';
-  const rows = recap.rows || [];
-  return {
-    html: buildRecapPrintHtml(recap, settings),
-    printerName: settings.printerName,
-    silent: true,
-    rawReceipt: {
-      storeName: settings.store_name || 'Adena POS ver 1.3',
-      storeAddress: settings.store_address || settings.store_subtitle || '',
-      logo: logo && (/^file:|^https?:|^data:/i.test(String(logo)) ? logo : toAbsoluteImageUrl(logo)),
-      transactionCode: 'REKAPITULASI OMSET',
-      soldAt: from + ' s/d ' + to,
-      cashierName: state.user?.name || '-',
-      guideName: '-',
-      paymentMethod: 'Rekap',
-      paymentBank: '',
-      items: rows.map((r) => ({ name: [r.payment_method || '-', r.payment_bank || ''].filter(Boolean).join(' - ') + ' (' + Number(r.trx_count || 0) + ')', qty: 1, total: Number(r.total || 0), totalText: rupiah(r.total || 0) })),
-      total: Number(recap.total?.omzet || 0),
-      totalText: rupiah(recap.total?.omzet || 0)
-    }
-  };
-}
-
-async function printRecap() {
-  if (!state.lastRecap) await loadRecap();
-  if (!state.lastRecap?.ok) return showToast('Data rekapitulasi belum tersedia');
-  const settings = await window.desktopAPI.getSettings();
-  await window.desktopAPI.printReceipt(buildRecapPrintPayload(state.lastRecap, settings));
 }
 
 async function loadOrders() { const data = await window.desktopAPI.getOrders(); const grouped = new Map(); (data.items || []).forEach((i) => { if (!grouped.has(i.order_id)) grouped.set(i.order_id, []); grouped.get(i.order_id).push(i); }); $('#orders-list').innerHTML = (data.orders || []).map((o) => `<div class='row'><strong>${o.order_code}</strong> | ${o.created_at} | ${o.customer_name || '-'} | ${o.customer_contact || '-'} | ${o.status}<br/>${(grouped.get(o.id) || []).map((x) => `${x.product_name} x${x.qty}`).join(', ')}</div>`).join('') || 'Belum ada order masuk.'; }
@@ -537,7 +523,7 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     moduleStatus['Pending shift lokal'] = shiftResp?.ok ? `ok (${shiftResp.synced || 0})` : 'gagal';
     syncModuleList(moduleStatus);
 
-    await loadPosState(); await loadHistory(); await loadOrders();
+    await loadPosState(); await loadHistory(); await loadOrders(); await loadPendingOrders();
     setSyncProgress(100, 'Sinkronisasi selesai.');
     $('#sync-debug').value = '';
     state.syncSuccess = true;
@@ -577,58 +563,46 @@ async function payNow() {
   try {
     const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
     const bank = state.banks.find((b) => String(b.id) === bankId) || null;
-    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null, cash_received: cashReceived, cash_change: cashChange }, shift: state.activeShift, items: state.cart });
+    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null, cash_received: cashReceived, cash_change: cashChange }, shift: state.activeShift, items: decorateCartItemsForSave(), txDiscountAmount: txDiscountAmount(), txDiscountType: txDiscountType(), localPendingId: state.activePendingId });
     if (!localSave?.ok) return alert(localSave?.message || 'Gagal simpan transaksi lokal');
-    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: [...state.cart], total, cashReceived, cashChange };
+    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: decorateCartItemsForSave(), subtotal: cartSubtotal(), discount: cartSubtotal() - total, total, cashReceived, cashChange };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
-    switchTab('receipt'); renderReceipt(); await loadPosState();
+    state.activePendingId = null; switchTab('receipt'); renderReceipt(); await loadPosState(); await loadPendingOrders();
   } finally { state.paying = false; $('#btn-pay').disabled = false; }
 }
 
-function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
-function buildReceiptPrintPayload(settings = {}) {
-  const receipt = state.latestReceipt || {};
-  const logo = settings.store_logo_local_uri || settings.store_logo_url || settings.store_logo || '';
-  return {
-    html: $('#receipt-wrap')?.innerHTML || '',
-    printerName: settings.printerName,
-    silent: true,
-    rawReceipt: {
-      storeName: settings.store_name || 'Adena POS ver 1.3',
-      storeAddress: settings.store_address || settings.store_subtitle || '',
-      logo: logo && (/^file:|^https?:|^data:/i.test(String(logo)) ? logo : toAbsoluteImageUrl(logo)),
-      transactionCode: receipt.transactionCode || '-',
-      soldAt: receipt.soldAt || '-',
-      cashierName: state.user?.name || '-',
-      guideName: receipt.guideName || '-',
-      paymentMethod: receipt.paymentMethod || '-',
-      paymentBank: receipt.paymentBank || '',
-      items: Array.isArray(receipt.items) ? receipt.items.map((item) => {
-        const qty = Number(item.qty || 0);
-        const price = Number(item.price_each || item.price || 0);
-        const lineTotal = qty * price;
-        return { name: item.name || 'Item', qty, price_each: price, total: lineTotal, totalText: rupiah(lineTotal) };
-      }) : [],
-      total: receipt.total || 0,
-      totalText: rupiah(receipt.total || 0),
-      cashReceived: receipt.cashReceived || 0,
-      cashReceivedText: receipt.cashReceived != null ? rupiah(receipt.cashReceived || 0) : '',
-      cashChange: receipt.cashChange || 0,
-      cashChangeText: receipt.cashChange != null ? rupiah(receipt.cashChange || 0) : ''
-    }
-  };
+
+async function saveCurrentPendingOrder() {
+  if (!state.cart.length) return alert('Keranjang kosong');
+  const resp = await window.desktopAPI.savePendingOrder({ user: state.user, items: decorateCartItemsForSave(), txDiscountAmount: txDiscountAmount(), txDiscountType: txDiscountType(), localPendingId: state.activePendingId });
+  if (!resp?.ok) return showToast(resp?.message || 'Gagal simpan pending');
+  state.activePendingId = resp.localPendingId;
+  showToast(`Pending tersimpan: ${resp.pendingCode}`, 'success');
+  await loadPendingOrders();
+}
+async function loadPendingOrders() {
+  const box = $('#pending-list');
+  if (!box || !window.desktopAPI?.listPendingOrders) return;
+  const resp = await window.desktopAPI.listPendingOrders();
+  const rows = resp?.rows || [];
+  box.innerHTML = rows.map((r) => `<div class="history-item"><div class="history-main"><strong>${escapeHtml(r.pending_code || r.local_pending_id)}</strong><span>${escapeHtml(r.updated_at || r.created_at || '')}</span></div><div class="history-side"><strong>${rupiah(r.total || 0)}</strong><button data-load-pending="${escapeHtml(r.local_pending_id)}">Buka</button><button data-delete-pending="${escapeHtml(r.local_pending_id)}">Hapus</button></div></div>`).join('') || '<div class="empty">Belum ada pending order.</div>';
+  box.querySelectorAll('[data-load-pending]').forEach((btn) => btn.onclick = () => {
+    const row = rows.find((r) => r.local_pending_id === btn.dataset.loadPending);
+    if (!row) return;
+    try {
+      const payload = JSON.parse(row.payload_json || '{}');
+      state.cart = (payload.items || []).map((i) => ({ ...i, name: i.name || i.product_name }));
+      state.activePendingId = row.local_pending_id;
+      if ($('#tx-discount-amount')) $('#tx-discount-amount').value = String(payload.txDiscountAmount || row.discount_amount || 0);
+      if ($('#tx-discount-type')) $('#tx-discount-type').value = String(payload.txDiscountType || row.discount_type || 'fixed');
+      renderCart(); switchTab('pos'); showToast('Pending order dibuka', 'success');
+    } catch (_) { showToast('Payload pending rusak'); }
+  });
+  box.querySelectorAll('[data-delete-pending]').forEach((btn) => btn.onclick = async () => { await window.desktopAPI.deletePendingOrder(btn.dataset.deletePending); await loadPendingOrders(); });
 }
 
-function renderReceipt() {
-  const w = $('#receipt-wrap');
-  if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
-  w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`;
-  $('#btn-print').onclick = async () => {
-    const settings = await window.desktopAPI.getSettings();
-    await window.desktopAPI.printReceipt(buildReceiptPrintPayload(settings));
-  };
-  $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); };
-}
+function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
+function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${escapeHtml(i.name)} x${i.qty}</span><span>${rupiah(i.total ?? (i.qty * i.price_each))}</span></div>`).join('')}<div>Subtotal: ${rupiah(state.latestReceipt.subtotal || state.latestReceipt.total)}</div><div>Diskon: ${rupiah(state.latestReceipt.discount || 0)}</div><div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; state.activePendingId = null; renderCart(); switchTab('pos'); }; }
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
@@ -816,6 +790,9 @@ async function bootstrap() {
   document.querySelectorAll('.recap-range').forEach((b) => b.onclick = async () => { setRecapRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadRecap(); });
   setHistoryRange('today'); setRecapRange('today');
   $('#btn-pay').onclick = payNow;
+  if ($('#btn-save-pending')) $('#btn-save-pending').onclick = saveCurrentPendingOrder;
+  if ($('#tx-discount-amount')) $('#tx-discount-amount').oninput = renderCart;
+  if ($('#tx-discount-type')) $('#tx-discount-type').onchange = renderCart;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = null; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };
   $('#btn-manual-sync').onclick = async () => {
@@ -826,7 +803,6 @@ async function bootstrap() {
   };
   $('#btn-load-history').onclick = loadHistory;
   $('#btn-load-recap').onclick = loadRecap;
-  $('#btn-print-recap').onclick = printRecap;
 }
 
 bootstrap().catch((error) => showToast(error.message || 'Inisialisasi gagal'));

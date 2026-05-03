@@ -77,6 +77,8 @@ function initDb() {
       show_on_pos INTEGER DEFAULT 1,
       product_type TEXT,
       track_stock INTEGER DEFAULT 1,
+      is_price_editable INTEGER DEFAULT 0,
+      include_in_sales_report INTEGER DEFAULT 1,
       allow_bom INTEGER DEFAULT 0,
       updated_at TEXT
     );
@@ -188,6 +190,10 @@ function initDb() {
       discount_type TEXT DEFAULT 'fixed',
       tx_discount_amount REAL DEFAULT 0,
       tx_discount_type TEXT DEFAULT 'fixed',
+      include_in_sales_report INTEGER DEFAULT 1,
+      line_subtotal REAL DEFAULT 0,
+      line_net_total REAL DEFAULT 0,
+      local_pending_id TEXT,
       local_device_id TEXT,
       local_transaction_id TEXT,
       sync_status TEXT DEFAULT 'pending',
@@ -257,6 +263,35 @@ function initDb() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS pending_orders_local (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_pending_id TEXT NOT NULL UNIQUE,
+      pending_code TEXT,
+      customer_name TEXT,
+      note TEXT,
+      subtotal REAL DEFAULT 0,
+      discount_amount REAL DEFAULT 0,
+      discount_type TEXT DEFAULT 'fixed',
+      total REAL DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      payload_json TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS pending_order_items_local (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      local_pending_id TEXT NOT NULL,
+      product_id INTEGER NOT NULL,
+      product_name TEXT,
+      qty REAL DEFAULT 0,
+      price_each REAL DEFAULT 0,
+      discount_amount REAL DEFAULT 0,
+      discount_type TEXT DEFAULT 'fixed',
+      total REAL DEFAULT 0,
+      include_in_sales_report INTEGER DEFAULT 1
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_offline_uuid ON sales(offline_uuid);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_local_id ON sales(local_device_id, local_transaction_id);
@@ -267,6 +302,17 @@ function initDb() {
   const safeExec = (sql) => {
     try { db.exec(sql); } catch (_) {}
   };
+
+  safeExec('ALTER TABLE products ADD COLUMN is_price_editable INTEGER DEFAULT 0');
+  safeExec('ALTER TABLE products ADD COLUMN include_in_sales_report INTEGER DEFAULT 1');
+  safeExec('ALTER TABLE sales ADD COLUMN discount_amount REAL DEFAULT 0');
+  safeExec("ALTER TABLE sales ADD COLUMN discount_type TEXT DEFAULT 'fixed'");
+  safeExec('ALTER TABLE sales ADD COLUMN tx_discount_amount REAL DEFAULT 0');
+  safeExec("ALTER TABLE sales ADD COLUMN tx_discount_type TEXT DEFAULT 'fixed'");
+  safeExec('ALTER TABLE sales ADD COLUMN include_in_sales_report INTEGER DEFAULT 1');
+  safeExec('ALTER TABLE sales ADD COLUMN line_subtotal REAL DEFAULT 0');
+  safeExec('ALTER TABLE sales ADD COLUMN line_net_total REAL DEFAULT 0');
+  safeExec('ALTER TABLE sales ADD COLUMN local_pending_id TEXT');
   safeExec('ALTER TABLE products ADD COLUMN image_path TEXT');
   safeExec('ALTER TABLE products ADD COLUMN local_image_path TEXT');
   safeExec('ALTER TABLE products ADD COLUMN image_downloaded_at TEXT');
@@ -283,27 +329,6 @@ function initDb() {
   safeExec('ALTER TABLE sales ADD COLUMN cash_received REAL');
   safeExec('ALTER TABLE sales ADD COLUMN cash_change REAL');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN shift_code TEXT');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN branch_id INTEGER');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN opened_at TEXT');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN opened_by INTEGER');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN opening_cash_default REAL DEFAULT 0');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN opening_cash_actual REAL DEFAULT 0');
-  safeExec("ALTER TABLE pos_shifts ADD COLUMN status TEXT DEFAULT 'open'");
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN closed_at TEXT');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN closed_by INTEGER');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN expected_cash_total REAL');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN counted_cash_total REAL');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN cash_difference REAL');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN notes TEXT');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN offline_open_uuid TEXT');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN offline_close_uuid TEXT');
-  safeExec("ALTER TABLE pos_shifts ADD COLUMN sync_status TEXT DEFAULT 'synced'");
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN created_at TEXT');
-  safeExec('ALTER TABLE pos_shifts ADD COLUMN updated_at TEXT');
-  safeExec("ALTER TABLE pos_cash_movements ADD COLUMN sync_status TEXT DEFAULT 'synced'");
-  safeExec('ALTER TABLE shift_sync_queue ADD COLUMN error_message TEXT');
-  safeExec('ALTER TABLE shift_sync_queue ADD COLUMN synced_at TEXT');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');
 

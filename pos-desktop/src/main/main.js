@@ -1,22 +1,16 @@
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, session, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, session } = require('electron');
 const { initDb, closeDb } = require('./db');
 const { store, DEFAULT_SETTINGS, getApiConfig } = require('./config');
 const { testConnection, login, shiftAction } = require('./api');
 const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
-const { saveSaleLocally } = require('./transactions');
+const { saveSaleLocally, savePendingOrder, listPendingOrders, deletePendingOrder } = require('./transactions');
 const { printReceipt } = require('./print');
-const { localDateTimeString } = require('./time');
 
 let mainWindow;
 let isQuittingConfirmed = false;
-
-function resolveAppIconPath() {
-  const iconPath = path.join(__dirname, '../../assets/icon.ico');
-  return fs.existsSync(iconPath) ? iconPath : null;
-}
 
 function isApiConfigured() {
   const cfg = getApiConfig();
@@ -148,9 +142,9 @@ function buildShiftClosePrintHtml(data) {
     @page { margin: 2mm; size: 58mm auto; }
     body { width: 54mm; margin: 0 auto; font-family: "Courier New", monospace; font-size: 10px; color: #111; }
     .center { text-align: center; }
-    .receipt-logo { display:block; max-width: 30mm; max-height: 16mm; object-fit: contain; margin: 0 auto 0.4mm; padding:0; vertical-align:bottom; }
-    .receipt-logo-text { text-align:center; font-weight:bold; font-size:14px; letter-spacing:1px; margin-bottom:0.4mm; line-height:1.05; }
-    .receipt-address { text-align:center; font-size:9px; line-height:1.15; margin-top:0.2mm; margin-bottom:1mm; white-space:normal; }
+    .receipt-logo { display:block; max-width: 30mm; max-height: 16mm; object-fit: contain; margin: 0 auto 2mm; }
+    .receipt-logo-text { text-align:center; font-weight:bold; font-size:14px; letter-spacing:1px; margin-bottom:1mm; }
+    .receipt-address { text-align:center; font-size:9px; line-height:1.25; margin-bottom:2mm; white-space:normal; }
     .title { text-align:center; margin: 1mm 0 2mm; }
     .row { display:flex; justify-content:space-between; gap:5px; line-height:1.35; }
     .row span:first-child { white-space: nowrap; }
@@ -197,36 +191,6 @@ function buildShiftClosePrintHtml(data) {
   </body></html>`;
 }
 
-function buildShiftCloseRawReceiptData(data) {
-  const paymentItems = (data.paymentRows || []).map((row) => {
-    const method = String(row.payment_method || '-').toUpperCase();
-    const bank = String(row.label || '').trim();
-    const label = [method, bank && bank.toUpperCase() !== method ? bank : ''].filter(Boolean).join(' - ');
-    return {
-      name: `${label || 'Pembayaran'} (${Number(row.tx_count || 0)})`,
-      qty: 1,
-      total: Number(row.total || 0),
-      totalText: `Rp ${formatNumber(row.total || 0)}`
-    };
-  });
-  return {
-    storeName: data.store.name || 'Adena POS ver 1.3',
-    storeAddress: data.store.address || '',
-    logo: data.store.logoUri || '',
-    transactionCode: 'TUTUP SHIFT',
-    soldAt: `${data.shift.opened_at || '-'} s/d ${data.printedAt || '-'}`,
-    cashierName: data.cashier || '-',
-    guideName: `Transaksi ${Number(data.transactionCount || 0)}`,
-    paymentMethod: 'Rekap Omset',
-    paymentBank: '',
-    items: paymentItems.length ? paymentItems : [{ name: 'Belum ada transaksi', qty: 1, total: 0, totalText: 'Rp 0' }],
-    total: Number(data.totalSales || 0),
-    totalText: `Rp ${formatNumber(data.totalSales || 0)}`,
-    cashReceivedText: `Kas Aktual Rp ${formatNumber(data.countedCash || 0)}`,
-    cashChangeText: `Selisih Rp ${formatNumber(data.cashDifference || 0)}`
-  };
-}
-
 async function handleSyncBeforeExit() {
   try {
     await syncPendingTransactions();
@@ -238,17 +202,14 @@ async function handleSyncBeforeExit() {
 }
 
 function createWindow() {
-  app.setName('Adena POS ver 1.3');
-  const iconPath = resolveAppIconPath();
-  const windowIcon = iconPath ? nativeImage.createFromPath(iconPath) : undefined;
+  const iconPath = path.join(__dirname, '../../assets/icon.ico');
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 1200,
     minHeight: 760,
     autoHideMenuBar: true,
-    title: 'Adena POS ver 1.3',
-    icon: windowIcon && !windowIcon.isEmpty() ? windowIcon : (iconPath || undefined),
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -270,18 +231,12 @@ function createWindow() {
 
 async function resetAllAppData() {
   const userDataPath = app.getPath('userData');
-  const dataPath = path.join(userDataPath, 'data');
-  const cachePath = path.join(userDataPath, 'cache');
-  const dbFiles = ['pos.sqlite', 'pos.sqlite-wal', 'pos.sqlite-shm'].map((name) => path.join(dataPath, name));
-
   closeDb();
 
   try {
     await session.defaultSession.clearStorageData();
     await session.defaultSession.clearCache();
-  } catch (error) {
-    console.warn('[reset] clear session failed', error.message);
-  }
+  } catch (_) {}
 
   store.clear();
   Object.entries(DEFAULT_SETTINGS).forEach(([key, value]) => store.set(key, value));
@@ -289,22 +244,13 @@ async function resetAllAppData() {
   store.delete('allowIncrementalSyncOnce');
   store.delete('lastSyncAt');
 
-  try {
-    for (const file of dbFiles) fs.rmSync(file, { force: true });
-    fs.rmSync(cachePath, { recursive: true, force: true });
-    fs.mkdirSync(dataPath, { recursive: true });
-  } catch (error) {
-    console.warn('[reset] local data cleanup failed', error.message);
-  }
+  fs.rmSync(userDataPath, { recursive: true, force: true });
+  fs.mkdirSync(userDataPath, { recursive: true });
 
-  setTimeout(() => {
-    app.relaunch();
-    app.exit(0);
-  }, 250);
+  app.relaunch();
+  app.exit(0);
   return { ok: true };
 }
-
-app.setAppUserModelId('com.adena.posdesktop');
 
 app.whenReady().then(() => {
   initDb();
@@ -412,10 +358,13 @@ ipcMain.handle('sync:master', async (_, options) => syncMaster(options || {}));
 ipcMain.handle('sync:pending', async () => syncPendingTransactions());
 ipcMain.handle('image:cacheProduct', async (_, payload) => cacheProductImage(payload?.productId, payload?.imagePath));
 ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload));
+ipcMain.handle('pending:save', async (_, payload) => savePendingOrder(payload || {}));
+ipcMain.handle('pending:list', async () => listPendingOrders());
+ipcMain.handle('pending:delete', async (_, localPendingId) => deletePendingOrder(localPendingId));
 
 ipcMain.handle('pos:state', () => {
   const db = initDb();
-  const products = db.prepare('SELECT id, name, price, category, category_id, category_name, image_path, local_image_path FROM products ORDER BY name').all();
+  const products = db.prepare('SELECT id, name, price, category, category_id, category_name, image_path, local_image_path, is_price_editable, include_in_sales_report, track_stock FROM products ORDER BY name').all();
   const categories = db.prepare('SELECT id, name FROM product_categories ORDER BY name').all();
   const guides = db.prepare('SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name').all();
   const paymentMethods = db.prepare('SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, id').all();
@@ -490,7 +439,7 @@ ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); r
 ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
   const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
   if (!data.ok) return data;
-  return { ...data, html: buildShiftClosePrintHtml(data), rawReceipt: buildShiftCloseRawReceiptData(data) };
+  return { ...data, html: buildShiftClosePrintHtml(data) };
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));

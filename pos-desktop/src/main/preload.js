@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   syncPending: () => ipcRenderer.invoke('sync:pending'),
   cacheProductImage: (payload) => ipcRenderer.invoke('image:cacheProduct', payload),
   saveSaleLocal: (payload) => ipcRenderer.invoke('sale:saveLocal', payload),
+  savePendingOrder: (payload) => ipcRenderer.invoke('pending:save', payload),
+  listPendingOrders: () => ipcRenderer.invoke('pending:list'),
+  deletePendingOrder: (localPendingId) => ipcRenderer.invoke('pending:delete', localPendingId),
   getPosState: () => ipcRenderer.invoke('pos:state'),
   getHistory: (filters) => ipcRenderer.invoke('history:list', filters),
   getHistoryDetail: (transactionGroupId) => ipcRenderer.invoke('history:detail', transactionGroupId),
@@ -24,8 +27,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   openShift: (payload) => ipcRenderer.invoke('shift:open', payload),
   closeShift: (payload) => ipcRenderer.invoke('shift:close', payload),
   retryPendingShift: () => ipcRenderer.invoke('shift:retryPending'),
-  resetAllAppData: () => ipcRenderer.invoke('app:reset-all'),
-  getAdenaLogoDataUrl: () => ipcRenderer.invoke('asset:adena-logo-data-url')
+  resetAllAppData: () => ipcRenderer.invoke('app:reset-all')
 });
 
 contextBridge.exposeInMainWorld('apiConfig', {
