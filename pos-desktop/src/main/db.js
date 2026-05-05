@@ -64,6 +64,15 @@ function initDb() {
       created_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS branches (
+      id INTEGER PRIMARY KEY,
+      branch_code TEXT NOT NULL,
+      branch_name TEXT NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT,
+      updated_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -319,6 +328,8 @@ function initDb() {
   safeExec('ALTER TABLE products ADD COLUMN category_id INTEGER');
   safeExec('ALTER TABLE products ADD COLUMN category_name TEXT');
   safeExec('ALTER TABLE product_categories ADD COLUMN image_path TEXT');
+  safeExec('CREATE TABLE IF NOT EXISTS branches (id INTEGER PRIMARY KEY, branch_code TEXT NOT NULL, branch_name TEXT NOT NULL, is_active INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT)');
+  safeExec('ALTER TABLE branches ADD COLUMN branch_address TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_name TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_contact TEXT');
   safeExec('ALTER TABLE orders ADD COLUMN customer_address TEXT');

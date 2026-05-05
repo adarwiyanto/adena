@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Adena POS Desktop ver 1.4</title>
+  <title>Adena POS Desktop ver 1.4.2</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -11,7 +11,7 @@
     <button id="btn-open-settings" class="settings-corner" type="button">Setting</button>
     <div class="card login-card premium-card">
       <img class="login-logo" src="./assets/adena-logo.jpg" alt="Adena" />
-      <h1>Adena POS ver 1.4</h1>
+      <h1>Adena POS ver 1.4.2</h1>
       <p class="login-subtitle">Desktop cashier system</p>
       <form id="login-form">
         <input name="username" placeholder="Username" required />
@@ -26,7 +26,7 @@
   <section id="sync-view" class="view sync-screen">
     <div class="sync-hero">
       <img class="sync-logo" src="./assets/adena-logo.jpg" alt="Adena" />
-      <h1>Adena POS ver 1.4</h1>
+      <h1>Adena POS ver 1.4.2</h1>
       <p id="sync-status-text" class="sync-status-text">Menunggu sinkronisasi...</p>
       <progress id="sync-progress" max="100" value="0"></progress>
       <p id="sync-retry-count" class="sync-retry-count">Percobaan 0/3</p>
@@ -192,6 +192,11 @@
         <input id="api-token" type="password" placeholder="Masukkan token API" autocomplete="off" spellcheck="false" />
       </div>
       <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
+      <div class="settings-field">
+        <label for="api-branch">Cabang POS</label>
+        <select id="api-branch"><option value="">Default / cabang utama</option></select>
+        <small class="settings-help">Setelah Save & Test API, daftar cabang akan mengikuti API web. Jika belum tersedia, POS tetap memakai cabang utama.</small>
+      </div>
       <div class="dialog-actions">
         <button id="btn-save-api" type="button">Save & Test API</button>
         <button id="btn-test-api" type="button">Test Dengan Setting Tersimpan</button>

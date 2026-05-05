@@ -41,6 +41,11 @@ function ensure_api_tokens_table(): void {
     } catch (Throwable $e) {
         // additive migration, abaikan jika kolom sudah ada
     }
+    try {
+        $pdo->exec("ALTER TABLE api_tokens ADD COLUMN branch_id INT NULL AFTER device_code");
+    } catch (Throwable $e) {
+        // additive migration, abaikan jika kolom sudah ada
+    }
 }
 
 function api_get_bearer_token(): ?string {
@@ -60,7 +65,7 @@ function require_api_token(): array {
     }
 
     $pdo = db();
-    $rows = $pdo->query('SELECT id, name, token_hash, device_code FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
+    $rows = $pdo->query('SELECT id, name, token_hash, device_code, branch_id FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
                 ->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $row) {
@@ -70,6 +75,7 @@ function require_api_token(): array {
                 'id' => (int)$row['id'],
                 'name' => (string)$row['name'],
                 'device_code' => strtoupper(trim((string)($row['device_code'] ?? ''))),
+                'branch_id' => isset($row['branch_id']) ? (int)$row['branch_id'] : 0,
             ];
         }
     }

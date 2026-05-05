@@ -133,10 +133,57 @@ function buildRasterLogoBuffer(logoPath, options) {
     return Buffer.concat([Buffer.from([0x1b, 0x61, 0x01]), Buffer.from([0x1d, 0x76, 0x30, 0x00, rowBytes & 255, (rowBytes >> 8) & 255, size.height & 255, (size.height >> 8) & 255]), data, Buffer.from([0x0a, 0x1b, 0x61, 0x00])]);
   } catch (error) { console.warn('[print:thermal:logo:skip]', error.message || error); return Buffer.alloc(0); }
 }
+
+async function buildShiftCloseThermalRawBuffer(payload = {}, options) {
+  const r = payload.rawReceipt || {};
+  const cols = thermalColumns(options.widthMm);
+  const sep = '-'.repeat(cols);
+  const chunks = [Buffer.from([0x1b, 0x40, 0x1b, 0x21, 0x00])];
+  chunks.push(buildRasterLogoBuffer(await resolveLogoFile(payload), options));
+  const lines = [];
+  lines.push(centerText(r.storeName || 'Adena', cols));
+  if (r.storeAddress) lines.push(...wrapText(r.storeAddress, cols).map((x) => centerText(x, cols)));
+  lines.push(sep);
+  lines.push(centerText(r.title || 'PENUTUPAN SHIFT', cols));
+  lines.push(sep);
+  lines.push(lineText('Dicetak', r.printedAt || '-', cols));
+  lines.push(lineText('Kasir', r.cashierName || '-', cols));
+  lines.push(lineText('Shift', r.shiftCode || '-', cols));
+  lines.push(lineText('Mulai', r.openedAt || '-', cols));
+  lines.push(lineText('Akhir', r.closedAt || '-', cols));
+  lines.push(sep);
+  lines.push(lineText('Transaksi', String(r.transactionCount ?? 0), cols));
+  lines.push(lineText('Item', String(r.itemQty ?? 0), cols));
+  lines.push(lineText('Total Penjualan', r.totalSalesText || '-', cols));
+  lines.push(sep);
+  lines.push(lineText('Kas Awal', r.openingCashText || '-', cols));
+  lines.push(lineText('Penjualan Tunai', r.cashSalesText || '-', cols));
+  lines.push(lineText('Non Tunai', r.nonCashSalesText || '-', cols));
+  lines.push(lineText('Kas Masuk-Keluar', r.cashInOutText || '-', cols));
+  lines.push(lineText('Kas Diharapkan', r.expectedCashText || '-', cols));
+  lines.push(lineText('Kas Aktual', r.countedCashText || '-', cols));
+  lines.push(lineText('Selisih Kas', r.cashDifferenceText || '-', cols));
+  lines.push(sep);
+  const payments = Array.isArray(r.payments) ? r.payments : [];
+  if (payments.length) {
+    lines.push(centerText('RINCIAN PEMBAYARAN', cols));
+    for (const p of payments) lines.push(lineText(p.label || '-', p.totalText || '-', cols));
+    lines.push(sep);
+  }
+  lines.push(lineText('Total Diharapkan', r.totalExpectedText || '-', cols));
+  lines.push(lineText('Total Aktual', r.totalActualText || '-', cols));
+  lines.push(lineText('Total Selisih', r.totalDifferenceText || '-', cols));
+  const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
+  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.4.2', cols));
+  chunks.push(textToEscpos(lines.join('\n') + '\n' + feedLines));
+  if (options.autoCut) chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
+  return Buffer.concat(chunks);
+}
+
 async function buildThermalRawBuffer(payload = {}, options) {
   const r = payload.rawReceipt || {}; const cols = thermalColumns(options.widthMm); const sep = '-'.repeat(cols); const chunks = [Buffer.from([0x1b, 0x40, 0x1b, 0x21, 0x00])];
   chunks.push(buildRasterLogoBuffer(await resolveLogoFile(payload), options));
-  const lines = [centerText(r.storeName || 'Adena POS ver 1.3', cols)];
+  const lines = [centerText(r.storeName || 'Adena', cols)];
   if (r.storeAddress) lines.push(...wrapText(r.storeAddress, cols).map((x) => centerText(x, cols)));
   lines.push(sep, lineText('Receipt', r.transactionCode || '-', cols), lineText('Waktu', r.soldAt || '-', cols), lineText('Kasir', r.cashierName || '-', cols), lineText('Guide', r.guideName || '-', cols), lineText('Metode', r.paymentMethod || '-', cols));
   if (r.paymentBank) lines.push(lineText('Bank', r.paymentBank, cols));
@@ -151,7 +198,7 @@ async function buildThermalRawBuffer(payload = {}, options) {
   if (r.cashReceivedText) chunks.push(textToEscpos(lineText('Diterima', r.cashReceivedText, cols) + '\n'));
   if (r.cashChangeText) chunks.push(textToEscpos(lineText('Kembalian', r.cashChangeText, cols) + '\n'));
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${feedLines}`));
+  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS ver 1.4.2', cols)}\n${feedLines}`));
   if (options.autoCut) {
     // GS V B 0 = partial cut. Dipakai hanya pada mode Raw Thermal.
     chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
@@ -242,7 +289,7 @@ async function printHtmlReceipt(payload, options, selectedPrinter) {
 }
 async function printRawThermalReceipt(payload, options, selectedPrinter) {
   const printerName = selectedPrinter || ''; if (!printerName) throw new Error('Pilih printer Windows terlebih dahulu untuk mode Raw Thermal.');
-  const raw = await buildThermalRawBuffer(payload, options); console.log('[print:receipt:req]', { mode: 'thermal_raw', printer: printerName, widthMm: options.widthMm, bytes: raw.length, autoCut: options.autoCut, feedBeforeCutLines: options.feedBeforeCutLines, logo: options.logoVisible });
+  const raw = payload?.rawReceipt?.type === 'shift_close' ? await buildShiftCloseThermalRawBuffer(payload, options) : await buildThermalRawBuffer(payload, options); console.log('[print:receipt:req]', { mode: 'thermal_raw', printer: printerName, widthMm: options.widthMm, bytes: raw.length, autoCut: options.autoCut, feedBeforeCutLines: options.feedBeforeCutLines, logo: options.logoVisible });
   await rawPrintWithPowerShell(printerName, raw); console.log('[print:receipt:res]', { mode: 'thermal_raw', success: true, printer: printerName });
   return { ok: true, mode: 'thermal_raw' };
 }

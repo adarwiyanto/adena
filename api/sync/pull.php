@@ -140,6 +140,24 @@ try {
         );
     }
 
+
+    $branches = safe_rows(
+        $pdo,
+        'branches',
+        "SELECT id, branch_code, branch_name, is_active, created_at, updated_at
+         FROM branches
+         WHERE is_active = 1
+         ORDER BY id",
+        [],
+        $debugNotes
+    );
+    $tokenBranchId = (int)($user['branch_id'] ?? 0);
+    if ($tokenBranchId > 0) {
+        $branches = array_values(array_filter($branches, static function ($b) use ($tokenBranchId) {
+            return (int)($b['id'] ?? 0) === $tokenBranchId;
+        }));
+    }
+
     $banks = safe_rows(
         $pdo,
         'banks',
@@ -230,6 +248,7 @@ try {
             'categories' => array_values($categories),
             'guides' => array_values($guides),
             'banks' => array_values($banks),
+            'branches' => array_values($branches),
             'payment_methods' => array_values($paymentMethods),
             'settings' => $settings,
             'shifts' => array_values($shifts),
@@ -242,6 +261,7 @@ try {
             'id' => (int)($user['id'] ?? 0),
             'name' => (string)($user['name'] ?? ''),
             'device_code' => strtoupper(trim((string)($user['device_code'] ?? ''))),
+            'branch_id' => (int)($user['branch_id'] ?? 0),
         ],
     ];
 

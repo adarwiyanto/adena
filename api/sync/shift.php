@@ -8,12 +8,13 @@ require_once __DIR__ . '/../../core/pos_shift.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
-api_verify_token();
+$token = api_verify_token();
 $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $action = trim((string)($body['action'] ?? 'status'));
-$branchId = 1;
+$branchId = (int)($body['branch_id'] ?? ($token['branch_id'] ?? 0));
+if ($branchId <= 0) $branchId = 1;
 
 try {
     if ($action === 'status') {

@@ -233,6 +233,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
         $guideName = (string)($tx['guide_name'] ?? '');
         $guideId = !empty($tx['guide_id']) ? (int)$tx['guide_id'] : null;
         $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
+        $branchId = !empty($tx['branch_id']) ? (int)$tx['branch_id'] : 1;
         $txDiscAmt = (float)($tx['tx_discount_amount'] ?? 0);
         $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
 
@@ -252,7 +253,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          tx_discount_amount, tx_discount_type, include_in_sales_report, line_subtotal, line_net_total,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
                          local_device_id, local_transaction_id,
-                         created_by, shift_id, sold_at,
+                         created_by, branch_id, shift_id, sold_at,
                          sync_status, original_sale_id,
                          is_active_revision, revision_no, revision_status,
                          base_sale_code)
@@ -262,7 +263,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          ?, ?,
                          ?, ?, ?, ?, ?,
                          ?, ?, ?, ?, ?, ?,
-                         ?, ?, ?, ?, ?,
+                         ?, ?, ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
                          ?)
@@ -277,7 +278,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     $txDiscAmt, $txDiscType, (int)($item['include_in_sales_report'] ?? 1), $itemSubtotal, $itemTotal,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
                     $deviceId ?: null, $localTxId ?: $txUuid,
-                    $cashierId, $shiftServerId, $soldAt,
+                    $cashierId, $branchId, $shiftServerId, $soldAt,
                     $firstId,
                     $txCode,
                 ]);

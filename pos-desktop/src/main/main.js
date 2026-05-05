@@ -8,6 +8,7 @@ const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
 const { saveSaleLocally, savePendingOrder, listPendingOrders, deletePendingOrder } = require('./transactions');
 const { printReceipt } = require('./print');
+const { localDateTimeString } = require('./time');
 
 let mainWindow;
 let isQuittingConfirmed = false;
@@ -28,13 +29,19 @@ function getPublicSettings() {
   const cfg = getApiConfig();
   const deviceCode = String(store.get('deviceCode') || '').trim();
   const tokenMasked = maskToken(cfg.apiToken);
+  let branches = [];
+  try { branches = initDb().prepare('SELECT id, branch_code, branch_name, is_active FROM branches WHERE is_active=1 ORDER BY id').all(); } catch (_) {}
   return {
     ...store.store,
     apiBaseUrl: cfg.apiBaseUrl,
     apiToken: '',
     hasApiToken: !!cfg.apiToken,
     apiTokenMasked: tokenMasked,
-    deviceCode
+    deviceCode,
+    branches,
+    selectedBranchId: Number(store.get('selectedBranchId') || 1),
+    selectedBranchCode: String(store.get('selectedBranchCode') || 'MAIN'),
+    selectedBranchName: String(store.get('selectedBranchName') || '')
   };
 }
 
@@ -86,7 +93,7 @@ function getStoreIdentity() {
     if (cachePath && fs.existsSync(cachePath)) cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
   } catch (_) {}
   return {
-    name: cached.name || settings.storeName || 'Adena',
+    name: settings.selectedBranchName || cached.name || settings.storeName || 'Adena',
     address: cached.address || settings.storeAddress || '',
     phone: cached.phone || '',
     logoPath: cached.logo_path || settings.storeLogoPath || ''
@@ -126,6 +133,42 @@ function getShiftClosePrintData(countedCashTotal = null, user = null) {
     totalExpected: Number(summary.expected_cash || 0) + nonCashTotal,
     totalActual: counted + nonCashTotal,
     totalDifference: counted - Number(summary.expected_cash || 0)
+  };
+}
+
+
+function buildShiftCloseRawPayload(data) {
+  const payments = (data.paymentRows || []).map((row) => ({
+    label: String(row.label || row.payment_method || '-').toUpperCase(),
+    totalText: `Rp ${formatNumber(row.total)}`,
+    txCount: Number(row.tx_count || 0)
+  }));
+  return {
+    type: 'shift_close',
+    storeName: data.store?.name || 'Adena',
+    storeAddress: data.store?.address || '',
+    logo: data.store?.logoUri || '',
+    title: 'PENUTUPAN SHIFT',
+    printedAt: data.printedAt || localDateTimeString(),
+    cashierName: data.cashier || '-',
+    shiftCode: data.shift?.shift_code || String(data.shift?.id || '-'),
+    openedAt: data.shift?.opened_at || '-',
+    closedAt: data.printedAt || '-',
+    transactionCount: Number(data.transactionCount || 0),
+    itemQty: Number(data.itemQty || 0),
+    totalSalesText: `Rp ${formatNumber(data.totalSales)}`,
+    openingCashText: `Rp ${formatNumber(data.summary?.opening_cash)}`,
+    cashSalesText: `Rp ${formatNumber(data.summary?.cash_sales)}`,
+    nonCashSalesText: `Rp ${formatNumber(data.summary?.non_cash_sales)}`,
+    cashInOutText: `Rp ${formatNumber((data.summary?.cash_in || 0) - (data.summary?.cash_out || 0))}`,
+    expectedCashText: `Rp ${formatNumber(data.summary?.expected_cash)}`,
+    countedCashText: `Rp ${formatNumber(data.countedCash)}`,
+    cashDifferenceText: `Rp ${formatNumber(data.cashDifference)}`,
+    totalExpectedText: `Rp ${formatNumber(data.totalExpected)}`,
+    totalActualText: `Rp ${formatNumber(data.totalActual)}`,
+    totalDifferenceText: `Rp ${formatNumber(data.totalDifference)}`,
+    payments,
+    appFooter: 'Adena POS Desktop ver 1.4.2'
   };
 }
 
@@ -303,6 +346,16 @@ ipcMain.handle('settings:set', (_, patch) => {
     normalized.deviceCode = String(normalized.deviceCode || '').trim().toUpperCase().replace(/\s+/g, '');
   }
   Object.entries(normalized).forEach(([k, v]) => store.set(k, v));
+  if (Object.prototype.hasOwnProperty.call(normalized, 'selectedBranchId')) {
+    try {
+      const row = initDb().prepare('SELECT id, branch_code, branch_name FROM branches WHERE id=?').get(Number(normalized.selectedBranchId));
+      if (row) {
+        store.set('selectedBranchId', Number(row.id));
+        store.set('selectedBranchCode', String(row.branch_code || 'MAIN').toUpperCase());
+        store.set('selectedBranchName', String(row.branch_name || ''));
+      }
+    } catch (_) {}
+  }
   return getPublicSettings();
 });
 ipcMain.handle('settings:saveApi', async (_, payload) => {
@@ -372,6 +425,7 @@ ipcMain.handle('pos:state', () => {
   const activeShift = activeShiftLocal();
   const pendingSyncCount = db.prepare("SELECT COUNT(DISTINCT local_transaction_id) as c FROM sales WHERE sync_status IN ('pending','failed')").get().c;
   const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
+  const branches = db.prepare('SELECT id, branch_code, branch_name, is_active FROM branches WHERE is_active=1 ORDER BY id').all();
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
   const syncedSettings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
   const storeIdentity = getStoreIdentity();
@@ -379,7 +433,7 @@ ipcMain.handle('pos:state', () => {
   syncedSettings.store_address = syncedSettings.store_address || storeIdentity.address || '';
   syncedSettings.store_logo_local_uri = fileUriIfExists(storeIdentity.logoPath);
   syncedSettings.store_logo_local_path = storeIdentity.logoPath || '';
-  return { products, categories, guides, paymentMethods, banks, activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
+  return { products, categories, guides, paymentMethods, banks, branches, selectedBranchId: Number(store.get('selectedBranchId') || 1), activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
 });
 
 ipcMain.handle('history:list', (_, filters = {}) => {
@@ -439,7 +493,7 @@ ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); r
 ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
   const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
   if (!data.ok) return data;
-  return { ...data, html: buildShiftClosePrintHtml(data) };
+  return { ...data, html: buildShiftClosePrintHtml(data), rawReceipt: buildShiftCloseRawPayload(data) };
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));

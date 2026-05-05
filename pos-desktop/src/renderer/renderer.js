@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', activePendingId: null };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, storeIdentity: { name: 'Adena', address: '', logo: '' }, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', activePendingId: null };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -284,15 +284,21 @@ function renderCart() {
       const subtotal = itemSubtotal(i);
       const discount = itemDiscount(i);
       return `
-      <div class="cart-row cart-row-edit cart-row-v14">
-        <div class="cart-name">${escapeHtml(i.name)}<small>${editablePrice ? 'Harga bisa diubah' : rupiah(i.price_each)}</small></div>
-        <input class="cart-qty" type="number" min="1" step="1" value="${i.qty}" data-qty-id="${i.product_id}" />
-        ${editablePrice ? `<input class="cart-price" type="number" min="0" step="0.01" value="${i.price_each}" data-price-id="${i.product_id}" title="Harga editable" />` : `<span class="cart-price-label">${rupiah(i.price_each)}</span>`}
-        <select class="cart-disc-type" data-disc-type-id="${i.product_id}"><option value="fixed" ${i.discount_type !== 'percent' ? 'selected' : ''}>Rp</option><option value="percent" ${i.discount_type === 'percent' ? 'selected' : ''}>%</option></select>
-        <input class="cart-disc" type="number" min="0" step="0.01" value="${i.discount_amount || 0}" data-disc-id="${i.product_id}" title="Diskon item" />
-        <label class="cart-report"><input type="checkbox" ${Number(i.include_in_sales_report ?? 1) ? 'checked' : ''} data-report-id="${i.product_id}" /> Laporan</label>
-        <strong>${rupiah(Math.max(0, subtotal - discount))}</strong>
-        <button class="cart-remove" title="Hapus" data-remove-id="${i.product_id}">×</button>
+      <div class="cart-item-card cart-row-v14">
+        <div class="cart-item-head">
+          <div class="cart-name">${escapeHtml(i.name)}<small>${editablePrice ? 'Harga bisa diubah' : rupiah(i.price_each)}</small></div>
+          <button class="cart-remove" title="Hapus item" data-remove-id="${i.product_id}">×</button>
+        </div>
+        <div class="cart-edit-grid">
+          <label>Qty<input class="cart-qty" type="number" min="1" step="1" value="${i.qty}" data-qty-id="${i.product_id}" /></label>
+          <label>Harga${editablePrice ? `<input class="cart-price" type="number" min="0" step="0.01" value="${i.price_each}" data-price-id="${i.product_id}" title="Harga editable" />` : `<span class="cart-price-label">${rupiah(i.price_each)}</span>`}</label>
+          <label>Tipe diskon<select class="cart-disc-type" data-disc-type-id="${i.product_id}"><option value="fixed" ${i.discount_type !== 'percent' ? 'selected' : ''}>Rp</option><option value="percent" ${i.discount_type === 'percent' ? 'selected' : ''}>%</option></select></label>
+          <label>Diskon<input class="cart-disc" type="number" min="0" step="0.01" value="${i.discount_amount || 0}" data-disc-id="${i.product_id}" title="Diskon item" /></label>
+        </div>
+        <div class="cart-item-foot">
+          <label class="cart-report"><input type="checkbox" ${Number(i.include_in_sales_report ?? 1) ? 'checked' : ''} data-report-id="${i.product_id}" /> Masuk laporan</label>
+          <strong>${rupiah(Math.max(0, subtotal - discount))}</strong>
+        </div>
       </div>`;
     }).join('');
     wrap.querySelectorAll('[data-qty-id]').forEach((el) => el.onchange = () => updateCartQty(el.dataset.qtyId, el.value));
@@ -322,7 +328,7 @@ function updateBankState() { const code = $('#payment-method').value; $('#paymen
 
 async function loadPosState() {
   const pos = await window.desktopAPI.getPosState();
-  state.products = pos.products || []; state.categories = pos.categories || []; state.guides = pos.guides || []; state.paymentMethods = pos.paymentMethods || []; state.banks = pos.banks || []; state.theme = pos.syncedSettings || {};
+  state.products = pos.products || []; state.categories = pos.categories || []; state.guides = pos.guides || []; state.paymentMethods = pos.paymentMethods || []; state.banks = pos.banks || []; state.theme = pos.syncedSettings || {}; state.storeIdentity = { name: state.theme.store_name || 'Adena', address: state.theme.store_address || '', logo: state.theme.store_logo_local_uri || state.theme.store_logo_url || state.theme.store_logo || '' };
   applyTheme(state.theme);
   $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0} | Shift: ${pos.pendingShiftSync || 0}`;
   state.activeShift = pos.activeShift || null;
@@ -330,7 +336,9 @@ async function loadPosState() {
   const shiftActive = !!state.activeShift;
   $('#shift-status').textContent = shiftActive ? `Shift aktif: ${state.activeShift.shift_code || state.activeShift.id}` : 'Shift: belum aktif';
   $('#btn-shift-toggle').textContent = shiftActive ? 'Tutup Shift' : 'Buka Shift';
-  $('#btn-pay').disabled = !shiftActive;
+  $('#btn-pay').disabled = false;
+  $('#btn-pay').classList.toggle('needs-shift', !shiftActive);
+  $('#btn-pay').title = shiftActive ? '' : 'Shift belum aktif. Silakan buka shift terlebih dahulu sebelum transaksi.';
   renderCategories(); renderProducts(); renderPaymentOptions(); renderShiftModals();
   return pos;
 }
@@ -364,7 +372,8 @@ function hideShiftModals() {
 
 async function submitOpenShift() {
   const opening = Number($('#shift-opening-cash').value || 0);
-  const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening });
+  const settings = await window.desktopAPI.getSettings();
+  const actionResp = await window.desktopAPI.openShift({ user_id: state.user?.id, opening_cash_actual: opening, branch_id: Number(settings.selectedBranchId || 1) });
   if (!actionResp?.ok && actionResp?.sync_status !== 'pending') return showToast(actionResp?.message || 'Gagal buka shift');
   hideShiftModals();
   await window.desktopAPI.syncMaster({ incremental: false });
@@ -384,7 +393,7 @@ async function submitCloseShift() {
   if (closeReport?.ok && closeReport.html) {
     try {
       const settings = await window.desktopAPI.getSettings();
-      await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+      await window.desktopAPI.printReceipt({ html: closeReport.html, rawReceipt: closeReport.rawReceipt, printerName: settings.printerName, silent: true });
     } catch (error) {
       showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
     }
@@ -547,7 +556,7 @@ async function runSyncFlow({ allowOffline = false } = {}) {
 
 async function payNow() {
   if (state.paying) return;
-  if (!state.activeShift) return alert('Shift belum aktif. Buka shift terlebih dahulu.');
+  if (!state.activeShift) return alert('Shift belum aktif. Silakan buka shift terlebih dahulu sebelum transaksi.');
   if (!state.cart.length) return alert('Keranjang kosong');
   const paymentMethod = $('#payment-method').value;
   const bankId = $('#payment-bank').value;
@@ -602,9 +611,76 @@ async function loadPendingOrders() {
 }
 
 function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
-function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${escapeHtml(i.name)} x${i.qty}</span><span>${rupiah(i.total ?? (i.qty * i.price_each))}</span></div>`).join('')}<div>Subtotal: ${rupiah(state.latestReceipt.subtotal || state.latestReceipt.total)}</div><div>Diskon: ${rupiah(state.latestReceipt.discount || 0)}</div><div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; state.activePendingId = null; renderCart(); switchTab('pos'); }; }
+function receiptPrintableHtml(receipt) {
+  const store = state.storeIdentity || {};
+  const logo = store.logo ? `<img class="receipt-logo" src="${escapeHtml(store.logo)}" alt="${escapeHtml(store.name || 'Adena')}"/>` : '';
+  const address = store.address ? `<div class="receipt-address">${escapeHtml(store.address)}</div>` : '';
+  const items = (receipt.items || []).map((i) => `<div class="receipt-line"><span>${escapeHtml(i.name)} x${Number(i.qty || 0)}</span><strong>${rupiah(i.total ?? (Number(i.qty || 0) * Number(i.price_each || 0)))}</strong></div>`).join('');
+  const bank = receipt.paymentBank ? `<div class="receipt-line"><span>Bank</span><strong>${escapeHtml(receipt.paymentBank)}</strong></div>` : '';
+  const cash = isCashPayment(receipt.paymentMethod) ? `<div class="receipt-line"><span>Diterima</span><strong>${rupiah(receipt.cashReceived || 0)}</strong></div><div class="receipt-line"><span>Kembalian</span><strong>${rupiah(receipt.cashChange || 0)}</strong></div>` : '';
+  return `<div class="receipt-print">
+    <div class="receipt-header">${logo}<strong>${escapeHtml(store.name || 'Adena')}</strong>${address}</div>
+    <hr/>
+    <div class="receipt-line"><span>Receipt</span><strong>${escapeHtml(receipt.transactionCode || '-')}</strong></div>
+    <div class="receipt-line"><span>Waktu</span><strong>${escapeHtml(receipt.soldAt || '-')}</strong></div>
+    <div class="receipt-line"><span>Kasir</span><strong>${escapeHtml(state.user?.name || '-')}</strong></div>
+    <div class="receipt-line"><span>Guide</span><strong>${escapeHtml(receipt.guideName || '-')}</strong></div>
+    <div class="receipt-line"><span>Metode</span><strong>${escapeHtml(receipt.paymentMethod || '-')}</strong></div>
+    ${bank}<hr/>${items}<hr/>
+    <div class="receipt-line"><span>Subtotal</span><strong>${rupiah(receipt.subtotal || receipt.total || 0)}</strong></div>
+    <div class="receipt-line"><span>Diskon</span><strong>${rupiah(receipt.discount || 0)}</strong></div>
+    <div class="receipt-total receipt-line"><span>TOTAL</span><strong>${rupiah(receipt.total || 0)}</strong></div>
+    ${cash}
+    <hr/><div class="center">Terima kasih</div><div class="receipt-footer">Adena POS ver 1.4.2</div>
+  </div>`;
+}
 
-async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
+function receiptRawPayload(receipt) {
+  const store = state.storeIdentity || {};
+  return {
+    storeName: store.name || 'Adena',
+    storeAddress: store.address || '',
+    logo: store.logo || '',
+    transactionCode: receipt.transactionCode || '-',
+    soldAt: receipt.soldAt || '-',
+    cashierName: state.user?.name || '-',
+    guideName: receipt.guideName || '-',
+    paymentMethod: receipt.paymentMethod || '-',
+    paymentBank: receipt.paymentBank || '',
+    items: (receipt.items || []).map((i) => ({ name: i.name || 'Item', qty: Number(i.qty || 0), total: rupiah(i.total ?? (Number(i.qty || 0) * Number(i.price_each || 0))), totalText: rupiah(i.total ?? (Number(i.qty || 0) * Number(i.price_each || 0))) })),
+    totalText: rupiah(receipt.total || 0),
+    cashReceivedText: isCashPayment(receipt.paymentMethod) ? rupiah(receipt.cashReceived || 0) : '',
+    cashChangeText: isCashPayment(receipt.paymentMethod) ? rupiah(receipt.cashChange || 0) : '',
+    appFooter: 'Adena POS ver 1.4.2'
+  };
+}
+
+function renderReceipt() {
+  const w = $('#receipt-wrap');
+  if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
+  w.innerHTML = `${receiptPrintableHtml(state.latestReceipt)}<div class="receipt-actions no-print"><button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button></div>`;
+  $('#btn-print').onclick = async () => {
+    const settings = await window.desktopAPI.getSettings();
+    await window.desktopAPI.printReceipt({ html: receiptPrintableHtml(state.latestReceipt), rawReceipt: receiptRawPayload(state.latestReceipt), printerName: settings.printerName, silent: true });
+  };
+  $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; state.activePendingId = null; renderCart(); switchTab('pos'); };
+}
+
+async function renderBranchSelect(settings = null) {
+  const s = settings || await window.desktopAPI.getSettings();
+  const select = $('#api-branch');
+  if (!select) return;
+  const branches = Array.isArray(s.branches) ? s.branches : [];
+  if (!branches.length) {
+    select.innerHTML = '<option value="1">Default / cabang utama</option>';
+    select.value = String(s.selectedBranchId || 1);
+    return;
+  }
+  select.innerHTML = branches.map((b) => `<option value="${b.id}">${escapeHtml(b.branch_code || '')} - ${escapeHtml(b.branch_name || 'Cabang')}</option>`).join('');
+  select.value = String(s.selectedBranchId || branches[0].id || 1);
+}
+
+async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; await renderBranchSelect(s); }
 
 function unlockSettingsInputs() {
   const dlg = document.getElementById('settings-dialog');
@@ -667,6 +743,8 @@ async function saveApiSettingsAndTest() {
     state.apiTokenMasked = result.tokenPreview || maskToken(verify.apiToken);
     $('#api-token').value = '';
     await initApiDialog();
+    try { await window.desktopAPI.syncMaster({ incremental: false }); } catch (_) {}
+    await renderBranchSelect();
     $('#api-status').textContent = `Setting API tersimpan (${state.apiTokenMasked})`;
     return { ok: true, message: 'Setting API tersimpan', settings: verify };
   } catch (error) {
@@ -736,6 +814,11 @@ async function bootstrap() {
   $('#settings-dialog')?.addEventListener('focusin', unlockSettingsInputs);
   $('#settings-dialog')?.addEventListener('pointerdown', unlockSettingsInputs);
   $('#btn-save-api').onclick = async () => { const resp = await saveApiSettingsAndTest(); if (resp?.ok) showToast('Setting API tersimpan', 'success'); };
+  $('#api-branch')?.addEventListener('change', async (e) => {
+    const saved = await window.desktopAPI.setSettings({ selectedBranchId: Number(e.target.value || 1) });
+    await renderBranchSelect(saved);
+    showToast('Cabang POS tersimpan', 'success');
+  });
   $('#btn-test-api').onclick = async () => { const resp = await testApiConnection(); if (resp?.ok) showToast('Test koneksi OK', 'success'); };
   $('#btn-save-printer').onclick = async () => {
     await window.desktopAPI.setSettings({ printerName: $('#printer-name').value, receiptWidthMm: Number($('#receipt-width').value || 58), receiptMarginMm: Number($('#receipt-margin').value || 2) });

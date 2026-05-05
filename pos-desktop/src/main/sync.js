@@ -143,6 +143,9 @@ async function cacheStoreIdentity(settings = {}) {
     }
   }
 
+  const branchName = String(store.get('selectedBranchName') || '').trim();
+  if (branchName) storeInfo.name = branchName;
+
   fs.writeFileSync(storeCachePath(), JSON.stringify(storeInfo, null, 2));
   store.set('storeCachePath', storeCachePath());
   store.set('storeLogoPath', storeInfo.logo_path || '');
@@ -201,7 +204,7 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
   const db = initDb();
   const tx = db.transaction(() => {
     if (fullSync) {
-      ['products', 'product_categories', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements']
+      ['products', 'product_categories', 'branches', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements']
         .forEach((table) => db.prepare(`DELETE FROM ${table}`).run());
     }
 
@@ -243,6 +246,24 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
       if (cat) categoryMap.set(String(cat.id), cat);
     });
     Array.from(categoryMap.values()).forEach((r) => upsertCategory.run(r.id, r.name, r.image_path || null));
+
+    const upsertBranch = db.prepare('INSERT INTO branches (id,branch_code,branch_name,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET branch_code=excluded.branch_code,branch_name=excluded.branch_name,is_active=excluded.is_active,created_at=excluded.created_at,updated_at=excluded.updated_at');
+    (data.branches || []).forEach((r) => {
+      const id = stablePositiveInteger(r.id);
+      if (!id) return;
+      upsertBranch.run(id, String(r.branch_code || r.code || `BR${id}`).trim().toUpperCase(), String(r.branch_name || r.name || `Cabang ${id}`).trim(), Number(r.is_active ?? 1), r.created_at || null, r.updated_at || null);
+    });
+
+    if (Array.isArray(data.branches) && data.branches.length) {
+      const selected = Number(store.get('selectedBranchId') || 0);
+      const exists = selected ? db.prepare('SELECT id, branch_code, branch_name FROM branches WHERE id=? AND is_active=1').get(selected) : null;
+      const fallback = exists || db.prepare('SELECT id, branch_code, branch_name FROM branches WHERE is_active=1 ORDER BY id LIMIT 1').get();
+      if (fallback) {
+        store.set('selectedBranchId', Number(fallback.id));
+        store.set('selectedBranchCode', String(fallback.branch_code || 'MAIN').toUpperCase());
+        store.set('selectedBranchName', String(fallback.branch_name || ''));
+      }
+    }
 
     const methods = (data.payment_methods && data.payment_methods.length) ? data.payment_methods : PAYMENT_METHOD_FALLBACK;
     const upsertPm = db.prepare('INSERT INTO payment_methods (code,name,is_active,sort_order,requires_bank) VALUES (?,?,?,?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name,is_active=excluded.is_active,sort_order=excluded.sort_order,requires_bank=excluded.requires_bank');
@@ -426,6 +447,7 @@ function buildPendingPayload() {
         payment_bank: row.payment_bank,
         guide_id: row.guide_id,
         guide_name: row.guide_name,
+        branch_id: row.branch_id || Number(store.get('selectedBranchId') || 1),
         tx_discount_amount: row.tx_discount_amount || 0,
         tx_discount_type: row.tx_discount_type || 'fixed',
         user_id: row.created_by,

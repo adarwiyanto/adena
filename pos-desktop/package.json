@@ -1,6 +1,6 @@
 {
   "name": "adena-pos-desktop",
-  "version": "1.4.0",
+  "version": "1.4.2",
   "description": "Adena POS Desktop offline-first (Electron + SQLite)",
   "main": "src/main/main.js",
   "author": "Adena",
@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "com.adena.posdesktop",
-    "productName": "Adena POS Desktop ver 1.4",
+    "productName": "Adena POS Desktop ver 1.4.2",
     "directories": {
       "buildResources": "assets"
     },
