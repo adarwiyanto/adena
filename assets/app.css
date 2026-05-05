@@ -761,3 +761,21 @@ input:focus, select:focus, textarea:focus{
 .portal-flash.error{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}
 .portal-flash.success{background:#ecfdf5;color:#065f46;border:1px solid #bbf7d0}
 .sidebar.collapsed .portal-switcher{display:none}
+
+/* Active portal badge under switcher */
+.portal-context-badge{
+  margin:8px 0 0;
+  padding:8px 10px;
+  border-radius:12px;
+  font-size:11px;
+  line-height:1.25;
+  font-weight:900;
+  letter-spacing:.04em;
+  color:#0f172a;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+}
+.portal-context-badge.admin{background:#eef6ff;border-color:#cfe8ff;color:#075985}
+.portal-context-badge.branch{background:#ecfdf5;border-color:#bbf7d0;color:#047857}
+.portal-context-badge.kitchen{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+.sidebar.collapsed .portal-context-badge{display:none}

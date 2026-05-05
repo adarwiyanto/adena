@@ -81,17 +81,22 @@ function adena_portal_current_value(): string {
 }
 
 function adena_portal_switch(array $u, string $target): string {
+  start_secure_session();
   $target = trim($target);
   if ($target === 'admin') {
     if (!(has_menu_access($u, 'dashboard') || adena_portal_is_admin_like($u))) {
       throw new Exception('Akses ke halaman Admin tidak diizinkan.');
     }
+    $_SESSION['adena_portal_type'] = 'admin';
+    unset($_SESSION['adena_portal_branch_id']);
     return base_url('admin/dashboard.php');
   }
   if ($target === 'kitchen') {
     if (!adena_portal_can_access_kitchen($u)) {
       throw new Exception('Akses ke halaman Dapur tidak diizinkan.');
     }
+    $_SESSION['adena_portal_type'] = 'kitchen';
+    unset($_SESSION['adena_portal_branch_id']);
     return base_url('kitchen/index.php');
   }
   if (preg_match('/^branch:(\d+)$/', $target, $m)) {
@@ -100,6 +105,8 @@ function adena_portal_switch(array $u, string $target): string {
       throw new Exception('Akses ke cabang ini tidak diizinkan.');
     }
     branch_portal_set_active_branch($u, $branchId);
+    $_SESSION['adena_portal_type'] = 'branch';
+    $_SESSION['adena_portal_branch_id'] = $branchId;
     return base_url('cabang/dashboard.php');
   }
   throw new Exception('Pilihan halaman tidak valid.');
