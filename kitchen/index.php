@@ -1,41 +1,53 @@
 <?php
-require_once __DIR__ . '/../core/db.php';
-require_once __DIR__ . '/../core/functions.php';
-require_once __DIR__ . '/../core/security.php';
-require_once __DIR__ . '/../core/auth.php';
-require_once __DIR__ . '/../core/rbac.php';
-require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../core/ops14.php';
+require_once __DIR__ . '/../core/portal_inventory.php';
+require_once __DIR__ . '/_layout.php';
 $u = adena14_area_guard('kitchen');
-ensure_inventory_module_schema();
 $customCss = setting('custom_css', '');
-$metrics = adena14_dashboard_metrics('kitchen');
-$locs = adena14_locations();
-$kitchenLoc = null; foreach ($locs as $l) { if (($l['location_type'] ?? '') === 'kitchen') { $kitchenLoc = $l; break; } }
-$kitchenLocationId = (int)($kitchenLoc['id'] ?? 0);
+$err = '';
+$locationId = 1;
 $recentTransfers = [];
+$stockSku = 0; $pendingTransfer = 0; $productions = 0;
 try {
-  $stmt = db()->prepare("SELECT st.*, fl.location_name from_name, tl.location_name to_name FROM stock_transfers st LEFT JOIN stock_locations fl ON fl.id=st.from_location_id LEFT JOIN stock_locations tl ON tl.id=st.to_location_id WHERE st.from_location_id=? ORDER BY st.id DESC LIMIT 10");
-  $stmt->execute([$kitchenLocationId]);
+  $locationId = portal_inventory_kitchen_location_id();
+  $stockSku = count(array_filter(portal_inventory_stock_rows($locationId, '', 'all'), static fn($r) => (float)($r['stock_qty'] ?? 0) != 0.0));
+  $stmt = db()->prepare("SELECT COUNT(*) FROM stock_transfers WHERE from_location_id=? AND status='sent'");
+  $stmt->execute([$locationId]);
+  $pendingTransfer = (int)$stmt->fetchColumn();
+  if (portal_table_exists('production_headers')) {
+    $productions = (int)(db()->query("SELECT COUNT(*) FROM production_headers WHERE production_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)")->fetchColumn() ?: 0);
+  }
+  $stmt = db()->prepare("SELECT st.id,st.transfer_no,st.status,st.created_at,st.notes,tl.location_name to_name,
+      (SELECT COUNT(*) FROM stock_transfer_items si WHERE si.transfer_id=st.id) item_count,
+      (SELECT COALESCE(SUM(si.qty),0) FROM stock_transfer_items si WHERE si.transfer_id=st.id) total_qty
+    FROM stock_transfers st
+    LEFT JOIN stock_locations tl ON tl.id=st.to_location_id
+    WHERE st.from_location_id=?
+    ORDER BY st.id DESC LIMIT 10");
+  $stmt->execute([$locationId]);
   $recentTransfers = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-} catch (Throwable $e) {}
+} catch (Throwable $e) {
+  $err = $e->getMessage();
+}
+kitchen_header('Dapur Produksi', $customCss);
 ?>
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dapur Produksi</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style></head>
-<body><div class="container"><?php include __DIR__ . '/../admin/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><strong>Dapur Produksi</strong></div><div class="content">
-<div class="card"><h2>Dashboard Dapur</h2><p style="color:#64748b">Area khusus dapur untuk produksi BOM, finished good, stok dapur, dan transfer keluar. Owner/admin tetap bisa akses penuh.</p></div>
-<div class="grid cols-4">
-  <div class="card"><div class="muted">Produksi 30 hari</div><h2><?php echo e((string)$metrics['production_30d']); ?></h2></div>
-  <div class="card"><div class="muted">Transfer menunggu penerima</div><h2><?php echo e((string)$metrics['transfers_pending']); ?></h2></div>
-  <div class="card"><div class="muted">SKU Stok</div><h2><?php echo e((string)$metrics['stock_skus']); ?></h2></div>
-  <div class="card"><div class="muted">Dead Stock</div><h2><?php echo e((string)$metrics['dead_stock']); ?></h2></div>
+<?php if ($err): ?><div class="card" style="border-color:#fecdd3;background:#fff1f2;color:#9f1239"><strong>Error dapur:</strong> <?php echo e($err); ?></div><?php endif; ?>
+<div class="card"><h2>Dashboard Dapur</h2><p class="portal-note">Area khusus dapur untuk stok bahan/produk, BOM, produksi, stok opname, dan transfer keluar. Halaman ini tidak lagi mengarah ke file Admin.</p></div>
+<div class="grid cols-3">
+  <div class="card"><div class="muted">Produksi 30 hari</div><h2><?php echo e((string)$productions); ?></h2></div>
+  <div class="card"><div class="muted">Transfer menunggu penerima</div><h2><?php echo e((string)$pendingTransfer); ?></h2></div>
+  <div class="card"><div class="muted">SKU stok aktif</div><h2><?php echo e((string)$stockSku); ?></h2></div>
 </div>
-<div class="card"><h3>Menu Dapur</h3><div class="grid cols-4">
-  <a class="btn" href="<?php echo e(base_url('admin/bom.php')); ?>">BOM Produk</a>
-  <a class="btn" href="<?php echo e(base_url('admin/production.php')); ?>">Produksi Finished Good</a>
-  <a class="btn" href="<?php echo e(base_url('admin/stocks.php')); ?>">Stok Dapur</a>
-  <a class="btn" href="<?php echo e(base_url('kitchen/transfers.php')); ?>">Transfer ke Toko/Cabang</a>
-  <a class="btn btn-light" href="<?php echo e(base_url('stock/initial.php?area=kitchen')); ?>">Stok Awal</a>
-  <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a>
+<div class="card"><h3>Menu Dapur</h3><div class="grid cols-3">
+  <a class="btn" href="<?php echo e(base_url('kitchen/stocks.php')); ?>">Stok Dapur</a>
+  <a class="btn" href="<?php echo e(base_url('kitchen/initial_stock.php')); ?>">Stok Awal</a>
+  <a class="btn" href="<?php echo e(base_url('kitchen/opname.php')); ?>">Stok Opname</a>
+  <a class="btn" href="<?php echo e(base_url('kitchen/bom.php')); ?>">BOM Produk</a>
+  <a class="btn" href="<?php echo e(base_url('kitchen/production.php')); ?>">Produksi Finished Good</a>
+  <a class="btn" href="<?php echo e(base_url('kitchen/transfers.php')); ?>">Transfer ke Cabang</a>
 </div></div>
-<div class="card"><h3>Transfer keluar terakhir</h3><table class="table"><thead><tr><th>No</th><th>Tujuan</th><th>Status</th><th>Tanggal</th><th>Catatan</th></tr></thead><tbody><?php if(!$recentTransfers): ?><tr><td colspan="5" style="text-align:center;color:#94a3b8">Belum ada transfer.</td></tr><?php endif; foreach($recentTransfers as $r): ?><tr><td><?php echo e($r['transfer_no']); ?></td><td><?php echo e($r['to_name'] ?? '-'); ?></td><td><?php echo e($r['status']); ?></td><td><?php echo e($r['created_at']); ?></td><td><?php echo e($r['notes'] ?? ''); ?></td></tr><?php endforeach; ?></tbody></table></div>
-</div></div></div><script src="<?php echo e(asset_url('assets/app.js')); ?>"></script></body></html>
+<div class="card"><h3>Transfer keluar terakhir</h3><table class="table"><thead><tr><th>No</th><th>Tujuan</th><th>Status</th><th>Item</th><th>Tanggal</th></tr></thead><tbody>
+<?php if (!$recentTransfers): ?><tr><td colspan="5" style="text-align:center;color:#94a3b8">Belum ada transfer.</td></tr><?php endif; ?>
+<?php foreach($recentTransfers as $r): ?><tr><td><?php echo e((string)$r['transfer_no']); ?></td><td><?php echo e((string)($r['to_name'] ?? '-')); ?></td><td><?php echo e((string)$r['status']); ?></td><td><?php echo e((string)$r['item_count']); ?> item<br><small><?php echo e((string)$r['total_qty']); ?></small></td><td><?php echo e((string)$r['created_at']); ?></td></tr><?php endforeach; ?>
+</tbody></table></div>
+<?php kitchen_footer(); ?>
