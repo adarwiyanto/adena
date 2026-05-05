@@ -712,3 +712,52 @@ input:focus, select:focus, textarea:focus{
   color:#64748b;
   background:linear-gradient(135deg,#f8fafc,#e2e8f0);
 }
+
+/* Portal switcher: Admin / Cabang / Dapur */
+.portal-switcher{
+  margin:10px 0 0;
+  padding:10px;
+  background:#f8fbff;
+  border:1px solid #dbeafe;
+  border-radius:14px;
+}
+.portal-switcher label{
+  display:block;
+  font-size:12px;
+  font-weight:800;
+  color:#0f3f68;
+  margin-bottom:6px;
+}
+.portal-switch-row{display:flex;gap:6px;align-items:center}
+.portal-switch-row select{
+  min-width:0;
+  flex:1;
+  border:1px solid #cfe8ff;
+  border-radius:10px;
+  padding:8px 9px;
+  background:#fff;
+  font-size:13px;
+  color:#0f172a;
+}
+.portal-switch-row option.is-locked{color:#94a3b8}
+.portal-switch-row button{
+  border:0;
+  border-radius:10px;
+  padding:9px 10px;
+  background:var(--primary);
+  color:#fff;
+  font-size:12px;
+  font-weight:800;
+  cursor:pointer;
+}
+.portal-switch-row button:hover{background:var(--primary-2)}
+.portal-flash{
+  margin-top:8px;
+  padding:8px 9px;
+  border-radius:10px;
+  font-size:12px;
+  line-height:1.35;
+}
+.portal-flash.error{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}
+.portal-flash.success{background:#ecfdf5;color:#065f46;border:1px solid #bbf7d0}
+.sidebar.collapsed .portal-switcher{display:none}

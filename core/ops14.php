@@ -160,7 +160,9 @@ function adena14_area_guard(string $area): array {
   ensure_rbac_schema();
   ensure_adena14_schema();
   $u = current_user() ?: [];
-  if (current_user_is_owner() || has_menu_access($u, 'dashboard') || has_menu_access($u, 'inventori') || has_menu_access($u, 'stok_opname')) return $u;
+  if (current_user_is_owner() || has_menu_access($u, 'dashboard')) return $u;
+  if ($area === 'kitchen' && (has_menu_access($u, 'kitchen_page') || has_menu_access($u, 'inventori') || has_menu_access($u, 'stok_opname'))) return $u;
+  if ($area === 'branch' && has_menu_access($u, 'branch_page')) return $u;
   redirect_to_best_allowed_page($u, 'area:' . $area);
   return $u;
 }

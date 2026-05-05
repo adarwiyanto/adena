@@ -215,17 +215,18 @@ function role_menu_tree(): array {
     'settings' => ['label' => 'Pengaturan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'rekap_omset' => ['label' => 'Rekap Omset', 'actions' => ['view', 'export']],
     'branch_page' => ['label' => 'Halaman Cabang', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'kitchen_page' => ['label' => 'Halaman Dapur', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
   ];
 }
 
 function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
-    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset', 'branch_page'],
+    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset', 'branch_page', 'kitchen_page'],
     'manager_cabang' => ['branch_page'],
     'pegawai_cabang' => ['branch_page'],
     'kasir' => ['pos', 'pos_history', 'shift'],
-    'gudang' => ['inventori', 'stok_opname', 'purchase'],
+    'gudang' => ['inventori', 'stok_opname', 'purchase', 'kitchen_page'],
   ];
   foreach ($menuDefaults as $roleKey => $menus) {
     $roleId = role_id_by_key($roleKey);
@@ -336,6 +337,7 @@ function get_menu_landing_order(): array {
   return [
     ['menu' => 'dashboard', 'url' => base_url('admin/dashboard.php')],
     ['menu' => 'branch_page', 'url' => base_url('cabang/dashboard.php')],
+    ['menu' => 'kitchen_page', 'url' => base_url('kitchen/index.php')],
     ['menu' => 'pos', 'url' => base_url('pos/index.php')],
     ['menu' => 'sales', 'url' => base_url('admin/sales.php')],
     ['menu' => 'produk', 'url' => base_url('admin/products.php')],

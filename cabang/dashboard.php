@@ -1,8 +1,16 @@
 <?php
 require_once __DIR__ . '/../core/branch_portal.php';
+require_once __DIR__ . '/../core/portal_switcher.php';
 require_once __DIR__ . '/_layout.php';
 $u = branch_portal_current_user();
-if (isset($_GET['branch_id'])) { try { branch_portal_set_active_branch($u, (int)$_GET['branch_id']); } catch (Throwable $e) {} }
+if (isset($_GET['branch_id'])) {
+  try {
+    branch_portal_set_active_branch($u, (int)$_GET['branch_id']);
+  } catch (Throwable $e) {
+    adena_portal_flash($e->getMessage(), 'error');
+    redirect(base_url('cabang/dashboard.php'));
+  }
+}
 $branchId = branch_portal_active_branch_id($u);
 $branch = branch_portal_branch($branchId) ?: ['branch_name'=>'Halaman Cabang'];
 $customCss = setting('custom_css','');

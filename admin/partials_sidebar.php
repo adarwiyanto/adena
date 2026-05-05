@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/portal_switcher.php';
 
 $appName = app_config()['app']['name'];
 $u = current_user();
@@ -16,6 +18,9 @@ if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
 }
 $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
+$portalOptions = is_array($u) ? adena_portal_options($u) : [];
+$currentPortal = adena_portal_current_value();
+$portalFlash = adena_portal_flash();
 ?>
 <div class="sidebar">
   <div class="sb-top">
@@ -42,6 +47,23 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
       <a href="<?php echo e(base_url('profile.php')); ?>">Edit Profil</a>
       <a href="<?php echo e(base_url('password.php')); ?>">Ubah Password</a>
     </div>
+    <form class="portal-switcher" method="post" action="<?php echo e(base_url('portal_switch.php')); ?>">
+      <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+      <input type="hidden" name="back" value="<?php echo e((string)($_SERVER['REQUEST_URI'] ?? '')); ?>">
+      <label for="portal_target">Pindah Halaman</label>
+      <div class="portal-switch-row">
+        <select id="portal_target" name="portal_target">
+          <?php foreach ($portalOptions as $opt): ?>
+            <?php $isAllowed = !empty($opt['allowed']); $value = (string)$opt['value']; ?>
+            <option value="<?php echo e($value); ?>" class="<?php echo $isAllowed ? '' : 'is-locked'; ?>" <?php echo $value === $currentPortal ? 'selected' : ''; ?>><?php echo $isAllowed ? '' : '🔒 '; ?><?php echo e((string)$opt['label']); ?></option>
+          <?php endforeach; ?>
+        </select>
+        <button type="submit">Go</button>
+      </div>
+      <?php if ($portalFlash): ?>
+        <div class="portal-flash <?php echo e((string)($portalFlash['type'] ?? 'error')); ?>"><?php echo e((string)($portalFlash['message'] ?? '')); ?></div>
+      <?php endif; ?>
+    </form>
   </div>
 
   <div class="nav">
@@ -60,20 +82,6 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
          href="<?php echo e(base_url('admin/dashboard.php')); ?>">
         <div class="mi">🏠</div><div class="label">Dasbor</div>
       </a>
-    </div>
-    <?php endif; ?>
-
-    <?php if (current_user_is_owner() || has_menu_access($u, 'dashboard') || has_menu_access($u, 'inventori')): ?>
-    <div class="item">
-      <button type="button" data-toggle-submenu="#m-area-web">
-        <div class="mi">🏬</div><div class="label">Area Web</div>
-        <div class="chev">▾</div>
-      </button>
-      <div class="submenu" id="m-area-web">
-        <a href="<?php echo e(base_url('admin/dashboard.php')); ?>">Admin Area</a>
-        <a href="<?php echo e(base_url('kitchen/index.php')); ?>">Dapur Produksi</a>
-        <a href="<?php echo e(base_url('branch/index.php')); ?>">Toko / Cabang</a>
-      </div>
     </div>
     <?php endif; ?>
 
