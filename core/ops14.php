@@ -53,6 +53,9 @@ function ensure_adena14_schema(): void {
     KEY idx_initial_stock_location (location_id,status)
   ) ENGINE=InnoDB");
 
+  $safe("ALTER TABLE stock_ledger ADD COLUMN location_id INT NULL AFTER branch_id");
+  $safe("ALTER TABLE stock_ledger ADD KEY idx_stock_ledger_location (location_id,product_id,created_at)");
+
   $safe("CREATE TABLE IF NOT EXISTS stock_transfers (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     transfer_no VARCHAR(60) NOT NULL,

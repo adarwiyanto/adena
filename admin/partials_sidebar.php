@@ -107,10 +107,11 @@ $isActive = static function (string $file): string {
       <div class="group-label">Portal Cabang</div>
       <div class="item"><a class="<?php echo $isActive('dashboard.php'); ?>" href="<?php echo e(base_url('cabang/dashboard.php')); ?>"><div class="mi">🏠</div><div class="label">Dashboard Cabang</div></a></div>
       <div class="item"><a class="<?php echo $isActive('pilih.php'); ?>" href="<?php echo e(base_url('cabang/pilih.php')); ?>"><div class="mi">🏬</div><div class="label">Pilih Cabang</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('stock/initial.php?area=branch')); ?>"><div class="mi">🧮</div><div class="label">Stok Awal</div></a></div>
+      <div class="item"><a class="<?php echo $isActive('stocks.php'); ?>" href="<?php echo e(base_url('cabang/stocks.php')); ?>"><div class="mi">📦</div><div class="label">Stok Cabang</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('cabang/stock_initial.php')); ?>"><div class="mi">🧮</div><div class="label">Stok Awal</div></a></div>
       <div class="item"><a class="<?php echo $isActive('stok_masuk.php'); ?>" href="<?php echo e(base_url('cabang/stok_masuk.php')); ?>"><div class="mi">📥</div><div class="label">Input Stok</div></a></div>
       <div class="item"><a class="<?php echo $isActive('stock_opname.php'); ?>" href="<?php echo e(base_url('cabang/stock_opname.php')); ?>"><div class="mi">📋</div><div class="label">Stok Opname</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('branch/transfer_receive.php')); ?>"><div class="mi">✅</div><div class="label">Terima Transfer</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('cabang/receive_transfer.php')); ?>"><div class="mi">✅</div><div class="label">Terima Transfer</div></a></div>
       <div class="item"><a class="<?php echo $isActive('riwayat.php'); ?>" href="<?php echo e(base_url('cabang/riwayat.php')); ?>"><div class="mi">🕘</div><div class="label">Riwayat Cabang</div></a></div>
       <?php if (has_menu_access($u, 'pos')): ?>
         <div class="item"><a href="<?php echo e(base_url('pos/index.php')); ?>" target="_blank" rel="noopener"><div class="mi">🧾</div><div class="label">POS Kasir</div></a></div>
@@ -120,12 +121,12 @@ $isActive = static function (string $file): string {
     <?php elseif ($portalType === 'kitchen'): ?>
       <div class="group-label">Portal Dapur</div>
       <div class="item"><a class="<?php echo $isActive('index.php'); ?>" href="<?php echo e(base_url('kitchen/index.php')); ?>"><div class="mi">🏠</div><div class="label">Dashboard Dapur</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('stock/initial.php?area=kitchen')); ?>"><div class="mi">🧮</div><div class="label">Stok Awal Dapur</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('admin/stocks.php?area=kitchen')); ?>"><div class="mi">📦</div><div class="label">Stok Dapur</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('admin/bom.php?area=kitchen')); ?>"><div class="mi">🧩</div><div class="label">BOM Produk</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('admin/production.php?area=kitchen')); ?>"><div class="mi">🍳</div><div class="label">Produksi</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('kitchen/initial_stock.php')); ?>"><div class="mi">🧮</div><div class="label">Stok Awal Dapur</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('kitchen/stocks.php')); ?>"><div class="mi">📦</div><div class="label">Stok Dapur</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('kitchen/bom.php')); ?>"><div class="mi">🧩</div><div class="label">BOM Produk</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('kitchen/production.php')); ?>"><div class="mi">🍳</div><div class="label">Produksi</div></a></div>
       <div class="item"><a class="<?php echo $isActive('transfers.php'); ?>" href="<?php echo e(base_url('kitchen/transfers.php')); ?>"><div class="mi">🚚</div><div class="label">Transfer ke Cabang</div></a></div>
-      <div class="item"><a href="<?php echo e(base_url('admin/stock_opname.php?area=kitchen')); ?>"><div class="mi">📋</div><div class="label">Stok Opname</div></a></div>
+      <div class="item"><a href="<?php echo e(base_url('kitchen/opname.php')); ?>"><div class="mi">📋</div><div class="label">Stok Opname</div></a></div>
       <div class="item"><a href="<?php echo e(base_url('admin/logout.php')); ?>"><div class="mi">⎋</div><div class="label">Logout</div></a></div>
 
     <?php else: ?>
