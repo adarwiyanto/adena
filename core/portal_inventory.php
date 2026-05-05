@@ -2,7 +2,6 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/inventory.php';
-require_once __DIR__ . '/ops14.php';
 
 /**
  * Portal inventory helper v1.4 stabil.

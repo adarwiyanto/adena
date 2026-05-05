@@ -1,8 +1,8 @@
 <?php
-require_once __DIR__ . '/../core/ops14.php';
+require_once __DIR__ . '/../core/portal_area_guard.php';
 require_once __DIR__ . '/../core/portal_inventory.php';
 require_once __DIR__ . '/_layout.php';
-$u = adena14_area_guard('kitchen');
+$u = portal_light_area_guard('kitchen');
 $customCss = setting('custom_css','');
 $search = trim((string)($_GET['search'] ?? ''));
 $type = (string)($_GET['type'] ?? 'all');

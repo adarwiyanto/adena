@@ -1,8 +1,8 @@
 <?php
-require_once __DIR__ . '/../core/ops14.php';
+require_once __DIR__ . '/../core/portal_area_guard.php';
 require_once __DIR__ . '/../core/portal_inventory.php';
 require_once __DIR__ . '/_layout.php';
-$u = adena14_area_guard('kitchen');
+$u = portal_light_area_guard('kitchen');
 $customCss = setting('custom_css', '');
 $err = '';
 $locationId = 1;
@@ -10,7 +10,11 @@ $recentTransfers = [];
 $stockSku = 0; $pendingTransfer = 0; $productions = 0;
 try {
   $locationId = portal_inventory_kitchen_location_id();
-  $stockSku = count(array_filter(portal_inventory_stock_rows($locationId, '', 'all'), static fn($r) => (float)($r['stock_qty'] ?? 0) != 0.0));
+  
+  $stockSku = 0;
+  foreach (portal_inventory_stock_rows($locationId, '', 'all') as $stockRow) {
+    if ((float)($stockRow['stock_qty'] ?? 0) != 0.0) { $stockSku++; }
+  }
   $stmt = db()->prepare("SELECT COUNT(*) FROM stock_transfers WHERE from_location_id=? AND status='sent'");
   $stmt->execute([$locationId]);
   $pendingTransfer = (int)$stmt->fetchColumn();

@@ -1,15 +1,15 @@
 <?php
-require_once __DIR__ . '/../core/ops14.php';
+require_once __DIR__ . '/../core/portal_area_guard.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/portal_inventory.php';
 require_once __DIR__ . '/_layout.php';
-$u = adena14_area_guard('kitchen');
+$u = portal_light_area_guard('kitchen');
 $customCss = setting('custom_css','');
 $err=''; $msg=''; $locationId=1; $products=[]; $destinations=[]; $rows=[];
 try {
   $locationId=portal_inventory_kitchen_location_id();
   $products=portal_inventory_stock_rows($locationId,'','all');
-  $products=array_values(array_filter($products, static fn($p) => (float)($p['stock_qty'] ?? 0) > 0));
+  $products = array_values(array_filter($products, static function($p) { return (float)($p['stock_qty'] ?? 0) > 0; }));
   $destinations=portal_inventory_destination_locations($locationId);
 } catch(Throwable $e){ $err=$e->getMessage(); }
 if ($_SERVER['REQUEST_METHOD']==='POST') {
@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     portal_inventory_create_transfer($locationId,(int)($_POST['to_location_id'] ?? 0),$items,trim((string)($_POST['notes'] ?? '')),(int)$u['id']);
     $msg='Transfer berhasil dibuat dan menunggu diterima cabang/tujuan.';
     $products=portal_inventory_stock_rows($locationId,'','all');
-    $products=array_values(array_filter($products, static fn($p) => (float)($p['stock_qty'] ?? 0) > 0));
+    $products = array_values(array_filter($products, static function($p) { return (float)($p['stock_qty'] ?? 0) > 0; }));
   } catch(Throwable $e){ $err=$e->getMessage(); }
 }
 try {

@@ -1,9 +1,9 @@
 <?php
-require_once __DIR__ . '/../core/ops14.php';
+require_once __DIR__ . '/../core/portal_area_guard.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/portal_inventory.php';
 require_once __DIR__ . '/_layout.php';
-$u = adena14_area_guard('kitchen');
+$u = portal_light_area_guard('kitchen');
 $customCss = setting('custom_css','');
 $err=''; $msg=''; $finishedProducts=[]; $materials=[]; $boms=[];
 try { $finishedProducts=portal_inventory_products('', 'finished'); $materials=portal_inventory_products('', 'raw'); } catch(Throwable $e){ $err=$e->getMessage(); }
