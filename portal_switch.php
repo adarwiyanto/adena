@@ -5,7 +5,8 @@ require_once __DIR__ . '/core/csrf.php';
 require_once __DIR__ . '/core/portal_switcher.php';
 
 start_secure_session();
-$u = require_admin();
+require_admin();
+$u = current_user() ?? [];
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
   redirect(base_url('admin/dashboard.php'));
