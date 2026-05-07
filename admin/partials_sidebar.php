@@ -59,14 +59,14 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
       <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
       <input type="hidden" name="back" value="<?php echo e((string)($_SERVER['REQUEST_URI'] ?? base_url('admin/dashboard.php'))); ?>">
       <label style="display:block;font-size:11px;color:#64748b;font-weight:800;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Area Kerja</label>
-      <select name="portal_target" onchange="this.form.submit()" style="width:100%;border-radius:10px;border:1px solid #cbd5e1;padding:8px 10px;background:#fff;color:#0f172a;font-weight:700">
+      <select name="portal_target" style="width:100%;border-radius:10px;border:1px solid #cbd5e1;padding:8px 10px;background:#fff;color:#0f172a;font-weight:700">
         <?php foreach ($portalOptions as $opt): ?>
           <?php if (!empty($opt['allowed'])): ?>
             <option value="<?php echo e((string)$opt['value']); ?>" <?php echo ((string)$opt['value'] === $portalCurrent) ? 'selected' : ''; ?>><?php echo e((string)$opt['label']); ?></option>
           <?php endif; ?>
         <?php endforeach; ?>
       </select>
-      <noscript><button class="btn" style="margin-top:8px;width:100%" type="submit">Pindah</button></noscript>
+      <button class="btn" style="margin-top:8px;width:100%;justify-content:center" type="submit">Go / Buka</button>
     </form>
   </div>
 
