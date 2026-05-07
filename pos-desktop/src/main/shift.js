@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { initDb } = require('./db');
 const { shiftAction } = require('./api');
 const { localDateTimeString } = require('./time');
+const { store } = require('./config');
 
 function uuid() {
   return crypto.randomUUID();
@@ -44,13 +45,8 @@ function localCloseShift(payload = {}, syncStatus = 'pending') {
 }
 
 async function performShift(action, payload = {}) {
-  const normalizedPayload = { ...payload, offline_uuid: payload.offline_uuid || uuid() };
-  let resp;
-  try {
-    resp = await shiftAction(action, normalizedPayload);
-  } catch (error) {
-    resp = { ok: false, message: error?.message || 'Sync shift gagal', status: 0 };
-  }
+  const normalizedPayload = { branch_id: Number(payload.branch_id || store.get('branchId') || 1), ...payload, offline_uuid: payload.offline_uuid || uuid() };
+  const resp = await shiftAction(action, normalizedPayload);
   if (resp?.ok) {
     const db = initDb();
     db.prepare('UPDATE shift_sync_queue SET sync_status = ?, synced_at = CURRENT_TIMESTAMP, error_message = NULL WHERE offline_uuid = ?')

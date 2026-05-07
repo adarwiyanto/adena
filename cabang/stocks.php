@@ -1,16 +1,2 @@
-<?php
-require_once __DIR__ . '/../core/branch_portal.php';
-require_once __DIR__ . '/../core/portal_inventory.php';
-require_once __DIR__ . '/_layout.php';
-$u = branch_portal_current_user();
-$branchId = branch_portal_active_branch_id($u);
-$branch = branch_portal_branch($branchId) ?: ['branch_name'=>'Halaman Cabang'];
-$locationId = portal_inventory_branch_location_id($branchId);
-$search = trim((string)($_GET['search'] ?? ''));
-$rows = portal_inventory_stock_rows($locationId, $search, 'all');
-$customCss=setting('custom_css','');
-cabang_header('Stok Cabang', $branch, $customCss);
-?>
-<div class="card"><h3>Daftar Stok Cabang</h3><p style="color:#64748b">Stok dibaca dari lokasi cabang aktif. Halaman ini tidak masuk ke Admin.</p><form method="get" class="grid cols-3"><div class="row"><label>Search</label><input name="search" value="<?php echo e($search); ?>" placeholder="Nama/kategori/kode"></div><div class="row" style="align-self:end"><button class="btn" type="submit">Filter</button></div></form></div>
-<div class="card"><table class="table"><thead><tr><th>Produk</th><th>Kategori</th><th>Jenis</th><th style="text-align:right">Stok Cabang</th></tr></thead><tbody><?php if(empty($rows)): ?><tr><td colspan="4" style="text-align:center;color:#94a3b8">Data tidak ditemukan.</td></tr><?php else: foreach($rows as $r): $unit=product_unit_fallback($r); ?><tr><td><?php echo e((string)$r['name']); ?></td><td><?php echo e((string)($r['category'] ?? '-')); ?></td><td><?php echo e((string)$r['product_type']); ?></td><td style="text-align:right;font-weight:800"><?php echo e(format_qty((float)$r['stock_qty'],$unit['base_unit'])); ?></td></tr><?php endforeach; endif; ?></tbody></table></div>
-<?php cabang_footer(); ?>
+<?php require_once __DIR__ . '/_boot.php'; $rows=[]; try { $st=db()->prepare("SELECT p.id,p.name,p.base_unit,COALESCE(SUM(sl.qty_in-sl.qty_out),0) stock, COALESCE(p.reorder_level,0) reorder_level FROM products p LEFT JOIN stock_ledger sl ON sl.product_id=p.id AND sl.branch_id=? WHERE COALESCE(p.track_stock,1)=1 GROUP BY p.id,p.name,p.base_unit,p.reorder_level ORDER BY p.name LIMIT 500"); $st->execute([$unitId]); $rows=$st->fetchAll(PDO::FETCH_ASSOC)?:[]; } catch(Throwable $e) { $err=$e->getMessage(); } ?>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stok Cabang</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style></head><body><div class="container"><?php include __DIR__ . '/_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><strong>Stok Cabang</strong></div><div class="content"><div class="card"><table class="table"><thead><tr><th>Produk</th><th>Stok</th><th>Reorder</th><th>Status</th></tr></thead><tbody><?php foreach($rows as $r): $low=((float)$r['reorder_level']>0 && (float)$r['stock'] <= (float)$r['reorder_level']); ?><tr><td><?php echo e($r['name']); ?></td><td><?php echo e(format_qty($r['stock'],$r['base_unit'])); ?></td><td><?php echo e(format_qty($r['reorder_level'],$r['base_unit'])); ?></td><td><?php echo $low ? 'Stok rendah' : 'Aman'; ?></td></tr><?php endforeach; if(empty($rows)): ?><tr><td colspan="4">Belum ada data stok.</td></tr><?php endif; ?></tbody></table></div></div></div></div><script src="<?php echo e(asset_url('assets/app.js')); ?>"></script></body></html>

@@ -199,7 +199,7 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
   const db = initDb();
   const tx = db.transaction(() => {
     if (fullSync) {
-      ['products', 'product_categories', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements']
+      ['products', 'product_categories', 'branches', 'branch_product_prices', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements']
         .forEach((table) => db.prepare(`DELETE FROM ${table}`).run());
     }
 
@@ -226,6 +226,18 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
       track_stock: r.track_stock ?? 0,
       updated_at: r.updated_at || localDateTimeString()
     }));
+
+    const upsertBranch = db.prepare(`INSERT INTO branches (id, branch_code, branch_name, unit_type, is_kitchen, is_active)
+      VALUES (@id,@branch_code,@branch_name,@unit_type,@is_kitchen,@is_active)
+      ON CONFLICT(id) DO UPDATE SET branch_code=excluded.branch_code, branch_name=excluded.branch_name, unit_type=excluded.unit_type, is_kitchen=excluded.is_kitchen, is_active=excluded.is_active`);
+    (data.branches || []).forEach((r) => upsertBranch.run({
+      id: r.id, branch_code: r.branch_code || '', branch_name: r.branch_name || '', unit_type: r.unit_type || 'branch', is_kitchen: r.is_kitchen || 0, is_active: r.is_active ?? 1
+    }));
+
+    const upsertBranchPrice = db.prepare(`INSERT INTO branch_product_prices (branch_id, product_id, price, is_active)
+      VALUES (@branch_id,@product_id,@price,@is_active)
+      ON CONFLICT(branch_id, product_id) DO UPDATE SET price=excluded.price, is_active=excluded.is_active`);
+    (data.branch_product_prices || []).forEach((r) => upsertBranchPrice.run({ branch_id: r.branch_id, product_id: r.product_id, price: r.price || 0, is_active: r.is_active ?? 1 }));
 
     const upsertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=excluded.image_path');
     const rawCategories = Array.isArray(data.categories) && data.categories.length ? data.categories : (data.product_categories || []);
@@ -335,6 +347,9 @@ async function syncMaster(_options = {}) {
     const storeIdentity = await cacheStoreIdentity(payload.settings || {});
 
     if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
+    if (resp?.token?.branch_id) store.set('branchId', Number(resp.token.branch_id) || 1);
+    const selectedBranch = (payload.branches || []).find((b) => Number(b.id) === Number(store.get('branchId') || resp?.token?.branch_id || 1));
+    store.set('saleSource', selectedBranch && Number(selectedBranch.is_kitchen || 0) === 1 ? 'kitchen_direct' : 'branch_pos');
 
     return {
       ...resp,
@@ -345,6 +360,7 @@ async function syncMaster(_options = {}) {
         guides: (payload.guides || []).length,
         banks: getBanks(payload).length,
         payment_methods: (payload.payment_methods || []).length,
+        branches: (payload.branches || []).length,
         shifts: (payload.shifts || []).length,
         sales_history: (payload.sales_history || []).length,
         pending_orders: (payload.pending_orders || []).length,
@@ -407,31 +423,11 @@ function buildPendingPayload() {
   const db = initDb();
   const sales = db.prepare("SELECT * FROM sales WHERE sync_status IN ('pending','failed') ORDER BY id ASC").all();
   const grouped = new Map();
-  const paymentsByTx = new Map();
-  try {
-    const payRows = db.prepare("SELECT * FROM sale_payments WHERE local_transaction_id IN (SELECT DISTINCT local_transaction_id FROM sales WHERE sync_status IN ('pending','failed')) ORDER BY id ASC").all();
-    for (const p of payRows) {
-      const key = p.local_transaction_id;
-      if (!paymentsByTx.has(key)) paymentsByTx.set(key, []);
-      paymentsByTx.get(key).push({
-        method: p.payment_method,
-        bank_id: p.payment_bank_id,
-        bank_name: p.payment_bank,
-        amount: Number(p.amount || 0),
-        fee_percent: Number(p.fee_percent || 0),
-        fee_amount: Number(p.fee_amount || 0),
-        charged_amount: Number(p.charged_amount || p.amount || 0),
-        cash_received: p.cash_received,
-        cash_change: p.cash_change
-      });
-    }
-  } catch (_) {}
 
   for (const row of sales) {
     const key = row.local_transaction_id || row.transaction_group_uuid;
     if (!key) continue;
     if (!grouped.has(key)) {
-      const payments = paymentsByTx.get(key) || [];
       grouped.set(key, {
         transaction_code: row.transaction_code,
         offline_uuid: key,
@@ -440,15 +436,11 @@ function buildPendingPayload() {
         local_transaction_id: row.local_transaction_id || key,
         payment_method: row.payment_method,
         payment_bank: row.payment_bank,
-        payment_summary: row.payment_summary || null,
-        payments,
-        customer: {
-          name: row.customer_name || '',
-          phone: row.customer_phone || ''
-        },
         guide_id: row.guide_id,
         guide_name: row.guide_name,
         user_id: row.created_by,
+        branch_id: row.branch_id || 1,
+        sale_source: row.sale_source || 'branch_pos',
         sold_at: row.sold_at,
         source: 'desktop',
         items: []
@@ -475,10 +467,6 @@ async function syncPendingTransactions() {
         if (!txn) continue;
         db.prepare('UPDATE sales SET sync_status = ?, sync_error = ?, last_synced_at = CURRENT_TIMESTAMP WHERE local_transaction_id = ?')
           .run(isSuccess ? 'synced' : 'failed', isSuccess ? null : (result.message || 'sync failed'), txn.local_transaction_id);
-        try {
-          db.prepare('UPDATE sale_payments SET sync_status = ? WHERE local_transaction_id = ?')
-            .run(isSuccess ? 'synced' : 'failed', txn.local_transaction_id);
-        } catch (_) {}
         db.prepare('INSERT INTO pos_sync_queue_log (entity_type, offline_uuid, payload_json, processed_at, status, message) VALUES (?,?,?,?,?,?)')
           .run('sale', txn.local_transaction_id, JSON.stringify(result), localDateTimeString(), isSuccess ? 'success' : 'failed', result.message || null);
       }

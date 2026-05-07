@@ -58,6 +58,23 @@ function initDb() {
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS branches (
+      id INTEGER PRIMARY KEY,
+      branch_code TEXT,
+      branch_name TEXT,
+      unit_type TEXT DEFAULT 'branch',
+      is_kitchen INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS branch_product_prices (
+      branch_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      price REAL NOT NULL DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      PRIMARY KEY (branch_id, product_id)
+    );
+
     CREATE TABLE IF NOT EXISTS product_categories (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -182,6 +199,8 @@ function initDb() {
       guide_name TEXT,
       created_by INTEGER,
       branch_id INTEGER,
+      sale_source TEXT DEFAULT 'branch_pos',
+      unit_type TEXT DEFAULT 'branch',
       shift_id INTEGER,
       sold_at TEXT,
       discount_amount REAL DEFAULT 0,
@@ -192,27 +211,7 @@ function initDb() {
       local_transaction_id TEXT,
       sync_status TEXT DEFAULT 'pending',
       sync_error TEXT,
-      last_synced_at TEXT,
-      customer_name TEXT,
-      customer_phone TEXT,
-      payment_summary TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS sale_payments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      local_transaction_id TEXT NOT NULL,
-      transaction_group_uuid TEXT,
-      payment_method TEXT NOT NULL,
-      payment_bank TEXT,
-      payment_bank_id INTEGER,
-      amount REAL NOT NULL DEFAULT 0,
-      fee_percent REAL DEFAULT 0,
-      fee_amount REAL DEFAULT 0,
-      charged_amount REAL DEFAULT 0,
-      cash_received REAL,
-      cash_change REAL,
-      created_at TEXT,
-      sync_status TEXT DEFAULT 'pending'
+      last_synced_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS orders (
@@ -302,11 +301,10 @@ function initDb() {
   safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
   safeExec('ALTER TABLE sales ADD COLUMN cash_received REAL');
   safeExec('ALTER TABLE sales ADD COLUMN cash_change REAL');
-  safeExec('ALTER TABLE sales ADD COLUMN customer_name TEXT');
-  safeExec('ALTER TABLE sales ADD COLUMN customer_phone TEXT');
-  safeExec('ALTER TABLE sales ADD COLUMN payment_summary TEXT');
-  safeExec("CREATE TABLE IF NOT EXISTS sale_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, local_transaction_id TEXT NOT NULL, transaction_group_uuid TEXT, payment_method TEXT NOT NULL, payment_bank TEXT, payment_bank_id INTEGER, amount REAL NOT NULL DEFAULT 0, fee_percent REAL DEFAULT 0, fee_amount REAL DEFAULT 0, charged_amount REAL DEFAULT 0, cash_received REAL, cash_change REAL, created_at TEXT, sync_status TEXT DEFAULT 'pending')");
-  safeExec('CREATE INDEX IF NOT EXISTS idx_sale_payments_local_tx ON sale_payments(local_transaction_id)');
+  safeExec("ALTER TABLE sales ADD COLUMN sale_source TEXT DEFAULT 'branch_pos'");
+  safeExec("ALTER TABLE sales ADD COLUMN unit_type TEXT DEFAULT 'branch'");
+  safeExec('ALTER TABLE products ADD COLUMN product_type TEXT');
+  safeExec('ALTER TABLE products ADD COLUMN allow_bom INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');
