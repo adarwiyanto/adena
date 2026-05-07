@@ -12,6 +12,7 @@ $unitName = $unit['branch_name'] ?? 'Cabang';
   <div class="nav">
     <div class="item"><a class="<?php echo $activeFile==='index.php'?'active':''; ?>" href="<?php echo e(unit_url('cabang',$unitId)); ?>"><div class="mi">🏪</div><div class="label">Dashboard Cabang</div></a></div>
     <div class="item"><a href="<?php echo e(base_url('pos/index.php?branch_id='.$unitId)); ?>" target="_blank" rel="noopener"><div class="mi">🧾</div><div class="label">Penjualan Cabang</div></a></div>
+    <div class="item"><a class="<?php echo $activeFile==='review_sales.php'?'active':''; ?>" href="<?php echo e(unit_url('cabang',$unitId,'review_sales.php')); ?>"><div class="mi">↩️</div><div class="label">Review Penjualan/Retur</div></a></div>
     <div class="item"><a class="<?php echo $activeFile==='sales.php'?'active':''; ?>" href="<?php echo e(unit_url('cabang',$unitId,'sales.php')); ?>"><div class="mi">💳</div><div class="label">Riwayat Penjualan</div></a></div>
     <div class="item"><a class="<?php echo $activeFile==='shifts.php'?'active':''; ?>" href="<?php echo e(unit_url('cabang',$unitId,'shifts.php')); ?>"><div class="mi">🕘</div><div class="label">Laporan Shift POS</div></a></div>
     <div class="item"><a class="<?php echo $activeFile==='stocks.php'?'active':''; ?>" href="<?php echo e(unit_url('cabang',$unitId,'stocks.php')); ?>"><div class="mi">📦</div><div class="label">Stok Cabang</div></a></div>

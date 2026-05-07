@@ -125,7 +125,7 @@ try {
     $branches = safe_rows(
         $pdo,
         'branches',
-        "SELECT id, branch_code, branch_name, unit_type, is_kitchen, is_active FROM branches WHERE is_active = 1 ORDER BY unit_type DESC, sort_order, branch_name",
+        "SELECT id, branch_code, branch_name, COALESCE(unit_type,'branch') AS unit_type, COALESCE(is_kitchen,0) AS is_kitchen, is_active FROM branches WHERE is_active = 1 ORDER BY COALESCE(unit_type,'branch') DESC, sort_order, branch_name",
         [],
         $debugNotes
     );
@@ -185,25 +185,32 @@ try {
     // URL siap pakai untuk POS Desktop. Nilai store_logo biasanya hanya nama file private_uploads.
     $settings['store_logo_url'] = !empty($settings['store_logo']) ? upload_url($settings['store_logo'], 'image') : '';
 
+    $shiftWhere = [];
+    $shiftParams = [];
+    if ($tokenBranchId > 0) { $shiftWhere[] = 'branch_id = ?'; $shiftParams[] = $tokenBranchId; }
+    if ($hasFilter) { $shiftWhere[] = 'updated_at >= ?'; $shiftParams[] = $sinceParam; }
     $shiftsSql = "SELECT id, shift_code, branch_id, opened_at, opened_by, opening_cash_default,
                          opening_cash_actual, status, closed_at, closed_by, expected_cash_total,
                          counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
                          sync_status, created_at, updated_at
                   FROM pos_shifts" .
-                  ($hasFilter ? " WHERE updated_at >= ?" : "") .
+                  (count($shiftWhere) ? " WHERE " . implode(' AND ', $shiftWhere) : "") .
                   " ORDER BY id DESC LIMIT 100";
-    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $shiftParams, $debugNotes);
 
+    $salesWhere = ["(s.return_reason IS NULL OR s.return_reason = '')"];
+    $salesParams = [];
+    if ($tokenBranchId > 0) { $salesWhere[] = 's.branch_id = ?'; $salesParams[] = $tokenBranchId; }
+    if ($hasFilter) { $salesWhere[] = 's.sold_at >= ?'; $salesParams[] = $sinceParam; }
     $salesSql = "SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
                         s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
                         s.guide_id, s.guide_name, s.created_by, s.sold_at,
                         u.name AS cashier_name
                  FROM sales s
                  LEFT JOIN users u ON u.id = s.created_by
-                 WHERE (s.return_reason IS NULL OR s.return_reason = '')" .
-                 ($hasFilter ? " AND s.sold_at >= ?" : "") .
+                 WHERE " . implode(' AND ', $salesWhere) .
                  " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
-    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $salesParams, $debugNotes);
 
     $pendingOrders = safe_rows(
         $pdo,
@@ -236,10 +243,10 @@ try {
                 counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
                 sync_status, created_at, updated_at
          FROM pos_shifts
-         WHERE status = 'open'
+         WHERE status = 'open'" . ($tokenBranchId > 0 ? " AND branch_id = ?" : "") . "
          ORDER BY id DESC
          LIMIT 1",
-        [],
+        $tokenBranchId > 0 ? [$tokenBranchId] : [],
         $debugNotes
     );
 

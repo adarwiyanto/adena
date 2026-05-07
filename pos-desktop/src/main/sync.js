@@ -449,18 +449,38 @@ function buildPendingPayload() {
     grouped.get(key).items.push({ product_id: row.product_id, qty: row.qty, price_each: row.price_each, total: row.total });
   }
 
-  return { shifts: [], cash_movements: [], transactions: Array.from(grouped.values()) };
+  const returns = db.prepare("SELECT * FROM sales_returns WHERE sync_status IN ('pending','failed') ORDER BY id ASC").all().map((r) => ({
+    offline_uuid: r.offline_uuid,
+    transaction_group_uuid: r.transaction_group_uuid,
+    local_transaction_id: r.local_transaction_id,
+    transaction_code: r.transaction_code,
+    branch_id: r.branch_id,
+    reason: r.reason,
+    total_return: r.total_return,
+    created_by: r.created_by,
+    created_at: r.created_at,
+    items: db.prepare('SELECT product_id, qty, price_each, subtotal FROM sales_return_items WHERE return_offline_uuid = ?').all(r.offline_uuid)
+  }));
+
+  return { shifts: [], cash_movements: [], transactions: Array.from(grouped.values()), returns };
 }
 
 async function syncPendingTransactions() {
   try {
     const db = initDb();
     const payload = buildPendingPayload();
-    if (!payload.transactions.length) return { ok: true, message: 'No pending' };
+    if (!payload.transactions.length && !payload.returns.length) return { ok: true, message: 'No pending' };
 
     const resp = await pushTransactions(payload);
     if (!resp?.ok) return resp;
     const tx = db.transaction(() => {
+      for (const [uuid, result] of Object.entries(resp.results?.returns || {})) {
+        const isSuccess = result.status === 'inserted' || result.status === 'exists';
+        db.prepare('UPDATE sales_returns SET sync_status = ?, sync_error = ?, synced_at = CURRENT_TIMESTAMP WHERE offline_uuid = ?')
+          .run(isSuccess ? 'synced' : 'failed', isSuccess ? null : (result.message || 'sync failed'), uuid);
+        db.prepare('INSERT INTO pos_sync_queue_log (entity_type, offline_uuid, payload_json, processed_at, status, message) VALUES (?,?,?,?,?,?)')
+          .run('sale_return', uuid, JSON.stringify(result), localDateTimeString(), isSuccess ? 'success' : 'failed', result.message || null);
+      }
       for (const [uuid, result] of Object.entries(resp.results?.transactions || {})) {
         const isSuccess = result.status === 'inserted' || result.status === 'exists';
         const txn = payload.transactions.find((t) => t.local_transaction_id === uuid || t.offline_uuid === uuid);

@@ -15,6 +15,7 @@ $unitName = $unit['branch_name'] ?? 'Dapur';
     <div class="item"><a class="<?php echo $activeFile==='stocks.php'?'active':''; ?>" href="<?php echo e(unit_url('dapur',$unitId,'stocks.php')); ?>"><div class="mi">📦</div><div class="label">Stok Dapur</div></a></div>
     <div class="item"><a class="<?php echo $activeFile==='transfers.php'?'active':''; ?>" href="<?php echo e(unit_url('dapur',$unitId,'transfers.php')); ?>"><div class="mi">🚚</div><div class="label">Transfer ke Cabang</div></a></div>
     <div class="item"><a href="<?php echo e(base_url('pos/index.php?branch_id='.$unitId.'&sale_source=kitchen_direct')); ?>" target="_blank" rel="noopener"><div class="mi">🧾</div><div class="label">Penjualan Langsung</div></a></div>
+    <div class="item"><a class="<?php echo $activeFile==='review_sales.php'?'active':''; ?>" href="<?php echo e(unit_url('dapur',$unitId,'review_sales.php')); ?>"><div class="mi">↩️</div><div class="label">Review Penjualan/Retur</div></a></div>
     <div class="item"><a class="<?php echo $activeFile==='sales.php'?'active':''; ?>" href="<?php echo e(unit_url('dapur',$unitId,'sales.php')); ?>"><div class="mi">💳</div><div class="label">Riwayat Penjualan Dapur</div></a></div>
     <div class="item"><a class="<?php echo $activeFile==='legacy.php'?'active':''; ?>" href="<?php echo e(unit_url('dapur',$unitId,'legacy.php')); ?>"><div class="mi">🗄️</div><div class="label">Data Lama</div></a></div>
     <div class="item"><a href="<?php echo e(base_url('admin/dashboard.php')); ?>"><div class="mi">⚙️</div><div class="label">Admin</div></a></div>

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   getPosState: () => ipcRenderer.invoke('pos:state'),
   getHistory: (filters) => ipcRenderer.invoke('history:list', filters),
   getHistoryDetail: (transactionGroupId) => ipcRenderer.invoke('history:detail', transactionGroupId),
+  returnHistoryTransaction: (payload) => ipcRenderer.invoke('history:return', payload),
   getHistoryRecap: (filters) => ipcRenderer.invoke('history:recap', filters),
   getOrders: () => ipcRenderer.invoke('orders:list'),
   printReceipt: (payload) => ipcRenderer.invoke('print:receipt', payload),

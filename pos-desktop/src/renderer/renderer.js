@@ -637,8 +637,20 @@ async function showHistoryDetail(transactionGroupId) {
   const h = items[0];
   const total = items.reduce((a, i) => a + Number(i.total || 0), 0);
   const rows = items.map((i) => '<div class="receipt-line"><span>' + escapeHtml(i.product_name || 'Produk') + ' x' + Number(i.qty || 0) + '<small>' + rupiah(i.price_each || 0) + '</small></span><strong>' + rupiah(i.total || 0) + '</strong></div>').join('');
-  $('#history-detail-content').innerHTML = '<div class="receipt-meta"><strong>' + escapeHtml(h.transaction_code || '-') + '</strong><div>Waktu: ' + escapeHtml(h.sold_at || '-') + '</div><div>Guide: ' + escapeHtml(h.guide_name || '-') + '</div><div>Pembayaran: ' + escapeHtml([h.payment_method, h.payment_bank].filter(Boolean).join(' - ') || '-') + '</div><div>Status sync: ' + escapeHtml(h.sync_status || '-') + '</div></div><div class="receipt-items">' + rows + '</div><div class="receipt-total">Total: ' + rupiah(total) + '</div>' + (isCashPayment(h.payment_method) ? '<div>Diterima: ' + rupiah(h.cash_received || total) + '</div><div>Kembalian: ' + rupiah(h.cash_change || 0) + '</div>' : '');
+  const canReturn = items.every((i) => (i.return_status || 'none') !== 'returned');
+  $('#history-detail-content').innerHTML = '<div class="receipt-meta"><strong>' + escapeHtml(h.transaction_code || '-') + '</strong><div>Waktu: ' + escapeHtml(h.sold_at || '-') + '</div><div>Guide: ' + escapeHtml(h.guide_name || '-') + '</div><div>Pembayaran: ' + escapeHtml([h.payment_method, h.payment_bank].filter(Boolean).join(' - ') || '-') + '</div><div>Status sync: ' + escapeHtml(h.sync_status || '-') + '</div></div><div class="receipt-items">' + rows + '</div><div class="receipt-total">Total: ' + rupiah(total) + '</div>' + (isCashPayment(h.payment_method) ? '<div>Diterima: ' + rupiah(h.cash_received || total) + '</div><div>Kembalian: ' + rupiah(h.cash_change || 0) + '</div>' : '') + (canReturn ? '<div class="pos-modal-actions"><button type="button" id="btn-return-transaction" class="danger">Retur transaksi</button></div>' : '<div class="empty">Transaksi sudah diretur.</div>');
   $('#history-detail-modal').hidden = false;
+  const btn = $('#btn-return-transaction');
+  if (btn) btn.onclick = async () => {
+    const reason = prompt('Alasan retur:', 'Retur penjualan');
+    if (reason === null) return;
+    const resp = await window.desktopAPI.returnHistoryTransaction({ transactionGroupId, reason, user_id: state.user?.id });
+    if (!resp?.ok) return showToast(resp?.message || 'Retur gagal');
+    await window.desktopAPI.syncPending();
+    $('#history-detail-modal').hidden = true;
+    await loadHistory();
+    showToast('Retur tersimpan dan masuk antrean sync', 'success');
+  };
 }
 
 async function loadRecap() {
