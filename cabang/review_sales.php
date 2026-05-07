@@ -1,39 +1,4 @@
-<?php require_once __DIR__ . '/_boot.php';
-$roleKey = current_user_role_key();
-$isOwner = $roleKey === 'owner';
-$isAdmin = in_array($roleKey, ['admin','owner'], true);
-$canReturn = in_array($roleKey, ['kasir','manager_cabang','pegawai_cabang','admin','owner'], true);
-$from = $_GET['from'] ?? date('Y-m-01');
-$to = $_GET['to'] ?? date('Y-m-d');
-$msg = '';
-try {
-  db()->exec("CREATE TABLE IF NOT EXISTS sales_returns (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, offline_uuid VARCHAR(120) NULL UNIQUE, transaction_group_uuid VARCHAR(120) NULL, local_transaction_id VARCHAR(120) NULL, transaction_code VARCHAR(120) NULL, branch_id INT NULL, reason TEXT NULL, total_return DECIMAL(14,2) NOT NULL DEFAULT 0, created_by BIGINT NULL, created_at DATETIME NULL, sync_status VARCHAR(30) NOT NULL DEFAULT 'synced') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-  db()->exec("CREATE TABLE IF NOT EXISTS sales_return_items (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, return_id BIGINT NULL, sale_id BIGINT NULL, product_id BIGINT NULL, qty DECIMAL(14,3) NOT NULL DEFAULT 0, price_each DECIMAL(14,2) NOT NULL DEFAULT 0, subtotal DECIMAL(14,2) NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-} catch(Throwable $e) {}
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-  $action = $_POST['action'] ?? '';
-  $code = trim((string)($_POST['transaction_code'] ?? ''));
-  try {
-    if ($action === 'return' && $canReturn && $code !== '') {
-      $reason = trim((string)($_POST['reason'] ?? 'Retur penjualan')) ?: 'Retur penjualan';
-      $st = db()->prepare("SELECT * FROM sales WHERE branch_id=? AND transaction_code=? AND (return_reason IS NULL OR return_reason='') ORDER BY id"); $st->execute([$unitId,$code]); $items=$st->fetchAll(PDO::FETCH_ASSOC)?:[];
-      if (!$items) throw new Exception('Transaksi tidak ditemukan atau sudah diretur.');
-      $uuid = 'WEBRET-'.date('YmdHis').'-'.strtoupper(substr(md5($code.microtime(true)),0,6));
-      $total = array_sum(array_map(fn($r)=>(float)$r['total'],$items));
-      db()->beginTransaction();
-      db()->prepare("INSERT INTO sales_returns (offline_uuid, transaction_group_uuid, transaction_code, branch_id, reason, total_return, created_by, created_at, sync_status) VALUES (?,?,?,?,?,?,?,NOW(),'synced')")->execute([$uuid,$items[0]['transaction_group_uuid'] ?? $code,$code,$unitId,$reason,$total,(int)($u['id']??0)]);
-      $rid=(int)db()->lastInsertId();
-      foreach($items as $it){ db()->prepare("INSERT INTO sales_return_items (return_id,sale_id,product_id,qty,price_each,subtotal) VALUES (?,?,?,?,?,?)")->execute([$rid,(int)$it['id'],(int)$it['product_id'],(float)$it['qty'],(float)$it['price_each'],(float)$it['total']]); db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW(), returned_by=? WHERE id=? AND branch_id=?")->execute([$reason,(int)($u['id']??0),(int)$it['id'],$unitId]); try{db()->prepare("INSERT INTO stock_ledger (branch_id,product_id,trans_type,ref_table,ref_id,qty_in,qty_out,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,NOW())")->execute([$unitId,(int)$it['product_id'],'sale_return','sales_returns',$rid,(float)$it['qty'],0,$reason,(int)($u['id']??0)]);}catch(Throwable $e){} }
-      db()->commit(); $msg='Retur tersimpan.';
-    } elseif ($action === 'edit' && $isAdmin && $code !== '') {
-      $newMethod = trim((string)($_POST['payment_method'] ?? ''));
-      $newBank = trim((string)($_POST['payment_bank'] ?? ''));
-      db()->prepare("UPDATE sales SET payment_method=COALESCE(NULLIF(?,''),payment_method), payment_bank=? WHERE branch_id=? AND transaction_code=?")->execute([$newMethod,$newBank,$unitId,$code]); $msg='Transaksi diperbarui.';
-    } elseif ($action === 'delete' && $isOwner && $code !== '') {
-      db()->prepare("UPDATE sales SET include_in_sales_report=0, return_reason='Dihapus owner', returned_at=NOW(), returned_by=? WHERE branch_id=? AND transaction_code=?")->execute([(int)($u['id']??0),$unitId,$code]); $msg='Transaksi disembunyikan dari laporan.';
-    }
-  } catch(Throwable $e) { if (db()->inTransaction()) db()->rollBack(); $msg=$e->getMessage(); }
-}
-$rows=[]; try { $st=db()->prepare("SELECT s.transaction_code, MIN(s.sold_at) sold_at, COALESCE(u.name,'-') cashier, s.payment_method, COALESCE(s.payment_bank,s.payment_channel_name,'') bank, SUM(s.qty) qty, SUM(s.total) total, MAX(CASE WHEN s.return_reason IS NULL OR s.return_reason='' THEN 0 ELSE 1 END) returned FROM sales s LEFT JOIN users u ON u.id=s.created_by WHERE s.branch_id=? AND DATE(s.sold_at) BETWEEN ? AND ? AND COALESCE(s.include_in_sales_report,1)=1 GROUP BY s.transaction_code,s.payment_method,bank,cashier ORDER BY sold_at DESC LIMIT 300"); $st->execute([$unitId,$from,$to]); $rows=$st->fetchAll(PDO::FETCH_ASSOC)?:[]; } catch(Throwable $e) { $msg=$e->getMessage(); }
-?>
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review Penjualan</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style></head><body><div class="container"><?php include __DIR__ . '/_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><strong>Review Penjualan <?php echo e($unit['branch_name'] ?? ''); ?></strong></div><div class="content"><?php if($msg): ?><div class="alert"><?php echo e($msg); ?></div><?php endif; ?><div class="card"><form class="grid cols-4"><input type="hidden" name="unit_id" value="<?php echo e((string)$unitId); ?>"><div class="row"><label>Dari</label><input type="date" name="from" value="<?php echo e($from); ?>"></div><div class="row"><label>Sampai</label><input type="date" name="to" value="<?php echo e($to); ?>"></div><div class="row" style="align-self:end"><button class="btn" type="submit">Filter</button></div></form></div><div class="card"><table class="table"><thead><tr><th>Waktu</th><th>No</th><th>Kasir</th><th>Metode</th><th>Bank</th><th>Qty</th><th>Total</th><th>Status</th><th>Aksi</th></tr></thead><tbody><?php foreach($rows as $r): ?><tr><td><?php echo e($r['sold_at']); ?></td><td><?php echo e($r['transaction_code']); ?></td><td><?php echo e($r['cashier']); ?></td><td><?php echo e($r['payment_method']); ?></td><td><?php echo e($r['bank']); ?></td><td><?php echo e((string)$r['qty']); ?></td><td><?php echo e(format_money($r['total'])); ?></td><td><?php echo ((int)$r['returned']===1)?'Retur':'Aktif'; ?></td><td><?php if((int)$r['returned']!==1 && $canReturn): ?><form method="post" style="display:inline"><input type="hidden" name="transaction_code" value="<?php echo e($r['transaction_code']); ?>"><input type="hidden" name="action" value="return"><input type="hidden" name="reason" value="Retur penjualan"><button class="btn" onclick="return confirm('Retur transaksi ini?')">Retur</button></form><?php endif; ?><?php if($isAdmin): ?><form method="post" style="display:inline"><input type="hidden" name="transaction_code" value="<?php echo e($r['transaction_code']); ?>"><input type="hidden" name="action" value="edit"><input name="payment_method" placeholder="metode" style="width:80px"><input name="payment_bank" placeholder="bank" style="width:80px"><button class="btn">Edit</button></form><?php endif; ?><?php if($isOwner): ?><form method="post" style="display:inline"><input type="hidden" name="transaction_code" value="<?php echo e($r['transaction_code']); ?>"><input type="hidden" name="action" value="delete"><button class="btn danger" onclick="return confirm('Hapus/sembunyikan transaksi ini?')">Hapus</button></form><?php endif; ?></td></tr><?php endforeach; if(empty($rows)): ?><tr><td colspan="9">Belum ada data.</td></tr><?php endif; ?></tbody></table></div></div></div></div><script src="<?php echo e(asset_url('assets/app.js')); ?>"></script></body></html>
+<?php
+require_once __DIR__ . '/_boot.php';
+require_once __DIR__ . '/../core/unit_sales_review.php';
+unit_review_render('cabang');
