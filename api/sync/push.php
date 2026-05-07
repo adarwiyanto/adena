@@ -4,7 +4,6 @@
  * Upload transaksi, shift, dan cash movements dari POS Desktop ke server.
  */
 require_once __DIR__ . '/../helpers.php';
-require_once __DIR__ . '/../../core/ops14.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
@@ -13,7 +12,6 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $pdo = db();
-ensure_adena14_schema();
 $safeExec = static function (string $sql) use ($pdo): void {
     try { $pdo->exec($sql); } catch (Throwable $_) {}
 };
@@ -22,7 +20,29 @@ $safeExec("ALTER TABLE sales ADD COLUMN local_transaction_id VARCHAR(120) NULL")
 $safeExec("ALTER TABLE sales ADD COLUMN payment_channel_id BIGINT NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN payment_channel_name VARCHAR(120) NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN guide_id BIGINT NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN customer_id BIGINT NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN customer_name VARCHAR(150) NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN customer_phone VARCHAR(50) NULL");
+$safeExec("ALTER TABLE sales ADD COLUMN payment_summary TEXT NULL");
 $safeExec("ALTER TABLE sales ADD KEY idx_sales_device_local (local_device_id, local_transaction_id)");
+$safeExec("CREATE TABLE IF NOT EXISTS sale_payments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sale_id BIGINT NULL,
+  transaction_group_uuid VARCHAR(120) NULL,
+  local_transaction_id VARCHAR(120) NULL,
+  payment_method VARCHAR(50) NOT NULL,
+  payment_bank VARCHAR(120) NULL,
+  payment_bank_id BIGINT NULL,
+  amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+  fee_percent DECIMAL(8,4) NOT NULL DEFAULT 0,
+  fee_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+  charged_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+  cash_received DECIMAL(15,2) NULL,
+  cash_change DECIMAL(15,2) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_sale_payments_local_tx (local_transaction_id),
+  KEY idx_sale_payments_group (transaction_group_uuid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 $debugMode = (($_GET['debug'] ?? '0') === '1') || (($_SERVER['HTTP_X_DEBUG_SYNC'] ?? '0') === '1');
 $incomingShifts = (array)($body['shifts'] ?? []);
@@ -177,7 +197,7 @@ try {
             if (empty($item['product_id'])) $missing[] = 'product_id';
             if (!isset($item['qty'])) $missing[] = 'qty';
             if (!isset($item['price_each']) && !isset($item['price'])) $missing[] = 'price_each/price';
-            if (!isset($item['total']) && !isset($item['subtotal']) && !isset($item['line_net_total'])) $missing[] = 'total/subtotal/line_net_total';
+            if (!isset($item['total']) && !isset($item['subtotal'])) $missing[] = 'total/subtotal';
             if ($missing) {
                 $validationErrors[] = 'item #' . ($idx + 1) . ' missing: ' . implode(', ', $missing);
             }
@@ -233,27 +253,49 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
         $guideName = (string)($tx['guide_name'] ?? '');
         $guideId = !empty($tx['guide_id']) ? (int)$tx['guide_id'] : null;
         $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
-        $branchId = !empty($tx['branch_id']) ? (int)$tx['branch_id'] : 1;
         $txDiscAmt = (float)($tx['tx_discount_amount'] ?? 0);
         $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
+        $paymentSummary = (string)($tx['payment_summary'] ?? '');
+        $payments = (array)($tx['payments'] ?? []);
+        $customer = is_array($tx['customer'] ?? null) ? $tx['customer'] : [];
+        $customerName = trim((string)($customer['name'] ?? $tx['customer_name'] ?? ''));
+        $customerPhone = trim((string)($customer['phone'] ?? $tx['customer_phone'] ?? ''));
+        if (!$customerId && ($customerName !== '' || $customerPhone !== '')) {
+            try {
+                if ($customerPhone !== '') {
+                    $c = $pdo->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
+                    $c->execute([$customerPhone]);
+                    $rowC = $c->fetch(PDO::FETCH_ASSOC);
+                    if ($rowC) $customerId = (int)$rowC['id'];
+                }
+                if (!$customerId) {
+                    $pdo->prepare("INSERT INTO customers (name, phone, created_at) VALUES (?, ?, NOW())")
+                        ->execute([$customerName !== '' ? $customerName : $customerPhone, $customerPhone !== '' ? $customerPhone : null]);
+                    $customerId = (int)$pdo->lastInsertId();
+                } elseif ($customerName !== '') {
+                    $pdo->prepare("UPDATE customers SET name = CASE WHEN name = '' OR name IS NULL THEN ? ELSE name END WHERE id = ?")
+                        ->execute([$customerName, $customerId]);
+                }
+            } catch (Throwable $_) {}
+        }
 
         $firstId = null;
         try {
             foreach ($items as $idx => $item) {
                 $itemUuid = $idx === 0 ? $txUuid : null;
                 $priceEach = isset($item['price_each']) ? (float)$item['price_each'] : (float)($item['price'] ?? 0);
-                $itemSubtotal = isset($item['line_subtotal']) ? (float)$item['line_subtotal'] : ((float)($item['subtotal'] ?? 0) ?: ((float)($item['qty'] ?? 1) * $priceEach));
-                $itemTotal = isset($item['line_net_total']) ? (float)$item['line_net_total'] : (isset($item['total']) ? (float)$item['total'] : (float)($item['subtotal'] ?? 0));
+                $itemTotal = isset($item['total']) ? (float)$item['total'] : (float)($item['subtotal'] ?? 0);
 
                 $pdo->prepare("
                     INSERT INTO sales
                         (transaction_code, transaction_group_uuid, offline_uuid,
                          product_id, qty, price_each, total,
                          discount_amount, discount_type,
-                         tx_discount_amount, tx_discount_type, include_in_sales_report, line_subtotal, line_net_total,
+                         tx_discount_amount, tx_discount_type,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
+                         customer_id, customer_name, customer_phone, payment_summary,
                          local_device_id, local_transaction_id,
-                         created_by, branch_id, shift_id, sold_at,
+                         created_by, shift_id, sold_at,
                          sync_status, original_sale_id,
                          is_active_revision, revision_no, revision_status,
                          base_sale_code)
@@ -261,9 +303,10 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                         (?, ?, ?,
                          ?, ?, ?, ?,
                          ?, ?,
+                         ?, ?,
+                         ?, ?, ?, ?, ?, ?,
+                         ?, ?, ?, ?,
                          ?, ?, ?, ?, ?,
-                         ?, ?, ?, ?, ?, ?,
-                         ?, ?, ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
                          ?)
@@ -275,10 +318,11 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     $itemTotal,
                     (float)($item['discount_amount'] ?? 0),
                     (string)($item['discount_type'] ?? 'fixed'),
-                    $txDiscAmt, $txDiscType, (int)($item['include_in_sales_report'] ?? 1), $itemSubtotal, $itemTotal,
+                    $txDiscAmt, $txDiscType,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
+                    $customerId ?: null, $customerName ?: null, $customerPhone ?: null, $paymentSummary ?: null,
                     $deviceId ?: null, $localTxId ?: $txUuid,
-                    $cashierId, $branchId, $shiftServerId, $soldAt,
+                    $cashierId, $shiftServerId, $soldAt,
                     $firstId,
                     $txCode,
                 ]);
@@ -287,6 +331,34 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                 if ($firstId === null) {
                     $firstId = $newId;
                     $pdo->prepare("UPDATE sales SET original_sale_id = ? WHERE id = ?")->execute([$newId, $newId]);
+                }
+            }
+
+            if (!empty($payments)) {
+                try {
+                    $pdo->prepare("DELETE FROM sale_payments WHERE local_transaction_id = ?")->execute([$localTxId ?: $txUuid]);
+                    $payStmt = $pdo->prepare("INSERT INTO sale_payments
+                        (sale_id, transaction_group_uuid, local_transaction_id, payment_method, payment_bank, payment_bank_id, amount, fee_percent, fee_amount, charged_amount, cash_received, cash_change)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    foreach ($payments as $pay) {
+                        if (!is_array($pay)) continue;
+                        $payStmt->execute([
+                            $firstId,
+                            $txGroupUuid,
+                            $localTxId ?: $txUuid,
+                            (string)($pay['method'] ?? $pay['payment_method'] ?? ''),
+                            (string)($pay['bank_name'] ?? $pay['payment_bank'] ?? ''),
+                            !empty($pay['bank_id']) ? (int)$pay['bank_id'] : null,
+                            (float)($pay['amount'] ?? 0),
+                            (float)($pay['fee_percent'] ?? 0),
+                            (float)($pay['fee_amount'] ?? 0),
+                            (float)($pay['charged_amount'] ?? $pay['amount'] ?? 0),
+                            array_key_exists('cash_received', $pay) ? (float)$pay['cash_received'] : null,
+                            array_key_exists('cash_change', $pay) ? (float)$pay['cash_change'] : null,
+                        ]);
+                    }
+                } catch (Throwable $ePay) {
+                    if ($debugMode) $debug['payment_insert_error'][$txUuid] = $ePay->getMessage();
                 }
             }
 

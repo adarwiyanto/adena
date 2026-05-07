@@ -4,7 +4,6 @@
  * Download data master untuk POS Desktop.
  */
 require_once __DIR__ . '/../helpers.php';
-require_once __DIR__ . '/../../core/ops14.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     api_err('Method tidak diizinkan.', 405);
@@ -86,7 +85,6 @@ function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
 try {
     $user = api_verify_token();
     $pdo = db();
-    ensure_adena14_schema();
 
     $sinceRaw = safe_string($_GET['since'] ?? '');
     $sinceParam = parse_since_param($sinceRaw, $debugNotes);
@@ -94,7 +92,7 @@ try {
 
     $productSql = "SELECT id, name, price, category, category AS category_id, image_path,
                           is_favorite, is_best_seller, show_on_pos,
-                          track_stock, is_price_editable, include_in_sales_report, base_unit, updated_at
+                          track_stock, base_unit, updated_at
                    FROM products
                    WHERE show_on_pos = 1" .
                    ($hasFilter ? " AND updated_at >= ?" : "") .
@@ -140,24 +138,6 @@ try {
         );
     }
 
-
-    $branches = safe_rows(
-        $pdo,
-        'branches',
-        "SELECT id, branch_code, branch_name, is_active, created_at, updated_at
-         FROM branches
-         WHERE is_active = 1
-         ORDER BY id",
-        [],
-        $debugNotes
-    );
-    $tokenBranchId = (int)($user['branch_id'] ?? 0);
-    if ($tokenBranchId > 0) {
-        $branches = array_values(array_filter($branches, static function ($b) use ($tokenBranchId) {
-            return (int)($b['id'] ?? 0) === $tokenBranchId;
-        }));
-    }
-
     $banks = safe_rows(
         $pdo,
         'banks',
@@ -173,7 +153,7 @@ try {
         'store_name', 'store_subtitle', 'store_address', 'store_phone', 'store_logo', 'receipt_footer',
         'loyalty_point_value', 'loyalty_remainder_mode', 'pos_default_opening_cash', 'store_intro',
         'theme_primary', 'theme_secondary', 'theme_accent', 'theme_surface', 'theme_sidebar',
-        'theme_header', 'theme_text', 'theme_muted', 'custom_css',
+        'theme_header', 'theme_text', 'theme_muted', 'custom_css', 'credit_card_fee_percent',
     ];
     $settings = [];
     foreach ($settingKeys as $key) {
@@ -248,7 +228,6 @@ try {
             'categories' => array_values($categories),
             'guides' => array_values($guides),
             'banks' => array_values($banks),
-            'branches' => array_values($branches),
             'payment_methods' => array_values($paymentMethods),
             'settings' => $settings,
             'shifts' => array_values($shifts),
@@ -261,7 +240,6 @@ try {
             'id' => (int)($user['id'] ?? 0),
             'name' => (string)($user['name'] ?? ''),
             'device_code' => strtoupper(trim((string)($user['device_code'] ?? ''))),
-            'branch_id' => (int)($user['branch_id'] ?? 0),
         ],
     ];
 

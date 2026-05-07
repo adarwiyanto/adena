@@ -23,7 +23,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? '';
 
-  if ($action === 'add') {
+  if ($action === 'save_credit_card_fee') {
+    $fee = (float)str_replace(',', '.', (string)($_POST['credit_card_fee_percent'] ?? '0'));
+    if ($fee < 0 || $fee >= 95) {
+      $err = 'Fee kartu kredit harus antara 0 sampai kurang dari 95%.';
+    } else {
+      set_setting('credit_card_fee_percent', rtrim(rtrim(number_format($fee, 4, '.', ''), '0'), '.'));
+      $ok = 'Fee kartu kredit berhasil disimpan.';
+    }
+  } elseif ($action === 'add') {
     $name = trim((string)($_POST['name'] ?? ''));
     $code = strtolower(trim(preg_replace('/[^a-z0-9_]/i', '_', (string)($_POST['code'] ?? ''))));
     if ($name === '') {
@@ -119,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $methods   = db()->query("SELECT * FROM payment_methods ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
 $qrisBanks = db()->query("SELECT * FROM qris_banks ORDER BY sort_order ASC, id ASC")->fetchAll(PDO::FETCH_ASSOC);
+$creditCardFeePercent = setting('credit_card_fee_percent', '2.5');
 $customCss = setting('custom_css', '');
 ?>
 <!doctype html>
@@ -220,6 +229,21 @@ $customCss = setting('custom_css', '');
             </table>
           </div>
         <?php endif; ?>
+      </div>
+
+      <div class="card" style="margin-top:24px">
+        <h3 style="margin-top:0">Fee Kartu Kredit</h3>
+        <p><small>Persentase fee ini dipakai POS Desktop untuk menghitung tagihan kartu kredit dengan rumus gross-up: total belanja / (100% - fee%).</small></p>
+        <form method="post" style="max-width:420px">
+          <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+          <input type="hidden" name="action" value="save_credit_card_fee">
+          <div class="row">
+            <label>Fee kartu kredit (%)</label>
+            <input name="credit_card_fee_percent" type="number" min="0" max="94.99" step="0.01" value="<?php echo e((string)$creditCardFeePercent); ?>" required>
+            <small>Contoh 2.5 berarti total Rp 100.000 akan ditagihkan Rp 102.564.</small>
+          </div>
+          <button class="btn" type="submit">Simpan Fee Kartu Kredit</button>
+        </form>
       </div>
 
       <!-- Non-cash Banks -->

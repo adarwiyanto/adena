@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Adena POS Desktop ver 1.4.2</title>
+  <title>Adena POS Desktop</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -11,7 +11,7 @@
     <button id="btn-open-settings" class="settings-corner" type="button">Setting</button>
     <div class="card login-card premium-card">
       <img class="login-logo" src="./assets/adena-logo.jpg" alt="Adena" />
-      <h1>Adena POS ver 1.4.2</h1>
+      <h1>Adena POS</h1>
       <p class="login-subtitle">Desktop cashier system</p>
       <form id="login-form">
         <input name="username" placeholder="Username" required />
@@ -26,7 +26,7 @@
   <section id="sync-view" class="view sync-screen">
     <div class="sync-hero">
       <img class="sync-logo" src="./assets/adena-logo.jpg" alt="Adena" />
-      <h1>Adena POS ver 1.4.2</h1>
+      <h1>Adena POS</h1>
       <p id="sync-status-text" class="sync-status-text">Menunggu sinkronisasi...</p>
       <progress id="sync-progress" max="100" value="0"></progress>
       <p id="sync-retry-count" class="sync-retry-count">Percobaan 0/3</p>
@@ -74,7 +74,6 @@
       <button class="tab" data-tab="history">Riwayat</button>
       <button class="tab" data-tab="recap">Rekapitulasi</button>
       <button class="tab" data-tab="orders">Order Masuk</button>
-      <button class="tab" data-tab="pending">Pending Order</button>
     </nav>
 
     <section class="tab-panel active" data-panel="pos">
@@ -95,23 +94,40 @@
         <section class="cart-panel">
           <h3>Keranjang</h3>
           <div id="cart-items"></div>
-          <div class="discount-box">
-            <label>Diskon transaksi</label>
-            <div class="discount-inline"><select id="tx-discount-type"><option value="fixed">Rp</option><option value="percent">%</option></select><input id="tx-discount-amount" type="number" min="0" step="0.01" value="0" /></div>
-          </div>
-          <div id="cart-subtotal" class="cart-note">Subtotal: Rp 0</div>
-          <div id="cart-discount" class="cart-note">Diskon: Rp 0</div>
           <div id="cart-total" class="cart-total">Total: Rp 0</div>
           <div class="checkout">
-            <label>Guide</label><select id="guide"></select>
-            <label>Metode Bayar</label><select id="payment-method"></select>
-            <label>Bank</label><select id="payment-bank"></select>
-            <div id="cash-payment-wrap" class="cash-payment-wrap hidden">
-              <label>Uang diterima</label>
-              <input id="cash-received" type="number" min="0" step="100" placeholder="Masukkan uang diterima" />
-              <div id="cash-change" class="cash-change">Kembalian: Rp 0</div>
+            <label>Pelanggan</label>
+            <div class="customer-fields">
+              <input id="customer-name" type="text" placeholder="Nama pelanggan (opsional)" />
+              <input id="customer-phone" type="tel" placeholder="No. telp (opsional)" />
             </div>
-            <button id="btn-save-pending" type="button">Simpan Pending</button>
+            <label>Guide</label><select id="guide"></select>
+            <div class="payment-mode-row">
+              <label><input id="multi-payment-toggle" type="checkbox" /> Multi pembayaran</label>
+            </div>
+            <div id="single-payment-wrap">
+              <label>Metode Bayar</label><select id="payment-method"></select>
+              <label>Bank</label><select id="payment-bank"></select>
+              <div id="cash-payment-wrap" class="cash-payment-wrap hidden">
+                <label>Uang diterima</label>
+                <input id="cash-received" type="number" min="0" step="100" placeholder="Masukkan uang diterima" />
+                <div id="cash-quick-buttons" class="cash-quick-buttons"></div>
+                <div id="cash-change" class="cash-change">Kembalian: Rp 0</div>
+              </div>
+              <div id="credit-card-info" class="credit-card-info hidden"></div>
+            </div>
+            <div id="multi-payment-wrap" class="multi-payment-wrap hidden">
+              <div class="multi-payment-form">
+                <select id="multi-payment-method"></select>
+                <select id="multi-payment-bank"></select>
+                <input id="multi-payment-amount" type="number" min="0" step="100" placeholder="Nominal" />
+                <input id="multi-cash-received" class="hidden" type="number" min="0" step="100" placeholder="Diterima" />
+                <button id="btn-add-payment-line" type="button">Tambah</button>
+              </div>
+              <div id="multi-credit-card-info" class="credit-card-info hidden"></div>
+              <div id="multi-payment-lines" class="multi-payment-lines"></div>
+              <div id="multi-payment-summary" class="multi-payment-summary">Terbayar: Rp 0 · Sisa: Rp 0</div>
+            </div>
             <button id="btn-pay">Bayar</button>
           </div>
         </section>
@@ -122,7 +138,6 @@
     <section class="tab-panel" data-panel="history"><div class="card"><div class="history-range-tabs"><button type="button" class="history-range active" data-range="today">Hari ini</button><button type="button" class="history-range" data-range="yesterday">Kemarin</button><button type="button" class="history-range" data-range="7days">7 hari</button><button type="button" class="history-range" data-range="month">Bulan ini</button><button type="button" class="history-range" data-range="custom">Custom</button></div><div class="filters"><input id="history-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="history-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><select id="history-guide-filter"><option value="">Semua guide</option></select><select id="history-payment-filter"><option value="">Semua pembayaran</option></select><select id="history-sync-filter"><option value="">Semua sync</option><option>synced</option><option>pending</option><option>failed</option><option>imported_from_web</option></select><button id="btn-load-history">Filter</button></div><div id="history-omzet"></div><div id="history-list"></div></div></section>
     <section class="tab-panel" data-panel="recap"><div class="card"><div class="history-range-tabs"><button type="button" class="recap-range active" data-range="today">Hari ini</button><button type="button" class="recap-range" data-range="yesterday">Kemarin</button><button type="button" class="recap-range" data-range="7days">7 hari</button><button type="button" class="recap-range" data-range="month">Bulan ini</button><button type="button" class="recap-range" data-range="custom">Custom</button></div><div class="filters recap-filters"><input id="recap-from" placeholder="Dari (YYYY-MM-DD 00:00:00)" /><input id="recap-to" placeholder="Sampai (YYYY-MM-DD 23:59:59)" /><button id="btn-load-recap">Filter</button></div><div id="recap-summary"></div></div></section>
     <section class="tab-panel" data-panel="orders"><div class="card" id="orders-list"></div></section>
-    <section class="tab-panel" data-panel="pending"><div class="card"><h3>Pending Order Lokal</h3><div id="pending-list"></div></div></section>
   </section>
 
 
@@ -192,11 +207,6 @@
         <input id="api-token" type="password" placeholder="Masukkan token API" autocomplete="off" spellcheck="false" />
       </div>
       <p>Token tersimpan: <strong id="api-token-preview">(kosong)</strong></p>
-      <div class="settings-field">
-        <label for="api-branch">Cabang POS</label>
-        <select id="api-branch"><option value="">Default / cabang utama</option></select>
-        <small class="settings-help">Setelah Save & Test API, daftar cabang akan mengikuti API web. Jika belum tersedia, POS tetap memakai cabang utama.</small>
-      </div>
       <div class="dialog-actions">
         <button id="btn-save-api" type="button">Save & Test API</button>
         <button id="btn-test-api" type="button">Test Dengan Setting Tersimpan</button>

@@ -6,9 +6,8 @@ const { store, DEFAULT_SETTINGS, getApiConfig } = require('./config');
 const { testConnection, login, shiftAction } = require('./api');
 const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
-const { saveSaleLocally, savePendingOrder, listPendingOrders, deletePendingOrder } = require('./transactions');
+const { saveSaleLocally } = require('./transactions');
 const { printReceipt } = require('./print');
-const { localDateTimeString } = require('./time');
 
 let mainWindow;
 let isQuittingConfirmed = false;
@@ -29,19 +28,13 @@ function getPublicSettings() {
   const cfg = getApiConfig();
   const deviceCode = String(store.get('deviceCode') || '').trim();
   const tokenMasked = maskToken(cfg.apiToken);
-  let branches = [];
-  try { branches = initDb().prepare('SELECT id, branch_code, branch_name, is_active FROM branches WHERE is_active=1 ORDER BY id').all(); } catch (_) {}
   return {
     ...store.store,
     apiBaseUrl: cfg.apiBaseUrl,
     apiToken: '',
     hasApiToken: !!cfg.apiToken,
     apiTokenMasked: tokenMasked,
-    deviceCode,
-    branches,
-    selectedBranchId: Number(store.get('selectedBranchId') || 1),
-    selectedBranchCode: String(store.get('selectedBranchCode') || 'MAIN'),
-    selectedBranchName: String(store.get('selectedBranchName') || '')
+    deviceCode
   };
 }
 
@@ -57,12 +50,21 @@ function calculateShiftSummary(shift = null) {
     return { opening_cash: 0, cash_sales: 0, cash_refund: 0, cash_in: 0, cash_out: 0, non_cash_sales: 0, expected_cash: 0 };
   }
   const openingCash = Number(active.opening_cash_actual ?? active.opening_cash_default ?? 0);
-  const salesRows = db.prepare(`SELECT LOWER(COALESCE(payment_method,'')) AS method, SUM(total) AS total FROM sales WHERE shift_id = ? GROUP BY LOWER(COALESCE(payment_method,''))`).all(active.id);
+  let salesRows = [];
+  try {
+    salesRows = db.prepare(`SELECT LOWER(COALESCE(payment_method,'')) AS method, SUM(amount) AS total
+      FROM sale_payments
+      WHERE local_transaction_id IN (SELECT DISTINCT local_transaction_id FROM sales WHERE shift_id = ?)
+      GROUP BY LOWER(COALESCE(payment_method,''))`).all(active.id);
+  } catch (_) { salesRows = []; }
+  if (!salesRows.length) {
+    salesRows = db.prepare(`SELECT LOWER(COALESCE(payment_method,'')) AS method, SUM(total) AS total FROM sales WHERE shift_id = ? GROUP BY LOWER(COALESCE(payment_method,''))`).all(active.id);
+  }
   let cashSales = 0;
   let nonCashSales = 0;
   for (const row of salesRows) {
     const method = String(row.method || '').toLowerCase();
-    if (method === 'cash' || method === 'tunai') cashSales += Number(row.total || 0);
+    if (method === 'cash' || method === 'tunai' || method.includes('cash') || method.includes('tunai')) cashSales += Number(row.total || 0);
     else nonCashSales += Number(row.total || 0);
   }
   const cashIn = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'in'").get(active.id)?.total || 0;
@@ -93,7 +95,7 @@ function getStoreIdentity() {
     if (cachePath && fs.existsSync(cachePath)) cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
   } catch (_) {}
   return {
-    name: settings.selectedBranchName || cached.name || settings.storeName || 'Adena',
+    name: cached.name || settings.storeName || 'Adena',
     address: cached.address || settings.storeAddress || '',
     phone: cached.phone || '',
     logoPath: cached.logo_path || settings.storeLogoPath || ''
@@ -110,8 +112,17 @@ function getShiftClosePrintData(countedCashTotal = null, user = null) {
   const transactionCount = db.prepare(`SELECT COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS c FROM sales WHERE shift_id = ?`).get(shift.id)?.c || 0;
   const itemQty = db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM sales WHERE shift_id = ?').get(shift.id)?.qty || 0;
   const totalSales = db.prepare('SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE shift_id = ?').get(shift.id)?.total || 0;
-  const paymentRows = db.prepare(`SELECT payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') AS label, COALESCE(SUM(total),0) AS total, COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS tx_count
-    FROM sales WHERE shift_id = ? GROUP BY payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') ORDER BY payment_method, label`).all(shift.id);
+  let paymentRows = [];
+  try {
+    paymentRows = db.prepare(`SELECT payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') AS label, COALESCE(SUM(amount),0) AS total, COUNT(DISTINCT local_transaction_id) AS tx_count
+      FROM sale_payments
+      WHERE local_transaction_id IN (SELECT DISTINCT local_transaction_id FROM sales WHERE shift_id = ?)
+      GROUP BY payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') ORDER BY payment_method, label`).all(shift.id);
+  } catch (_) { paymentRows = []; }
+  if (!paymentRows.length) {
+    paymentRows = db.prepare(`SELECT payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') AS label, COALESCE(SUM(total),0) AS total, COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS tx_count
+      FROM sales WHERE shift_id = ? GROUP BY payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') ORDER BY payment_method, label`).all(shift.id);
+  }
   const counted = countedCashTotal === null || countedCashTotal === undefined ? Number(summary.expected_cash || 0) : Number(countedCashTotal || 0);
   const nonCashTotal = paymentRows.reduce((sum, row) => {
     const method = String(row.payment_method || '').toLowerCase();
@@ -133,42 +144,6 @@ function getShiftClosePrintData(countedCashTotal = null, user = null) {
     totalExpected: Number(summary.expected_cash || 0) + nonCashTotal,
     totalActual: counted + nonCashTotal,
     totalDifference: counted - Number(summary.expected_cash || 0)
-  };
-}
-
-
-function buildShiftCloseRawPayload(data) {
-  const payments = (data.paymentRows || []).map((row) => ({
-    label: String(row.label || row.payment_method || '-').toUpperCase(),
-    totalText: `Rp ${formatNumber(row.total)}`,
-    txCount: Number(row.tx_count || 0)
-  }));
-  return {
-    type: 'shift_close',
-    storeName: data.store?.name || 'Adena',
-    storeAddress: data.store?.address || '',
-    logo: data.store?.logoUri || '',
-    title: 'PENUTUPAN SHIFT',
-    printedAt: data.printedAt || localDateTimeString(),
-    cashierName: data.cashier || '-',
-    shiftCode: data.shift?.shift_code || String(data.shift?.id || '-'),
-    openedAt: data.shift?.opened_at || '-',
-    closedAt: data.printedAt || '-',
-    transactionCount: Number(data.transactionCount || 0),
-    itemQty: Number(data.itemQty || 0),
-    totalSalesText: `Rp ${formatNumber(data.totalSales)}`,
-    openingCashText: `Rp ${formatNumber(data.summary?.opening_cash)}`,
-    cashSalesText: `Rp ${formatNumber(data.summary?.cash_sales)}`,
-    nonCashSalesText: `Rp ${formatNumber(data.summary?.non_cash_sales)}`,
-    cashInOutText: `Rp ${formatNumber((data.summary?.cash_in || 0) - (data.summary?.cash_out || 0))}`,
-    expectedCashText: `Rp ${formatNumber(data.summary?.expected_cash)}`,
-    countedCashText: `Rp ${formatNumber(data.countedCash)}`,
-    cashDifferenceText: `Rp ${formatNumber(data.cashDifference)}`,
-    totalExpectedText: `Rp ${formatNumber(data.totalExpected)}`,
-    totalActualText: `Rp ${formatNumber(data.totalActual)}`,
-    totalDifferenceText: `Rp ${formatNumber(data.totalDifference)}`,
-    payments,
-    appFooter: 'Adena POS Desktop ver 1.4.2'
   };
 }
 
@@ -346,16 +321,6 @@ ipcMain.handle('settings:set', (_, patch) => {
     normalized.deviceCode = String(normalized.deviceCode || '').trim().toUpperCase().replace(/\s+/g, '');
   }
   Object.entries(normalized).forEach(([k, v]) => store.set(k, v));
-  if (Object.prototype.hasOwnProperty.call(normalized, 'selectedBranchId')) {
-    try {
-      const row = initDb().prepare('SELECT id, branch_code, branch_name FROM branches WHERE id=?').get(Number(normalized.selectedBranchId));
-      if (row) {
-        store.set('selectedBranchId', Number(row.id));
-        store.set('selectedBranchCode', String(row.branch_code || 'MAIN').toUpperCase());
-        store.set('selectedBranchName', String(row.branch_name || ''));
-      }
-    } catch (_) {}
-  }
   return getPublicSettings();
 });
 ipcMain.handle('settings:saveApi', async (_, payload) => {
@@ -411,13 +376,10 @@ ipcMain.handle('sync:master', async (_, options) => syncMaster(options || {}));
 ipcMain.handle('sync:pending', async () => syncPendingTransactions());
 ipcMain.handle('image:cacheProduct', async (_, payload) => cacheProductImage(payload?.productId, payload?.imagePath));
 ipcMain.handle('sale:saveLocal', async (_, payload) => saveSaleLocally(payload));
-ipcMain.handle('pending:save', async (_, payload) => savePendingOrder(payload || {}));
-ipcMain.handle('pending:list', async () => listPendingOrders());
-ipcMain.handle('pending:delete', async (_, localPendingId) => deletePendingOrder(localPendingId));
 
 ipcMain.handle('pos:state', () => {
   const db = initDb();
-  const products = db.prepare('SELECT id, name, price, category, category_id, category_name, image_path, local_image_path, is_price_editable, include_in_sales_report, track_stock FROM products ORDER BY name').all();
+  const products = db.prepare('SELECT id, name, price, category, category_id, category_name, image_path, local_image_path FROM products ORDER BY name').all();
   const categories = db.prepare('SELECT id, name FROM product_categories ORDER BY name').all();
   const guides = db.prepare('SELECT id, name FROM guides WHERE is_active = 1 ORDER BY name').all();
   const paymentMethods = db.prepare('SELECT code, name FROM payment_methods WHERE is_active = 1 ORDER BY sort_order, id').all();
@@ -425,7 +387,6 @@ ipcMain.handle('pos:state', () => {
   const activeShift = activeShiftLocal();
   const pendingSyncCount = db.prepare("SELECT COUNT(DISTINCT local_transaction_id) as c FROM sales WHERE sync_status IN ('pending','failed')").get().c;
   const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
-  const branches = db.prepare('SELECT id, branch_code, branch_name, is_active FROM branches WHERE is_active=1 ORDER BY id').all();
   const settingsRows = db.prepare('SELECT key, value FROM settings').all();
   const syncedSettings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]));
   const storeIdentity = getStoreIdentity();
@@ -433,7 +394,7 @@ ipcMain.handle('pos:state', () => {
   syncedSettings.store_address = syncedSettings.store_address || storeIdentity.address || '';
   syncedSettings.store_logo_local_uri = fileUriIfExists(storeIdentity.logoPath);
   syncedSettings.store_logo_local_path = storeIdentity.logoPath || '';
-  return { products, categories, guides, paymentMethods, banks, branches, selectedBranchId: Number(store.get('selectedBranchId') || 1), activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
+  return { products, categories, guides, paymentMethods, banks, activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
 });
 
 ipcMain.handle('history:list', (_, filters = {}) => {
@@ -493,7 +454,7 @@ ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); r
 ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
   const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
   if (!data.ok) return data;
-  return { ...data, html: buildShiftClosePrintHtml(data), rawReceipt: buildShiftCloseRawPayload(data) };
+  return { ...data, html: buildShiftClosePrintHtml(data) };
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));

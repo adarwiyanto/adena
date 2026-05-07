@@ -19,44 +19,46 @@ function formatTransactionCode(deviceCode) {
   return `TRX-${date}-${time}-post${deviceCode}`;
 }
 
-function money(value) { const n = Number(value); return Number.isFinite(n) ? n : 0; }
-function discountValue(base, amount, type) {
-  const b = money(base); const a = Math.max(0, money(amount));
-  return String(type || 'fixed') === 'percent' ? Math.min(b, b * a / 100) : Math.min(b, a);
-}
-function normalizeItem(item) {
-  const qty = Math.max(1, Math.floor(Number(item.qty || 1)));
-  const price = money(item.price_each);
-  const lineSubtotal = qty * price;
-  const itemDiscount = discountValue(lineSubtotal, item.discount_amount || 0, item.discount_type || 'fixed');
-  const lineNetTotal = Math.max(0, lineSubtotal - itemDiscount);
-  return {
-    product_id: Number(item.product_id),
-    name: item.name || item.product_name || 'Produk',
-    qty,
-    price_each: price,
-    discount_amount: money(item.discount_amount || 0),
-    discount_type: String(item.discount_type || 'fixed'),
-    include_in_sales_report: Number(item.include_in_sales_report ?? 1) ? 1 : 0,
-    line_subtotal: lineSubtotal,
-    total: lineNetTotal,
-    line_net_total: lineNetTotal
-  };
-}
-function transactionTotals(items, txDiscountAmount = 0, txDiscountType = 'fixed') {
-  const subtotal = items.reduce((a, i) => a + money(i.line_subtotal), 0);
-  const itemDiscount = items.reduce((a, i) => a + discountValue(i.line_subtotal, i.discount_amount, i.discount_type), 0);
-  const afterItem = Math.max(0, subtotal - itemDiscount);
-  const txDiscount = discountValue(afterItem, txDiscountAmount, txDiscountType);
-  const total = Math.max(0, afterItem - txDiscount);
-  return { subtotal, itemDiscount, txDiscount, total };
+function normalizePayments(payment = {}, items = []) {
+  const total = items.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price_each || 0), 0);
+  const raw = Array.isArray(payment.payments) && payment.payments.length ? payment.payments : [{
+    method: payment.method,
+    bank_id: payment.bank_id || null,
+    bank_name: payment.bank_name || null,
+    amount: total,
+    fee_percent: payment.fee_percent || 0,
+    fee_amount: payment.fee_amount || 0,
+    charged_amount: payment.charged_amount || total,
+    cash_received: payment.cash_received ?? null,
+    cash_change: payment.cash_change ?? null
+  }];
+
+  return raw.map((p) => ({
+    method: String(p.method || '').trim(),
+    bank_id: p.bank_id || null,
+    bank_name: p.bank_name || null,
+    amount: Number(p.amount || 0),
+    fee_percent: Number(p.fee_percent || 0),
+    fee_amount: Number(p.fee_amount || 0),
+    charged_amount: Number(p.charged_amount || p.amount || 0),
+    cash_received: p.cash_received === undefined || p.cash_received === null ? null : Number(p.cash_received || 0),
+    cash_change: p.cash_change === undefined || p.cash_change === null ? null : Number(p.cash_change || 0)
+  })).filter((p) => p.method && p.amount > 0);
 }
 
-function saveSaleLocally({ user, guide, payment, shift, items, txDiscountAmount = 0, txDiscountType = 'fixed', localPendingId = null }) {
+function paymentSummaryLabel(payments = []) {
+  if (!payments.length) return '';
+  return payments.map((p) => {
+    const label = [p.method, p.bank_name].filter(Boolean).join(' ');
+    return `${label}: ${p.amount}`;
+  }).join(' | ');
+}
+
+function saveSaleLocally({ user, guide, payment = {}, shift, items, customer = {} }) {
   const device = ensureDeviceCode();
-  if (!device.ok) return { ok: false, message: device.message };
-  const normalized = (items || []).map(normalizeItem).filter((i) => i.product_id > 0 && i.qty > 0);
-  if (!normalized.length) return { ok: false, message: 'Item transaksi kosong.' };
+  if (!device.ok) {
+    return { ok: false, message: device.message };
+  }
 
   const db = initDb();
   const transactionUuid = uuidv4();
@@ -66,61 +68,84 @@ function saveSaleLocally({ user, guide, payment, shift, items, txDiscountAmount 
   const nowLocal = localDateTimeString();
   const activeShift = shift || db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get();
   if (!activeShift) return { ok: false, message: 'Shift belum aktif. Buka shift terlebih dahulu.' };
-  const totals = transactionTotals(normalized, txDiscountAmount, txDiscountType);
+
+  const payments = normalizePayments(payment, items);
+  if (!payments.length) return { ok: false, message: 'Pembayaran belum diisi.' };
+
+  const total = items.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.price_each || 0), 0);
+  const paidAmount = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  if (paidAmount + 0.001 < total) return { ok: false, message: 'Total alokasi pembayaran kurang dari total belanja.' };
+
+  const primaryPayment = payments.length === 1 ? payments[0] : { method: 'multi', bank_name: paymentSummaryLabel(payments) };
+  const cashPayment = payments.find((p) => ['cash', 'tunai'].includes(String(p.method || '').toLowerCase()) || String(p.method || '').toLowerCase().includes('cash') || String(p.method || '').toLowerCase().includes('tunai'));
 
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
-     discount_amount, discount_type, tx_discount_amount, tx_discount_type, include_in_sales_report, line_subtotal, line_net_total, local_pending_id,
      payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, shift_id, sold_at,
-     local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+     local_device_id, local_transaction_id, sync_status, cash_received, cash_change, customer_name, customer_phone, payment_summary)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+
+  const insertPayment = db.prepare(`INSERT INTO sale_payments
+    (local_transaction_id, transaction_group_uuid, payment_method, payment_bank, payment_bank_id, amount, fee_percent, fee_amount, charged_amount, cash_received, cash_change, created_at, sync_status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
-    for (const item of normalized) {
+    for (const item of items) {
+      const itemOfflineUuid = uuidv4();
       insert.run(
-        transactionCode, transactionGroupUuid, uuidv4(), item.product_id, item.qty, item.price_each, item.total,
-        item.discount_amount, item.discount_type, money(txDiscountAmount), String(txDiscountType || 'fixed'), item.include_in_sales_report, item.line_subtotal, item.line_net_total, localPendingId,
-        payment.method, payment.bank_name || null, guide?.id || null, guide?.name || null, user.id,
-        activeShift.branch_id || 1, activeShift.id, nowLocal, store.get('deviceId'), localTransactionId, 'pending',
-        payment.cash_received ?? null, payment.cash_change ?? null
+        transactionCode,
+        transactionGroupUuid,
+        itemOfflineUuid,
+        item.product_id,
+        item.qty,
+        item.price_each,
+        item.qty * item.price_each,
+        primaryPayment.method,
+        primaryPayment.bank_name || null,
+        guide?.id || null,
+        guide?.name || null,
+        user.id,
+        activeShift.branch_id || 1,
+        activeShift.id,
+        nowLocal,
+        store.get('deviceId'),
+        localTransactionId,
+        'pending',
+        cashPayment?.cash_received ?? null,
+        cashPayment?.cash_change ?? null,
+        String(customer?.name || '').trim() || null,
+        String(customer?.phone || '').trim() || null,
+        paymentSummaryLabel(payments) || null
       );
     }
-    if (localPendingId) db.prepare("UPDATE pending_orders_local SET status='paid', updated_at=? WHERE local_pending_id=?").run(nowLocal, localPendingId);
+
+    for (const p of payments) {
+      insertPayment.run(
+        localTransactionId,
+        transactionGroupUuid,
+        p.method,
+        p.bank_name || null,
+        p.bank_id || null,
+        p.amount,
+        p.fee_percent || 0,
+        p.fee_amount || 0,
+        p.charged_amount || p.amount,
+        p.cash_received ?? null,
+        p.cash_change ?? null,
+        nowLocal,
+        'pending'
+      );
+    }
   });
+
   tx();
-  return { ok: true, localTransactionId, transactionGroupUuid, transactionCode, soldAt: nowLocal, subtotal: totals.subtotal, itemDiscount: totals.itemDiscount, txDiscount: totals.txDiscount, total: totals.total };
+  return {
+    ok: true,
+    localTransactionId,
+    transactionGroupUuid,
+    transactionCode,
+    soldAt: nowLocal
+  };
 }
 
-function savePendingOrder({ user, items, txDiscountAmount = 0, txDiscountType = 'fixed', customerName = '', note = '', localPendingId = null }) {
-  const db = initDb();
-  const now = localDateTimeString();
-  const id = localPendingId || uuidv4();
-  const code = `PEND-${now.replace(/[-: ]/g, '').slice(0, 14)}-${String(id).slice(0, 4).toUpperCase()}`;
-  const normalized = (items || []).map(normalizeItem).filter((i) => i.product_id > 0 && i.qty > 0);
-  if (!normalized.length) return { ok: false, message: 'Keranjang kosong.' };
-  const totals = transactionTotals(normalized, txDiscountAmount, txDiscountType);
-  const payload = { items: normalized, txDiscountAmount: money(txDiscountAmount), txDiscountType: String(txDiscountType || 'fixed'), customerName, note };
-  const tx = db.transaction(() => {
-    db.prepare(`INSERT INTO pending_orders_local (local_pending_id,pending_code,customer_name,note,subtotal,discount_amount,discount_type,total,status,payload_json,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(local_pending_id) DO UPDATE SET customer_name=excluded.customer_name,note=excluded.note,subtotal=excluded.subtotal,discount_amount=excluded.discount_amount,discount_type=excluded.discount_type,total=excluded.total,status='pending',payload_json=excluded.payload_json,updated_at=excluded.updated_at`)
-      .run(id, code, customerName, note, totals.subtotal, money(txDiscountAmount), String(txDiscountType || 'fixed'), totals.total, 'pending', JSON.stringify(payload), now, now);
-    db.prepare('DELETE FROM pending_order_items_local WHERE local_pending_id=?').run(id);
-    const ins = db.prepare(`INSERT INTO pending_order_items_local (local_pending_id,product_id,product_name,qty,price_each,discount_amount,discount_type,total,include_in_sales_report) VALUES (?,?,?,?,?,?,?,?,?)`);
-    normalized.forEach((i) => ins.run(id, i.product_id, i.name, i.qty, i.price_each, i.discount_amount, i.discount_type, i.total, i.include_in_sales_report));
-  });
-  tx();
-  return { ok: true, localPendingId: id, pendingCode: code, total: totals.total };
-}
-
-function listPendingOrders() {
-  const db = initDb();
-  return { ok: true, rows: db.prepare("SELECT * FROM pending_orders_local WHERE status='pending' ORDER BY updated_at DESC, id DESC").all() };
-}
-function deletePendingOrder(localPendingId) {
-  const db = initDb();
-  db.prepare("UPDATE pending_orders_local SET status='deleted', updated_at=? WHERE local_pending_id=?").run(localDateTimeString(), localPendingId);
-  return { ok: true };
-}
-
-module.exports = { saveSaleLocally, savePendingOrder, listPendingOrders, deletePendingOrder, transactionTotals };
+module.exports = { saveSaleLocally };
