@@ -12,37 +12,19 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $pdo = db();
+ensure_branch_price_schema();
+$branchId = branch_for_api_token($user);
 $safeExec = static function (string $sql) use ($pdo): void {
     try { $pdo->exec($sql); } catch (Throwable $_) {}
 };
+$safeExec("ALTER TABLE sales ADD COLUMN branch_id INT NULL AFTER product_id");
+$safeExec("ALTER TABLE pos_shifts ADD COLUMN branch_id INT NULL AFTER shift_code");
 $safeExec("ALTER TABLE sales ADD COLUMN local_device_id VARCHAR(120) NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN local_transaction_id VARCHAR(120) NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN payment_channel_id BIGINT NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN payment_channel_name VARCHAR(120) NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN guide_id BIGINT NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN customer_id BIGINT NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN customer_name VARCHAR(150) NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN customer_phone VARCHAR(50) NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN payment_summary TEXT NULL");
 $safeExec("ALTER TABLE sales ADD KEY idx_sales_device_local (local_device_id, local_transaction_id)");
-$safeExec("CREATE TABLE IF NOT EXISTS sale_payments (
-  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  sale_id BIGINT NULL,
-  transaction_group_uuid VARCHAR(120) NULL,
-  local_transaction_id VARCHAR(120) NULL,
-  payment_method VARCHAR(50) NOT NULL,
-  payment_bank VARCHAR(120) NULL,
-  payment_bank_id BIGINT NULL,
-  amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-  fee_percent DECIMAL(8,4) NOT NULL DEFAULT 0,
-  fee_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-  charged_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
-  cash_received DECIMAL(15,2) NULL,
-  cash_change DECIMAL(15,2) NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_sale_payments_local_tx (local_transaction_id),
-  KEY idx_sale_payments_group (transaction_group_uuid)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
 $debugMode = (($_GET['debug'] ?? '0') === '1') || (($_SERVER['HTTP_X_DEBUG_SYNC'] ?? '0') === '1');
 $incomingShifts = (array)($body['shifts'] ?? []);
@@ -71,6 +53,7 @@ $debug = [
     ],
     'offline_uuids' => array_values(array_filter(array_map(static fn($tx) => trim((string)($tx['offline_uuid'] ?? '')), $incomingTransactions))),
     'table' => 'sales',
+    'branch_id' => $branchId,
     'insert_results' => [],
     'validation_errors' => [],
 ];
@@ -92,6 +75,7 @@ try {
                 $pdo->prepare("
                     UPDATE pos_shifts
                     SET status = 'closed',
+                        branch_id = COALESCE(branch_id, ?),
                         closed_at = ?,
                         closed_by = ?,
                         counted_cash_total = ?,
@@ -100,6 +84,7 @@ try {
                         sync_status = 'synced'
                     WHERE id = ?
                 ")->execute([
+                    $branchId,
                     $sh['closed_at'] ?? date('Y-m-d H:i:s'),
                     $user['id'],
                     $sh['counted_cash_total'] ?? 0,
@@ -115,11 +100,12 @@ try {
         $shiftCode = 'SHIFT-' . date('Ymd-His') . '-' . strtoupper(substr($uuid, 0, 6));
         $pdo->prepare("
             INSERT INTO pos_shifts
-                (shift_code, status, opened_at, opened_by,
+                (shift_code, branch_id, status, opened_at, opened_by,
                  opening_cash_actual, offline_open_uuid, sync_status)
             VALUES (?, ?, ?, ?, ?, ?, 'synced')
         ")->execute([
             $shiftCode,
+            $branchId,
             $sh['status'] ?? 'open',
             $sh['opened_at'] ?? date('Y-m-d H:i:s'),
             $user['id'],
@@ -255,29 +241,6 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
         $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
         $txDiscAmt = (float)($tx['tx_discount_amount'] ?? 0);
         $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
-        $paymentSummary = (string)($tx['payment_summary'] ?? '');
-        $payments = (array)($tx['payments'] ?? []);
-        $customer = is_array($tx['customer'] ?? null) ? $tx['customer'] : [];
-        $customerName = trim((string)($customer['name'] ?? $tx['customer_name'] ?? ''));
-        $customerPhone = trim((string)($customer['phone'] ?? $tx['customer_phone'] ?? ''));
-        if (!$customerId && ($customerName !== '' || $customerPhone !== '')) {
-            try {
-                if ($customerPhone !== '') {
-                    $c = $pdo->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
-                    $c->execute([$customerPhone]);
-                    $rowC = $c->fetch(PDO::FETCH_ASSOC);
-                    if ($rowC) $customerId = (int)$rowC['id'];
-                }
-                if (!$customerId) {
-                    $pdo->prepare("INSERT INTO customers (name, phone, created_at) VALUES (?, ?, NOW())")
-                        ->execute([$customerName !== '' ? $customerName : $customerPhone, $customerPhone !== '' ? $customerPhone : null]);
-                    $customerId = (int)$pdo->lastInsertId();
-                } elseif ($customerName !== '') {
-                    $pdo->prepare("UPDATE customers SET name = CASE WHEN name = '' OR name IS NULL THEN ? ELSE name END WHERE id = ?")
-                        ->execute([$customerName, $customerId]);
-                }
-            } catch (Throwable $_) {}
-        }
 
         $firstId = null;
         try {
@@ -289,11 +252,10 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                 $pdo->prepare("
                     INSERT INTO sales
                         (transaction_code, transaction_group_uuid, offline_uuid,
-                         product_id, qty, price_each, total,
+                         product_id, branch_id, qty, price_each, total,
                          discount_amount, discount_type,
                          tx_discount_amount, tx_discount_type,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
-                         customer_id, customer_name, customer_phone, payment_summary,
                          local_device_id, local_transaction_id,
                          created_by, shift_id, sold_at,
                          sync_status, original_sale_id,
@@ -301,11 +263,10 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          base_sale_code)
                     VALUES
                         (?, ?, ?,
-                         ?, ?, ?, ?,
+                         ?, ?, ?, ?, ?,
                          ?, ?,
                          ?, ?,
                          ?, ?, ?, ?, ?, ?,
-                         ?, ?, ?, ?,
                          ?, ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
@@ -313,6 +274,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                 ")->execute([
                     $txCode, $txGroupUuid, $itemUuid,
                     (int)($item['product_id'] ?? 0),
+                    $branchId,
                     (int)($item['qty'] ?? 1),
                     $priceEach,
                     $itemTotal,
@@ -320,7 +282,6 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     (string)($item['discount_type'] ?? 'fixed'),
                     $txDiscAmt, $txDiscType,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
-                    $customerId ?: null, $customerName ?: null, $customerPhone ?: null, $paymentSummary ?: null,
                     $deviceId ?: null, $localTxId ?: $txUuid,
                     $cashierId, $shiftServerId, $soldAt,
                     $firstId,
@@ -331,34 +292,6 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                 if ($firstId === null) {
                     $firstId = $newId;
                     $pdo->prepare("UPDATE sales SET original_sale_id = ? WHERE id = ?")->execute([$newId, $newId]);
-                }
-            }
-
-            if (!empty($payments)) {
-                try {
-                    $pdo->prepare("DELETE FROM sale_payments WHERE local_transaction_id = ?")->execute([$localTxId ?: $txUuid]);
-                    $payStmt = $pdo->prepare("INSERT INTO sale_payments
-                        (sale_id, transaction_group_uuid, local_transaction_id, payment_method, payment_bank, payment_bank_id, amount, fee_percent, fee_amount, charged_amount, cash_received, cash_change)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    foreach ($payments as $pay) {
-                        if (!is_array($pay)) continue;
-                        $payStmt->execute([
-                            $firstId,
-                            $txGroupUuid,
-                            $localTxId ?: $txUuid,
-                            (string)($pay['method'] ?? $pay['payment_method'] ?? ''),
-                            (string)($pay['bank_name'] ?? $pay['payment_bank'] ?? ''),
-                            !empty($pay['bank_id']) ? (int)$pay['bank_id'] : null,
-                            (float)($pay['amount'] ?? 0),
-                            (float)($pay['fee_percent'] ?? 0),
-                            (float)($pay['fee_amount'] ?? 0),
-                            (float)($pay['charged_amount'] ?? $pay['amount'] ?? 0),
-                            array_key_exists('cash_received', $pay) ? (float)$pay['cash_received'] : null,
-                            array_key_exists('cash_change', $pay) ? (float)$pay['cash_change'] : null,
-                        ]);
-                    }
-                } catch (Throwable $ePay) {
-                    if ($debugMode) $debug['payment_insert_error'][$txUuid] = $ePay->getMessage();
                 }
             }
 
@@ -407,6 +340,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
             'step' => 'push_main',
             'transaction_count' => count($incomingTransactions),
             'table' => 'sales',
+    'branch_id' => $branchId,
             'sql_exception' => $e->getMessage(),
             'offline_uuids' => $debug['offline_uuids'],
         ];

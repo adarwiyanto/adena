@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Adena POS Desktop</title>
+  <title>Adena POS Desktop ver 1.4.3</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -118,11 +118,23 @@
             </div>
             <div id="multi-payment-wrap" class="multi-payment-wrap hidden">
               <div class="multi-payment-form">
-                <select id="multi-payment-method"></select>
-                <select id="multi-payment-bank"></select>
-                <input id="multi-payment-amount" type="number" min="0" step="100" placeholder="Nominal" />
-                <input id="multi-cash-received" class="hidden" type="number" min="0" step="100" placeholder="Diterima" />
-                <button id="btn-add-payment-line" type="button">Tambah</button>
+                <div class="multi-field">
+                  <label for="multi-payment-method">Metode pembayaran</label>
+                  <select id="multi-payment-method"></select>
+                </div>
+                <div class="multi-field" id="multi-payment-bank-field">
+                  <label for="multi-payment-bank">Bank / channel</label>
+                  <select id="multi-payment-bank"></select>
+                </div>
+                <div class="multi-field">
+                  <label for="multi-payment-amount">Nominal pembayaran</label>
+                  <input id="multi-payment-amount" type="number" min="0" step="100" placeholder="Nominal" />
+                </div>
+                <div class="multi-field hidden" id="multi-cash-received-field">
+                  <label for="multi-cash-received">Uang diterima</label>
+                  <input id="multi-cash-received" type="number" min="0" step="100" placeholder="Diterima" />
+                </div>
+                <button id="btn-add-payment-line" class="multi-add-btn" type="button">Tambah Pembayaran</button>
               </div>
               <div id="multi-credit-card-info" class="credit-card-info hidden"></div>
               <div id="multi-payment-lines" class="multi-payment-lines"></div>

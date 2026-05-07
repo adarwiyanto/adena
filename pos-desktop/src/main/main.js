@@ -209,6 +209,40 @@ function buildShiftClosePrintHtml(data) {
   </body></html>`;
 }
 
+function buildShiftCloseRawReceipt(data) {
+  return {
+    type: 'shift_close',
+    storeName: data.store?.name || 'Adena',
+    storeAddress: data.store?.address || '',
+    logo: data.store?.logoUri || '',
+    title: 'PENUTUPAN SHIFT',
+    printedAt: data.printedAt || localDateTimeString(),
+    cashierName: data.cashier || '-',
+    shiftCode: data.shift?.shift_code || String(data.shift?.id || '-'),
+    openedAt: data.shift?.opened_at || '-',
+    closedAt: data.printedAt || '-',
+    transactionCount: Number(data.transactionCount || 0),
+    itemQty: Number(data.itemQty || 0),
+    totalSalesText: `Rp ${formatNumber(data.totalSales)}`,
+    openingCashText: `Rp ${formatNumber(data.summary?.opening_cash || 0)}`,
+    cashSalesText: `Rp ${formatNumber(data.summary?.cash_sales || 0)}`,
+    nonCashSalesText: `Rp ${formatNumber(data.summary?.non_cash_sales || 0)}`,
+    cashInOutText: `Rp ${formatNumber((data.summary?.cash_in || 0) - (data.summary?.cash_out || 0))}`,
+    expectedCashText: `Rp ${formatNumber(data.summary?.expected_cash || 0)}`,
+    countedCashText: `Rp ${formatNumber(data.countedCash || 0)}`,
+    cashDifferenceText: `Rp ${formatNumber(data.cashDifference || 0)}`,
+    payments: (data.paymentRows || []).map((row) => ({
+      label: String(row.label || row.payment_method || '-').toUpperCase(),
+      totalText: `Rp ${formatNumber(row.total || 0)}`,
+      txCount: Number(row.tx_count || 0)
+    })),
+    totalExpectedText: `Rp ${formatNumber(data.totalExpected || 0)}`,
+    totalActualText: `Rp ${formatNumber(data.totalActual || 0)}`,
+    totalDifferenceText: `Rp ${formatNumber(data.totalDifference || 0)}`,
+    appFooter: 'Adena POS Desktop ver 1.4.3'
+  };
+}
+
 async function handleSyncBeforeExit() {
   try {
     await syncPendingTransactions();
@@ -454,7 +488,7 @@ ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); r
 ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
   const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
   if (!data.ok) return data;
-  return { ...data, html: buildShiftClosePrintHtml(data) };
+  return { ...data, html: buildShiftClosePrintHtml(data), rawReceipt: buildShiftCloseRawReceipt(data) };
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));

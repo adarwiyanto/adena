@@ -1,6 +1,7 @@
 const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', lastFocusProductId: null, multiPayment: false, paymentLines: [] };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
+const APP_FOOTER = 'Adena POS Desktop ver 1.4.3';
 const $ = (s) => document.querySelector(s);
 let toastTimer;
 const imageCacheQueue = new Set();
@@ -125,6 +126,109 @@ function paymentMethodLabel(code) {
 function selectedCustomerPayload() {
   return { name: $('#customer-name')?.value?.trim() || '', phone: $('#customer-phone')?.value?.trim() || '' };
 }
+
+function receiptStoreIdentity() {
+  return {
+    name: String(state.theme.store_name || $('#brand-name')?.textContent || 'Adena').trim() || 'Adena',
+    address: String(state.theme.store_address || $('#brand-address')?.textContent || '').trim(),
+    logo: state.theme.store_logo_local_uri || state.theme.store_logo_url || state.theme.store_logo || $('#brand-logo')?.getAttribute('src') || ''
+  };
+}
+
+function paymentLineLabel(p = {}) {
+  return [paymentMethodLabel(p.method), p.bank_name].filter(Boolean).join(' - ') || paymentMethodLabel(p.method) || '-';
+}
+
+function receiptItemName(item = {}) {
+  return item.name || item.product_name || item.productName || 'Produk';
+}
+
+function buildReceiptHtml(receipt, includeActions = false) {
+  const store = receiptStoreIdentity();
+  const logoHtml = store.logo ? `<img class="receipt-logo" src="${escapeHtml(store.logo)}" alt="${escapeHtml(store.name)}">` : '<div class="receipt-logo-text">ADENA</div>';
+  const addressHtml = store.address ? `<div class="receipt-address">${escapeHtml(store.address)}</div>` : '';
+  const customer = receipt.customer || {};
+  const customerHtml = customer.name || customer.phone ? `<div class="receipt-line"><span>Pelanggan</span><strong>${escapeHtml([customer.name, customer.phone].filter(Boolean).join(' / '))}</strong></div>` : '';
+  const lines = Array.isArray(receipt.paymentLines) ? receipt.paymentLines : [];
+  const paymentHtml = lines.length ? `<hr><div class="receipt-section-title">Rincian Pembayaran</div>${lines.map((p) => {
+    const fee = Number(p.fee_amount || 0) > 0 ? `<div class="receipt-line sub"><span>Tagihan kartu</span><strong>${rupiah(p.charged_amount)}</strong></div><div class="receipt-line sub"><span>Fee kartu ${Number(p.fee_percent || 0)}%</span><strong>${rupiah(p.fee_amount)}</strong></div>` : '';
+    const cash = p.cash_received != null ? `<div class="receipt-line sub"><span>Diterima</span><strong>${rupiah(p.cash_received)}</strong></div><div class="receipt-line sub"><span>Kembalian</span><strong>${rupiah(p.cash_change || 0)}</strong></div>` : '';
+    return `<div class="receipt-payment-line"><div class="receipt-line"><span>${escapeHtml(paymentLineLabel(p))}</span><strong>${rupiah(p.amount)}</strong></div>${fee}${cash}</div>`;
+  }).join('')}` : '';
+  const itemsHtml = (receipt.items || []).map((i) => {
+    const qty = Number(i.qty || 0);
+    const price = Number(i.price_each || i.price || 0);
+    return `<div class="receipt-item"><div class="receipt-line"><span>${escapeHtml(receiptItemName(i))} x${qty}</span><strong>${rupiah(qty * price)}</strong></div><div class="receipt-line sub"><span>@ ${rupiah(price)}</span><strong></strong></div></div>`;
+  }).join('');
+  const actions = includeActions ? `<div class="receipt-actions no-print"><button id="btn-print">Print</button><button id="btn-new-transaction">Transaksi Baru</button></div>` : '';
+  return `<div class="receipt-preview">
+    <div class="receipt-header">${logoHtml}<div class="receipt-store">${escapeHtml(store.name)}</div>${addressHtml}</div>
+    <hr>
+    <div class="receipt-line"><span>Receipt</span><strong>${escapeHtml(receipt.transactionCode || '-')}</strong></div>
+    <div class="receipt-line"><span>Waktu</span><strong>${escapeHtml(receipt.soldAt || '-')}</strong></div>
+    <div class="receipt-line"><span>Kasir</span><strong>${escapeHtml(state.user?.name || '-')}</strong></div>
+    ${customerHtml}
+    <div class="receipt-line"><span>Guide</span><strong>${escapeHtml(receipt.guideName || '-')}</strong></div>
+    <div class="receipt-line"><span>Metode</span><strong>${escapeHtml(receipt.paymentMethod || '-')}</strong></div>
+    ${receipt.paymentBank ? `<div class="receipt-line"><span>Bank</span><strong>${escapeHtml(receipt.paymentBank)}</strong></div>` : ''}
+    <hr>
+    <div class="receipt-section-title">Item</div>
+    ${itemsHtml || '<div class="empty small">Tidak ada item.</div>'}
+    <div class="receipt-total receipt-line"><span>TOTAL</span><strong>${rupiah(receipt.total)}</strong></div>
+    ${paymentHtml}
+    <hr>
+    <div class="receipt-footer">Terima kasih<br>${APP_FOOTER}</div>
+    ${actions}
+  </div>`;
+}
+
+function buildRawReceiptFromLatestReceipt() {
+  const r = state.latestReceipt;
+  if (!r) return null;
+  const store = receiptStoreIdentity();
+  const paymentLines = (Array.isArray(r.paymentLines) ? r.paymentLines : []).map((p) => ({
+    label: paymentLineLabel(p),
+    method: p.method,
+    bankName: p.bank_name || '',
+    amount: Number(p.amount || 0),
+    amountText: rupiah(p.amount || 0),
+    feePercent: Number(p.fee_percent || 0),
+    feeAmount: Number(p.fee_amount || 0),
+    feeAmountText: rupiah(p.fee_amount || 0),
+    chargedAmount: Number(p.charged_amount || p.amount || 0),
+    chargedAmountText: rupiah(p.charged_amount || p.amount || 0),
+    cashReceived: p.cash_received,
+    cashReceivedText: p.cash_received == null ? '' : rupiah(p.cash_received),
+    cashChange: p.cash_change,
+    cashChangeText: p.cash_change == null ? '' : rupiah(p.cash_change || 0)
+  }));
+  const cash = paymentLines.find((p) => p.cashReceived != null);
+  return {
+    type: 'sale',
+    storeName: store.name,
+    storeAddress: store.address,
+    logo: store.logo,
+    transactionCode: r.transactionCode || '-',
+    soldAt: r.soldAt || '-',
+    cashierName: state.user?.name || '-',
+    customerName: r.customer?.name || '',
+    customerPhone: r.customer?.phone || '',
+    guideName: r.guideName || '',
+    paymentMethod: r.paymentMethod || '-',
+    paymentBank: r.paymentBank || '',
+    items: (r.items || []).map((i) => {
+      const qty = Number(i.qty || 0);
+      const price = Number(i.price_each || i.price || 0);
+      return { name: receiptItemName(i), qty, price, priceText: rupiah(price), total: qty * price, totalText: rupiah(qty * price) };
+    }),
+    total: Number(r.total || 0),
+    totalText: rupiah(r.total || 0),
+    paymentLines,
+    cashReceivedText: cash?.cashReceivedText || (r.cashReceived == null ? '' : rupiah(r.cashReceived)),
+    cashChangeText: cash?.cashChangeText || (r.cashChange == null ? '' : rupiah(r.cashChange || 0)),
+    appFooter: APP_FOOTER
+  };
+}
 function updateCashPaymentState() {
   const wrap = $('#cash-payment-wrap');
   const input = $('#cash-received');
@@ -173,9 +277,32 @@ function updateMultiPaymentState() {
   state.multiPayment = !!$('#multi-payment-toggle')?.checked;
   $('#single-payment-wrap')?.classList.toggle('hidden', state.multiPayment);
   $('#multi-payment-wrap')?.classList.toggle('hidden', !state.multiPayment);
-  if (state.multiPayment && !$('#multi-payment-amount')?.value) $('#multi-payment-amount').value = Math.max(0, cartTotal() - state.paymentLines.reduce((a, p) => a + Number(p.amount || 0), 0));
+  if (state.multiPayment) {
+    fillMultiPaymentRemaining(true);
+  }
   renderMultiPaymentOptions();
   renderPaymentLines();
+  if (state.multiPayment) focusMultiPaymentAmount();
+}
+
+function getMultiPaymentRemaining() {
+  return Math.max(0, cartTotal() - state.paymentLines.reduce((a, p) => a + Number(p.amount || 0), 0));
+}
+
+function fillMultiPaymentRemaining(force = false) {
+  const input = $('#multi-payment-amount');
+  if (!input) return;
+  const remaining = getMultiPaymentRemaining();
+  if (force || !String(input.value || '').trim() || Number(input.value || 0) <= 0) {
+    input.value = remaining || '';
+  }
+}
+
+function focusMultiPaymentAmount() {
+  setTimeout(() => {
+    const input = $('#multi-payment-amount');
+    if (input && state.multiPayment && !input.disabled) { input.focus(); input.select(); }
+  }, 0);
 }
 
 function renderMultiPaymentOptions() {
@@ -191,8 +318,13 @@ function renderMultiPaymentOptions() {
   const requiresBank = bankRequiredCodes.has(method.value);
   bank.disabled = !requiresBank;
   if (!requiresBank) bank.value = '';
+  const cashField = $('#multi-cash-received-field');
   const cashInput = $('#multi-cash-received');
-  if (cashInput) cashInput.classList.toggle('hidden', !isCashPayment(method.value));
+  const isCash = isCashPayment(method.value);
+  if (cashField) cashField.classList.toggle('hidden', !isCash);
+  if (cashInput && !isCash) cashInput.value = '';
+  const bankField = $('#multi-payment-bank-field');
+  if (bankField) bankField.classList.toggle('is-disabled', !requiresBank);
   const info = $('#multi-credit-card-info');
   if (info) {
     if (isCreditCardPayment(method.value)) {
@@ -235,10 +367,12 @@ function addPaymentLine() {
     cashChange = cashReceived - amount;
   }
   state.paymentLines.push({ method, bank_id: bank?.id || null, bank_name: bank?.name || null, amount, fee_percent: calc.fee_percent, fee_amount: calc.fee_amount, charged_amount: calc.charged_amount, cash_received: cashReceived, cash_change: cashChange });
-  const remaining = Math.max(0, cartTotal() - state.paymentLines.reduce((a, p) => a + Number(p.amount || 0), 0));
+  const remaining = getMultiPaymentRemaining();
   $('#multi-payment-amount').value = remaining || '';
   if ($('#multi-cash-received')) $('#multi-cash-received').value = '';
+  renderMultiPaymentOptions();
   renderPaymentLines();
+  focusMultiPaymentAmount();
 }
 function pad2(n) { return String(n).padStart(2, '0'); }
 function dateStart(d) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} 00:00:00`; }
@@ -474,7 +608,7 @@ async function submitCloseShift() {
   if (closeReport?.ok && closeReport.html) {
     try {
       const settings = await window.desktopAPI.getSettings();
-      await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+      await window.desktopAPI.printReceipt({ html: closeReport.html, rawReceipt: closeReport.rawReceipt || null, printerName: settings.printerName, silent: true });
     } catch (error) {
       showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
     }
@@ -682,16 +816,17 @@ function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.cl
 function renderReceipt() {
   const w = $('#receipt-wrap');
   if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
-  const paymentLines = state.latestReceipt.paymentLines || [];
-  const paymentHtml = paymentLines.length > 1 ? `<div><strong>Rincian Pembayaran:</strong></div>${paymentLines.map((p) => {
-    const label = [paymentMethodLabel(p.method), p.bank_name].filter(Boolean).join(' - ');
-    const fee = Number(p.fee_amount || 0) > 0 ? ` · Tagih kartu ${rupiah(p.charged_amount)} (fee ${rupiah(p.fee_amount)})` : '';
-    const cash = p.cash_received != null ? ` · Diterima ${rupiah(p.cash_received)} · Kembali ${rupiah(p.cash_change || 0)}` : '';
-    return `<div>${escapeHtml(label)}: ${rupiah(p.amount)}${fee}${cash}</div>`;
-  }).join('')}` : '';
-  const customerHtml = state.latestReceipt.customer?.name || state.latestReceipt.customer?.phone ? `<div>Pelanggan: ${escapeHtml([state.latestReceipt.customer?.name, state.latestReceipt.customer?.phone].filter(Boolean).join(' / '))}</div>` : '';
-  w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div>${customerHtml}<div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div>${paymentHtml}<hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`;
-  $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); };
+  const receiptHtml = buildReceiptHtml(state.latestReceipt, false);
+  w.innerHTML = `${receiptHtml}<div class="receipt-actions no-print"><button id="btn-print">Print</button><button id="btn-new-transaction">Transaksi Baru</button></div>`;
+  $('#btn-print').onclick = async () => {
+    const settings = await window.desktopAPI.getSettings();
+    await window.desktopAPI.printReceipt({
+      html: receiptHtml,
+      rawReceipt: buildRawReceiptFromLatestReceipt(),
+      printerName: settings.printerName,
+      silent: true
+    });
+  };
   $('#btn-new-transaction').onclick = () => { state.cart = []; state.paymentLines = []; state.latestReceipt = null; renderCart(); renderPaymentLines(); switchTab('pos'); };
 }
 
@@ -878,8 +1013,8 @@ async function bootstrap() {
   $('#payment-method').onchange = updateBankState;
   $('#cash-received').oninput = updateCashPaymentState;
   $('#multi-payment-toggle').onchange = updateMultiPaymentState;
-  $('#multi-payment-method').onchange = renderMultiPaymentOptions;
-  $('#multi-payment-bank').onchange = renderMultiPaymentOptions;
+  $('#multi-payment-method').onchange = () => { fillMultiPaymentRemaining(true); renderMultiPaymentOptions(); focusMultiPaymentAmount(); };
+  $('#multi-payment-bank').onchange = () => { renderMultiPaymentOptions(); focusMultiPaymentAmount(); };
   $('#multi-payment-amount').oninput = renderMultiPaymentOptions;
   $('#multi-cash-received').oninput = renderMultiPaymentOptions;
   $('#btn-add-payment-line').onclick = addPaymentLine;

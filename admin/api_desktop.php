@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../api/helpers.php';
+require_once __DIR__ . '/../core/branch_portal.php';
 
 start_secure_session();
 $me = require_menu_access('settings', 'view');
@@ -15,6 +16,7 @@ if (!in_array($roleKey, ['owner', 'admin'], true)) {
 }
 
 ensure_api_tokens_table();
+ensure_branch_price_schema();
 $err = '';
 $ok = '';
 $generatedToken = '';
@@ -102,8 +104,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$branches = db()->query('SELECT id, branch_code, branch_name FROM branches WHERE is_active = 1 ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
-$tokens = db()->query('SELECT t.id, t.name, t.device_code, t.branch_id, b.branch_code, b.branch_name, t.is_active, t.last_used_at, t.created_at, t.revoked_at FROM api_tokens t LEFT JOIN branches b ON b.id = t.branch_id ORDER BY t.id DESC')
+$branches = table_exists('branches') ? db()->query('SELECT id, branch_name, branch_code FROM branches WHERE is_active=1 ORDER BY branch_name')->fetchAll(PDO::FETCH_ASSOC) : [];
+$tokens = db()->query('SELECT t.id, t.name, t.device_code, t.branch_id, b.branch_name, t.is_active, t.last_used_at, t.created_at, t.revoked_at FROM api_tokens t LEFT JOIN branches b ON b.id=t.branch_id ORDER BY t.id DESC')
   ->fetchAll(PDO::FETCH_ASSOC);
 $customCss = setting('custom_css', '');
 ?>
@@ -148,9 +150,9 @@ $customCss = setting('custom_css', '');
             <input type="text" name="device_code" maxlength="20" placeholder="Contoh: TJQ">
           </div>
           <div class="row">
-            <label>Cabang</label>
+            <label>Cabang POS</label>
             <select name="branch_id">
-              <option value="0">Semua/default cabang utama</option>
+              <option value="0">Default / belum dikunci</option>
               <?php foreach ($branches as $b): ?>
                 <option value="<?php echo e((string)$b['id']); ?>"><?php echo e(($b['branch_code'] ?? '') . ' - ' . ($b['branch_name'] ?? '')); ?></option>
               <?php endforeach; ?>
@@ -170,7 +172,7 @@ $customCss = setting('custom_css', '');
             <tr>
               <td><?php echo e($t['name']); ?></td>
               <td><?php echo e((string)($t['device_code'] ?? '-')); ?></td>
-              <td><?php echo e(!empty($t['branch_id']) ? (($t['branch_code'] ?? '') . ' - ' . ($t['branch_name'] ?? '')) : 'Default'); ?></td>
+              <td><?php echo e((string)($t['branch_name'] ?? 'Default')); ?></td>
               <td><?php echo ((int)$t['is_active'] === 1) ? '<span style="color:#22c55e">Aktif</span>' : '<span style="opacity:.6">Nonaktif</span>'; ?></td>
               <td><?php echo e($t['last_used_at'] ?: '-'); ?></td>
               <td><?php echo e($t['created_at']); ?></td>

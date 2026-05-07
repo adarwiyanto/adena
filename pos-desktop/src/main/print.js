@@ -174,37 +174,73 @@ async function buildShiftCloseThermalRawBuffer(payload = {}, options) {
   lines.push(lineText('Total Aktual', r.totalActualText || '-', cols));
   lines.push(lineText('Total Selisih', r.totalDifferenceText || '-', cols));
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.4.2', cols));
+  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.4.3', cols));
   chunks.push(textToEscpos(lines.join('\n') + '\n' + feedLines));
   if (options.autoCut) chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
   return Buffer.concat(chunks);
 }
 
 async function buildThermalRawBuffer(payload = {}, options) {
-  const r = payload.rawReceipt || {}; const cols = thermalColumns(options.widthMm); const sep = '-'.repeat(cols); const chunks = [Buffer.from([0x1b, 0x40, 0x1b, 0x21, 0x00])];
+  const r = payload.rawReceipt || {};
+  const cols = thermalColumns(options.widthMm);
+  const sep = '-'.repeat(cols);
+  const chunks = [Buffer.from([0x1b, 0x40, 0x1b, 0x21, 0x00])];
   chunks.push(buildRasterLogoBuffer(await resolveLogoFile(payload), options));
+
+  const customerText = [r.customerName, r.customerPhone].filter(Boolean).join(' / ');
   const lines = [centerText(r.storeName || 'Adena', cols)];
   if (r.storeAddress) lines.push(...wrapText(r.storeAddress, cols).map((x) => centerText(x, cols)));
-  lines.push(sep, lineText('Receipt', r.transactionCode || '-', cols), lineText('Waktu', r.soldAt || '-', cols), lineText('Kasir', r.cashierName || '-', cols), lineText('Guide', r.guideName || '-', cols), lineText('Metode', r.paymentMethod || '-', cols));
-  if (r.paymentBank) lines.push(lineText('Bank', r.paymentBank, cols));
   lines.push(sep);
+  lines.push(lineText('Receipt', r.transactionCode || '-', cols));
+  lines.push(lineText('Waktu', r.soldAt || '-', cols));
+  lines.push(lineText('Kasir', r.cashierName || '-', cols));
+  if (customerText) lines.push(lineText('Pelanggan', customerText, cols));
+  if (r.guideName) lines.push(lineText('Guide', r.guideName, cols));
+  lines.push(lineText('Metode', r.paymentMethod || '-', cols));
+  if (r.paymentBank) lines.push(lineText('Bank', r.paymentBank, cols));
+  lines.push(sep, centerText('ITEM', cols));
+
   for (const item of Array.isArray(r.items) ? r.items : []) {
-    const label = `${item.name || 'Item'} x${Number(item.qty || 0)}`; const total = item.totalText || item.total || '';
-    if (stripForThermal(label).length + stripForThermal(total).length + 1 <= cols) lines.push(lineText(label, total, cols)); else { lines.push(...wrapText(label, cols)); lines.push(lineText('', total, cols)); }
+    const qty = Number(item.qty || 0);
+    const priceText = item.priceText || '';
+    const label = `${item.name || 'Item'} x${qty}`;
+    const total = item.totalText || item.total || '';
+    if (stripForThermal(label).length + stripForThermal(total).length + 1 <= cols) lines.push(lineText(label, total, cols));
+    else { lines.push(...wrapText(label, cols)); lines.push(lineText('', total, cols)); }
+    if (priceText) lines.push(lineText(`@ ${priceText}`, '', cols));
   }
   lines.push(sep);
   chunks.push(textToEscpos(lines.join('\n') + '\n'));
   chunks.push(Buffer.from([0x1b, 0x45, 0x01]), textToEscpos(lineText('TOTAL', r.totalText || r.total || '-', cols) + '\n'), Buffer.from([0x1b, 0x45, 0x00]));
-  if (r.cashReceivedText) chunks.push(textToEscpos(lineText('Diterima', r.cashReceivedText, cols) + '\n'));
-  if (r.cashChangeText) chunks.push(textToEscpos(lineText('Kembalian', r.cashChangeText, cols) + '\n'));
+
+  const payments = Array.isArray(r.paymentLines) ? r.paymentLines : [];
+  if (payments.length) {
+    const payLines = [sep, centerText('RINCIAN PEMBAYARAN', cols)];
+    for (const p of payments) {
+      payLines.push(lineText(p.label || p.method || '-', p.amountText || p.amount || '-', cols));
+      if (Number(p.feeAmount || p.fee_amount || 0) > 0) {
+        const feePercent = p.feePercent ?? p.fee_percent ?? 0;
+        payLines.push(lineText('Tagihan kartu', p.chargedAmountText || p.charged_amount || '-', cols));
+        payLines.push(lineText(`Fee kartu ${feePercent}%`, p.feeAmountText || p.fee_amount || '-', cols));
+      }
+      if (p.cashReceivedText) payLines.push(lineText('Diterima', p.cashReceivedText, cols));
+      if (p.cashChangeText) payLines.push(lineText('Kembalian', p.cashChangeText, cols));
+    }
+    chunks.push(textToEscpos(payLines.join('\n') + '\n'));
+  } else {
+    if (r.cashReceivedText) chunks.push(textToEscpos(lineText('Diterima', r.cashReceivedText, cols) + '\n'));
+    if (r.cashChangeText) chunks.push(textToEscpos(lineText('Kembalian', r.cashChangeText, cols) + '\n'));
+  }
+
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS ver 1.4.2', cols)}\n${feedLines}`));
+  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS Desktop ver 1.4.3', cols)}\n${feedLines}`));
   if (options.autoCut) {
     // GS V B 0 = partial cut. Dipakai hanya pada mode Raw Thermal.
     chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
   }
   return Buffer.concat(chunks);
 }
+
 function psSingleQuote(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }

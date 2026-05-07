@@ -85,19 +85,30 @@ function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
 try {
     $user = api_verify_token();
     $pdo = db();
+    ensure_branch_price_schema();
+    $branchId = branch_for_api_token($user);
 
     $sinceRaw = safe_string($_GET['since'] ?? '');
     $sinceParam = parse_since_param($sinceRaw, $debugNotes);
     $hasFilter = $sinceParam !== null;
 
-    $productSql = "SELECT id, name, price, category, category AS category_id, image_path,
-                          is_favorite, is_best_seller, show_on_pos,
-                          track_stock, base_unit, updated_at
-                   FROM products
-                   WHERE show_on_pos = 1" .
-                   ($hasFilter ? " AND updated_at >= ?" : "") .
-                   " ORDER BY is_favorite DESC, name ASC";
-    $products = safe_rows($pdo, 'products', $productSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+    $productSql = "SELECT p.id, p.name,
+                          COALESCE(bpp.price, p.price) AS price,
+                          p.price AS default_price,
+                          p.category, p.category AS category_id, p.image_path,
+                          p.is_favorite, p.is_best_seller, p.show_on_pos,
+                          p.track_stock, p.base_unit, p.updated_at
+                   FROM products p
+                   LEFT JOIN branch_product_prices bpp
+                          ON bpp.product_id = p.id
+                         AND bpp.branch_id = ?
+                         AND bpp.is_active = 1
+                   WHERE p.show_on_pos = 1" .
+                   ($hasFilter ? " AND p.updated_at >= ?" : "") .
+                   " ORDER BY p.is_favorite DESC, p.name ASC";
+    $productParams = [$branchId];
+    if ($hasFilter) $productParams[] = $sinceParam;
+    $products = safe_rows($pdo, 'products', $productSql, $productParams, $debugNotes);
 
     $categories = safe_rows(
         $pdo,
@@ -153,7 +164,7 @@ try {
         'store_name', 'store_subtitle', 'store_address', 'store_phone', 'store_logo', 'receipt_footer',
         'loyalty_point_value', 'loyalty_remainder_mode', 'pos_default_opening_cash', 'store_intro',
         'theme_primary', 'theme_secondary', 'theme_accent', 'theme_surface', 'theme_sidebar',
-        'theme_header', 'theme_text', 'theme_muted', 'custom_css', 'credit_card_fee_percent',
+        'theme_header', 'theme_text', 'theme_muted', 'custom_css',
     ];
     $settings = [];
     foreach ($settingKeys as $key) {
@@ -167,20 +178,26 @@ try {
                          counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
                          sync_status, created_at, updated_at
                   FROM pos_shifts" .
-                  ($hasFilter ? " WHERE updated_at >= ?" : "") .
+                  " WHERE (branch_id IS NULL OR branch_id = ?)" .
+                  ($hasFilter ? " AND updated_at >= ?" : "") .
                   " ORDER BY id DESC LIMIT 100";
-    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+    $shiftParams = [$branchId];
+    if ($hasFilter) $shiftParams[] = $sinceParam;
+    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $shiftParams, $debugNotes);
 
     $salesSql = "SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
                         s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
-                        s.guide_id, s.guide_name, s.created_by, s.sold_at,
+                        s.guide_id, s.guide_name, s.created_by, s.sold_at, s.branch_id,
                         u.name AS cashier_name
                  FROM sales s
                  LEFT JOIN users u ON u.id = s.created_by
-                 WHERE (s.return_reason IS NULL OR s.return_reason = '')" .
+                 WHERE (s.return_reason IS NULL OR s.return_reason = '')
+                   AND (s.branch_id IS NULL OR s.branch_id = ?)" .
                  ($hasFilter ? " AND s.sold_at >= ?" : "") .
                  " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
-    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+    $salesParams = [$branchId];
+    if ($hasFilter) $salesParams[] = $sinceParam;
+    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $salesParams, $debugNotes);
 
     $pendingOrders = safe_rows(
         $pdo,
@@ -213,10 +230,10 @@ try {
                 counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
                 sync_status, created_at, updated_at
          FROM pos_shifts
-         WHERE status = 'open'
+         WHERE status = 'open' AND (branch_id IS NULL OR branch_id = ?)
          ORDER BY id DESC
          LIMIT 1",
-        [],
+        [$branchId],
         $debugNotes
     );
 
@@ -230,6 +247,7 @@ try {
             'banks' => array_values($banks),
             'payment_methods' => array_values($paymentMethods),
             'settings' => $settings,
+            'branch' => ['id' => $branchId, 'device_code' => (string)($user['device_code'] ?? '')],
             'shifts' => array_values($shifts),
             'sales_history' => array_values($salesHistory),
             'pending_orders' => array_values($pendingOrders),
