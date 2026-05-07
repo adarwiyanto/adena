@@ -145,3 +145,85 @@ function portal_inventory_branch_location_id(int $branchId): int {
   $stmt->execute([$branchId]);
   return (int)($stmt->fetchColumn() ?: 0);
 }
+
+/*
+ * HOTFIX 1.4.3 portal compatibility helpers.
+ * Beberapa file admin/portal lama memanggil nama fungsi branch_portal_*.
+ * Helper ini dibuat sebagai adapter aman ke fungsi baru agar tidak fatal error 500.
+ */
+if (!function_exists('ensure_branch_portal_schema')) {
+  function ensure_branch_portal_schema(): void {
+    ensure_branch_price_schema();
+    $db = db();
+    if (table_exists('user_branches')) return;
+    try {
+      $db->exec("CREATE TABLE IF NOT EXISTS user_branches (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        branch_id INT NOT NULL,
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_branch (user_id, branch_id),
+        KEY idx_user_branches_user (user_id),
+        KEY idx_user_branches_branch (branch_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (Throwable $e) {}
+  }
+}
+
+if (!function_exists('branch_portal_all_branches')) {
+  function branch_portal_all_branches(bool $activeOnly = true): array {
+    ensure_branch_portal_schema();
+    if (!table_exists('branches')) return [];
+    try {
+      $sql = "SELECT * FROM branches" . ($activeOnly ? " WHERE is_active=1" : "") . " ORDER BY branch_name ASC, id ASC";
+      return db()->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) { return []; }
+  }
+}
+
+if (!function_exists('branch_portal_user_branch_ids')) {
+  function branch_portal_user_branch_ids(?array $u = null): array {
+    ensure_branch_portal_schema();
+    if ($u === null) $u = function_exists('current_user') ? (current_user() ?: []) : [];
+    $uid = (int)($u['id'] ?? 0);
+    if ($uid <= 0 || !table_exists('user_branches')) return [];
+    try {
+      $stmt = db()->prepare("SELECT branch_id FROM user_branches WHERE user_id=? ORDER BY branch_id ASC");
+      $stmt->execute([$uid]);
+      return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    } catch (Throwable $e) { return []; }
+  }
+}
+
+if (!function_exists('branch_portal_set_active_branch')) {
+  function branch_portal_set_active_branch(?array $u, int $branchId): void {
+    start_secure_session();
+    $_SESSION['portal_branch_id'] = $branchId;
+    $_SESSION['adena_portal_branch_id'] = $branchId;
+    $_SESSION['active_branch_id'] = $branchId;
+  }
+}
+
+if (!function_exists('branch_portal_active_branch_id')) {
+  function branch_portal_active_branch_id(?array $u = null): int {
+    start_secure_session();
+    $bid = (int)($_GET['branch_id'] ?? $_SESSION['portal_branch_id'] ?? $_SESSION['adena_portal_branch_id'] ?? $_SESSION['active_branch_id'] ?? 0);
+    if ($bid > 0) return $bid;
+    $ids = branch_portal_user_branch_ids($u);
+    if ($ids) return (int)$ids[0];
+    return (int)setting('active_branch_id', '1');
+  }
+}
+
+if (!function_exists('branch_portal_branch')) {
+  function branch_portal_branch(int $branchId): array {
+    return portal_branch_row($branchId);
+  }
+}
+
+if (!function_exists('branch_portal_current_user')) {
+  function branch_portal_current_user(): array {
+    return function_exists('current_user') ? (current_user() ?: []) : [];
+  }
+}
+

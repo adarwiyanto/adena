@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/csrf.php';
+require_once __DIR__ . '/../core/portal_switcher.php';
 
 $appName = app_config()['app']['name'];
 $u = current_user();
@@ -42,6 +44,30 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
       <a href="<?php echo e(base_url('profile.php')); ?>">Edit Profil</a>
       <a href="<?php echo e(base_url('password.php')); ?>">Ubah Password</a>
     </div>
+
+    <?php
+      $portalOptions = adena_portal_options(is_array($u) ? $u : []);
+      $portalCurrent = adena_portal_current_value();
+      $portalFlash = adena_portal_flash();
+    ?>
+    <?php if ($portalFlash): ?>
+      <div class="card" style="margin:10px 12px;padding:10px;border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10);font-size:12px">
+        <?php echo e((string)$portalFlash['message']); ?>
+      </div>
+    <?php endif; ?>
+    <form method="post" action="<?php echo e(base_url('portal_switch.php')); ?>" style="padding:10px 12px;border-top:1px solid rgba(148,163,184,.18);border-bottom:1px solid rgba(148,163,184,.18);">
+      <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+      <input type="hidden" name="back" value="<?php echo e((string)($_SERVER['REQUEST_URI'] ?? base_url('admin/dashboard.php'))); ?>">
+      <label style="display:block;font-size:11px;color:#64748b;font-weight:800;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Area Kerja</label>
+      <select name="portal_target" onchange="this.form.submit()" style="width:100%;border-radius:10px;border:1px solid #cbd5e1;padding:8px 10px;background:#fff;color:#0f172a;font-weight:700">
+        <?php foreach ($portalOptions as $opt): ?>
+          <?php if (!empty($opt['allowed'])): ?>
+            <option value="<?php echo e((string)$opt['value']); ?>" <?php echo ((string)$opt['value'] === $portalCurrent) ? 'selected' : ''; ?>><?php echo e((string)$opt['label']); ?></option>
+          <?php endif; ?>
+        <?php endforeach; ?>
+      </select>
+      <noscript><button class="btn" style="margin-top:8px;width:100%" type="submit">Pindah</button></noscript>
+    </form>
   </div>
 
   <div class="nav">
@@ -80,12 +106,10 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
 
     <div class="item">
       <button type="button" data-toggle-submenu="#m-transaksi">
-        <div class="mi">💳</div><div class="label">Transaksi & Pembayaran</div>
+        <div class="mi">💳</div><div class="label">Pembayaran & Admin</div>
         <div class="chev">▾</div>
       </button>
       <div class="submenu" id="m-transaksi">
-        <?php if (has_menu_access($u, 'sales')): ?><a href="<?php echo e(base_url('admin/sales.php')); ?>">Penjualan</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'sales')): ?><a href="<?php echo e(base_url('admin/pos_shifts.php')); ?>">Laporan Shift POS</a><?php endif; ?>
         <?php if (has_menu_access($u, 'rekap_omset')): ?><a href="<?php echo e(base_url('admin/rekap_omset.php')); ?>">Rekap Omset</a><?php endif; ?>
         <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customers.php')); ?>">Pelanggan</a><?php endif; ?>
         <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><?php endif; ?>

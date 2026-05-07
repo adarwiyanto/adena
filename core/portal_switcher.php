@@ -72,7 +72,7 @@ function adena_portal_current_value(): string {
   if (strpos($path, '/kitchen/') !== false) return 'kitchen';
   if (strpos($path, '/cabang/') !== false) {
     start_secure_session();
-    $bid = (int)($_SESSION['active_branch_id'] ?? 0);
+    $bid = (int)($_SESSION['portal_branch_id'] ?? $_SESSION['adena_portal_branch_id'] ?? $_SESSION['active_branch_id'] ?? 0);
     if ($bid > 0) return 'branch:' . $bid;
     return 'branch:1';
   }
@@ -107,7 +107,7 @@ function adena_portal_switch(array $u, string $target): string {
     branch_portal_set_active_branch($u, $branchId);
     $_SESSION['adena_portal_type'] = 'branch';
     $_SESSION['adena_portal_branch_id'] = $branchId;
-    return base_url('cabang/dashboard.php');
+    return base_url('cabang/dashboard.php?branch_id=' . $branchId);
   }
   throw new Exception('Pilihan halaman tidak valid.');
 }
