@@ -4,7 +4,7 @@
  * Download data master untuk POS Desktop.
  */
 require_once __DIR__ . '/../helpers.php';
-require_once __DIR__ . '/../../core/unit_workflow.php';
+require_once __DIR__ . '/../../core/inventory.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     api_err('Method tidak diizinkan.', 405);
@@ -85,25 +85,36 @@ function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
 
 try {
     $user = api_verify_token();
-    try { ensure_unit_workflow_schema(); } catch (Throwable $e) { $debugNotes[] = ['type'=>'unit_schema_failed','error'=>$e->getMessage()]; }
     $pdo = db();
+    ensure_branch_product_prices_table();
+    $tokenBranchId = (int)($user['branch_id'] ?? 0);
 
     $sinceRaw = safe_string($_GET['since'] ?? '');
     $sinceParam = parse_since_param($sinceRaw, $debugNotes);
     $hasFilter = $sinceParam !== null;
 
-    $tokenBranchId = (int)($user['branch_id'] ?? 0);
-    if ($tokenBranchId <= 0) { $tokenBranchId = (int)($_GET['branch_id'] ?? 0); }
-
-    $productSql = "SELECT p.id, p.name, COALESCE(bpp.price,p.price) AS price, p.category, p.category AS category_id, p.image_path,
+    $productParams = [];
+    if ($tokenBranchId > 0) {
+        $productParams[] = $tokenBranchId;
+    }
+    if ($hasFilter) {
+        $productParams[] = $sinceParam;
+    }
+    $productPriceExpr = $tokenBranchId > 0
+        ? "CASE WHEN bpp.is_active = 1 THEN bpp.price ELSE p.price END"
+        : "p.price";
+    $productJoin = $tokenBranchId > 0
+        ? " LEFT JOIN branch_product_prices bpp ON bpp.product_id = p.id AND bpp.branch_id = ?"
+        : "";
+    $productSql = "SELECT p.id, p.name, {$productPriceExpr} AS price, p.price AS default_price,
+                          p.category, p.category AS category_id, p.image_path,
                           p.is_favorite, p.is_best_seller, p.show_on_pos,
                           p.track_stock, p.base_unit, p.updated_at
-                   FROM products p
-                   LEFT JOIN branch_product_prices bpp ON bpp.product_id=p.id AND bpp.branch_id=" . ($tokenBranchId > 0 ? (string)$tokenBranchId : "0") . " AND bpp.is_active=1
-                   WHERE p.show_on_pos = 1" .
+                   FROM products p" . $productJoin .
+                   " WHERE p.show_on_pos = 1" .
                    ($hasFilter ? " AND p.updated_at >= ?" : "") .
                    " ORDER BY p.is_favorite DESC, p.name ASC";
-    $products = safe_rows($pdo, 'products', $productSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
+    $products = safe_rows($pdo, 'products', $productSql, $productParams, $debugNotes);
 
     $categories = safe_rows(
         $pdo,
@@ -117,23 +128,6 @@ try {
         $pdo,
         'guides',
         "SELECT id, name, is_active FROM guides WHERE is_active = 1 ORDER BY name",
-        [],
-        $debugNotes
-    );
-
-
-    $branches = safe_rows(
-        $pdo,
-        'branches',
-        "SELECT id, branch_code, branch_name, COALESCE(unit_type,'branch') AS unit_type, COALESCE(is_kitchen,0) AS is_kitchen, is_active FROM branches WHERE is_active = 1 ORDER BY COALESCE(unit_type,'branch') DESC, sort_order, branch_name",
-        [],
-        $debugNotes
-    );
-
-    $branchPrices = safe_rows(
-        $pdo,
-        'branch_product_prices',
-        "SELECT branch_id, product_id, price, is_active FROM branch_product_prices WHERE is_active=1",
         [],
         $debugNotes
     );
@@ -185,32 +179,25 @@ try {
     // URL siap pakai untuk POS Desktop. Nilai store_logo biasanya hanya nama file private_uploads.
     $settings['store_logo_url'] = !empty($settings['store_logo']) ? upload_url($settings['store_logo'], 'image') : '';
 
-    $shiftWhere = [];
-    $shiftParams = [];
-    if ($tokenBranchId > 0) { $shiftWhere[] = 'branch_id = ?'; $shiftParams[] = $tokenBranchId; }
-    if ($hasFilter) { $shiftWhere[] = 'updated_at >= ?'; $shiftParams[] = $sinceParam; }
     $shiftsSql = "SELECT id, shift_code, branch_id, opened_at, opened_by, opening_cash_default,
                          opening_cash_actual, status, closed_at, closed_by, expected_cash_total,
                          counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
                          sync_status, created_at, updated_at
                   FROM pos_shifts" .
-                  (count($shiftWhere) ? " WHERE " . implode(' AND ', $shiftWhere) : "") .
+                  ($hasFilter ? " WHERE updated_at >= ?" : "") .
                   " ORDER BY id DESC LIMIT 100";
-    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $shiftParams, $debugNotes);
+    $shifts = safe_rows($pdo, 'shifts', $shiftsSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
 
-    $salesWhere = ["(s.return_reason IS NULL OR s.return_reason = '')"];
-    $salesParams = [];
-    if ($tokenBranchId > 0) { $salesWhere[] = 's.branch_id = ?'; $salesParams[] = $tokenBranchId; }
-    if ($hasFilter) { $salesWhere[] = 's.sold_at >= ?'; $salesParams[] = $sinceParam; }
     $salesSql = "SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
                         s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
                         s.guide_id, s.guide_name, s.created_by, s.sold_at,
                         u.name AS cashier_name
                  FROM sales s
                  LEFT JOIN users u ON u.id = s.created_by
-                 WHERE " . implode(' AND ', $salesWhere) .
+                 WHERE (s.return_reason IS NULL OR s.return_reason = '')" .
+                 ($hasFilter ? " AND s.sold_at >= ?" : "") .
                  " ORDER BY s.sold_at DESC, s.id DESC LIMIT 2000";
-    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $salesParams, $debugNotes);
+    $salesHistory = safe_rows($pdo, 'sales_history', $salesSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
 
     $pendingOrders = safe_rows(
         $pdo,
@@ -243,10 +230,10 @@ try {
                 counted_cash_total, cash_difference, notes, offline_open_uuid, offline_close_uuid,
                 sync_status, created_at, updated_at
          FROM pos_shifts
-         WHERE status = 'open'" . ($tokenBranchId > 0 ? " AND branch_id = ?" : "") . "
+         WHERE status = 'open'
          ORDER BY id DESC
          LIMIT 1",
-        $tokenBranchId > 0 ? [$tokenBranchId] : [],
+        [],
         $debugNotes
     );
 
@@ -259,8 +246,6 @@ try {
             'guides' => array_values($guides),
             'banks' => array_values($banks),
             'payment_methods' => array_values($paymentMethods),
-            'branches' => array_values($branches),
-            'branch_product_prices' => array_values($branchPrices),
             'settings' => $settings,
             'shifts' => array_values($shifts),
             'sales_history' => array_values($salesHistory),

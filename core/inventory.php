@@ -21,6 +21,7 @@ function ensure_inventory_module_schema(): void {
   ensure_sales_inventory_columns();
   ensure_sales_production_links_table();
   ensure_inventory_settings_defaults();
+  ensure_branch_product_prices_table();
 }
 
 function ensure_branches_table(): void {
@@ -76,6 +77,27 @@ function ensure_products_inventory_columns(): void {
   }
 }
 
+
+
+function ensure_branch_product_prices_table(): void {
+  try {
+    db()->exec("CREATE TABLE IF NOT EXISTS branch_product_prices (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      branch_id INT NOT NULL,
+      product_id INT NOT NULL,
+      price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_branch_product_price (branch_id, product_id),
+      KEY idx_bpp_branch (branch_id),
+      KEY idx_bpp_product (product_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branch_product_prices ADD UNIQUE KEY uniq_branch_product_price (branch_id, product_id)"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branch_product_prices ADD KEY idx_bpp_branch (branch_id)"); } catch (Throwable $e) {}
+  try { db()->exec("ALTER TABLE branch_product_prices ADD KEY idx_bpp_product (product_id)"); } catch (Throwable $e) {}
+}
 
 function ensure_suppliers_table(): void {
   try {

@@ -6,7 +6,6 @@
 
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
-require_once __DIR__ . '/../core/branch_portal.php';
 
 function api_json($data, int $status = 200): void {
     http_response_code($status);
@@ -35,7 +34,8 @@ function ensure_api_tokens_table(): void {
         last_used_at DATETIME NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         revoked_at DATETIME NULL,
-        INDEX idx_api_tokens_active (is_active)
+        INDEX idx_api_tokens_active (is_active),
+        INDEX idx_api_tokens_branch (branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     try {
         $pdo->exec("ALTER TABLE api_tokens ADD COLUMN device_code VARCHAR(20) NULL AFTER token_hash");
@@ -47,6 +47,9 @@ function ensure_api_tokens_table(): void {
     } catch (Throwable $e) {
         // additive migration, abaikan jika kolom sudah ada
     }
+    try {
+        $pdo->exec("ALTER TABLE api_tokens ADD KEY idx_api_tokens_branch (branch_id)");
+    } catch (Throwable $e) {}
 }
 
 function api_get_bearer_token(): ?string {

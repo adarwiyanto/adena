@@ -58,7 +58,9 @@ $posDefaultOpeningCash = (float)setting('pos_default_opening_cash', '100000');
 $activePaymentMethods = get_active_payment_methods();
 $qrisBanks = get_active_qris_banks();
 $activeGuides = get_active_guides();
-$products = db()->query("SELECT id, name, price, image_path, product_type, track_stock, allow_bom FROM products WHERE show_on_pos = 1 ORDER BY name ASC")->fetchAll();
+$stmtProducts = db()->prepare("SELECT p.id, p.name, CASE WHEN bpp.is_active = 1 THEN bpp.price ELSE p.price END AS price, p.image_path, p.product_type, p.track_stock, p.allow_bom FROM products p LEFT JOIN branch_product_prices bpp ON bpp.product_id=p.id AND bpp.branch_id=? WHERE p.show_on_pos = 1 ORDER BY p.name ASC");
+$stmtProducts->execute([$branchId]);
+$products = $stmtProducts->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
 foreach ($products as $p) {
