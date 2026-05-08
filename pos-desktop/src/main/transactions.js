@@ -34,11 +34,15 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
   const activeShift = shift || db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get();
   if (!activeShift) return { ok: false, message: 'Shift belum aktif. Buka shift terlebih dahulu.' };
 
+  const branchId = Number(activeShift.branch_id || store.get('branchId') || 1);
+  const saleSource = String(store.get('saleSource') || 'branch_pos');
+  const unitType = saleSource === 'kitchen_direct' ? 'kitchen' : 'branch';
+
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
-     payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, shift_id, sold_at,
+     payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, sale_source, unit_type, shift_id, sold_at,
      local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     for (const item of items) {
@@ -56,7 +60,9 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
         guide?.id || null,
         guide?.name || null,
         user.id,
-        activeShift.branch_id || 1,
+        branchId,
+        saleSource,
+        unitType,
         activeShift.id,
         nowLocal,
         store.get('deviceId'),

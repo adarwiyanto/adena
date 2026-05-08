@@ -6,10 +6,12 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/email.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/branch_portal.php';
 
 start_secure_session();
 require_admin();
 ensure_rbac_schema();
+ensure_branch_portal_schema();
 ensure_owner_role();
 ensure_user_invites_table();
 ensure_user_profile_columns();
@@ -21,7 +23,7 @@ $ok = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $action = $_POST['action'] ?? '';
-  $actionPermMap = ['delete'=>'delete','update_role'=>'edit','invite'=>'create','save_email_settings'=>'edit'];
+  $actionPermMap = ['delete'=>'delete','update_role'=>'edit','update_branch'=>'edit','invite'=>'create','save_email_settings'=>'edit'];
   if (isset($actionPermMap[$action])) {
     require_action_access('users', $actionPermMap[$action]);
   }
@@ -66,6 +68,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$roleKey, $roleId, $id]);
         redirect(base_url('admin/users.php'));
       }
+    }
+
+    if ($action === 'update_branch') {
+      if (($me['role'] ?? '') !== 'owner') {
+        throw new Exception('Hanya owner yang bisa mengatur cabang user.');
+      }
+      $id = (int)($_POST['id'] ?? 0);
+      $branchId = (int)($_POST['branch_id'] ?? 0);
+      if ($id <= 0 || $id === (int)($me['id'] ?? 0)) throw new Exception('User tidak valid.');
+      $stmt = db()->prepare("SELECT id FROM branches WHERE id=? AND is_active=1 LIMIT 1");
+      $stmt->execute([$branchId]);
+      if (!$stmt->fetch()) throw new Exception('Cabang tidak valid.');
+      $del = db()->prepare("DELETE FROM user_branches WHERE user_id=?");
+      $del->execute([$id]);
+      $ins = db()->prepare("INSERT INTO user_branches (user_id, branch_id) VALUES (?, ?)");
+      $ins->execute([$id, $branchId]);
+      redirect(base_url('admin/users.php'));
     }
 
     if ($action === 'invite') {
@@ -133,11 +152,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $rolesActive = db()->query("SELECT id, role_key, role_name FROM roles WHERE is_active=1 ORDER BY role_name ASC")->fetchAll();
 $users = db()->query("
-  SELECT u.id, u.username, u.name, u.avatar_path, u.role_id, u.created_at, r.role_key, r.role_name
+  SELECT u.id, u.username, u.name, u.avatar_path, u.role_id, u.created_at, r.role_key, r.role_name,
+         (SELECT ub.branch_id FROM user_branches ub WHERE ub.user_id=u.id ORDER BY ub.id ASC LIMIT 1) AS assigned_branch_id
   FROM users u
   LEFT JOIN roles r ON r.id = u.role_id
   ORDER BY u.id DESC
 ")->fetchAll();
+$branches = branch_portal_all_branches(true);
 $customCss = setting('custom_css','');
 $mailCfg = mail_settings();
 ?>
@@ -201,7 +222,7 @@ $mailCfg = mail_settings();
         <div class="card">
           <h3 style="margin-top:0">Daftar User</h3>
           <table class="table">
-            <thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Dibuat</th><th></th></tr></thead>
+            <thead><tr><th>Username</th><th>Nama</th><th>Role</th><th>Cabang</th><th>Dibuat</th><th></th></tr></thead>
             <tbody>
               <?php foreach ($users as $u): ?>
                 <?php
@@ -228,6 +249,27 @@ $mailCfg = mail_settings();
                       <span class="badge" style="background:#fee2e2;color:#991b1b">role_id invalid</span>
                     <?php else: ?>
                       <span class="badge"><?php echo e(strtolower($roleLabel)); ?></span>
+                    <?php endif; ?>
+                  </td>
+                  <td>
+                    <?php if (($me['role'] ?? '') === 'owner' && (int)$u['id'] !== (int)($me['id'] ?? 0)): ?>
+                      <form method="post" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                        <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
+                        <input type="hidden" name="action" value="update_branch">
+                        <input type="hidden" name="id" value="<?php echo e($u['id']); ?>">
+                        <select name="branch_id">
+                          <?php foreach ($branches as $b): ?>
+                            <option value="<?php echo e((string)$b['id']); ?>" <?php echo ((int)($u['assigned_branch_id'] ?? 0) === (int)$b['id']) ? 'selected' : ''; ?>><?php echo e((string)$b['branch_name']); ?></option>
+                          <?php endforeach; ?>
+                        </select>
+                        <button class="btn" type="submit">Simpan</button>
+                      </form>
+                    <?php else: ?>
+                      <?php
+                        $assignedName = '-';
+                        foreach ($branches as $b) { if ((int)($u['assigned_branch_id'] ?? 0) === (int)$b['id']) { $assignedName = (string)$b['branch_name']; break; } }
+                        echo e($assignedName);
+                      ?>
                     <?php endif; ?>
                   </td>
                   <td><?php echo e($u['created_at']); ?></td>

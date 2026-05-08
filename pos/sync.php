@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/pos_shift.php';
+require_once __DIR__ . '/../core/ops14.php';
 
 header('Content-Type: application/json');
 
@@ -23,6 +24,7 @@ start_secure_session();
 require_login();
 ensure_rbac_schema();
 ensure_pos_shift_schema();
+ensure_adena14_schema();
 ensure_payment_methods_table();
 ensure_qris_banks_table();
 ensure_sales_payment_bank_column();

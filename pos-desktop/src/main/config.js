@@ -5,6 +5,8 @@ const DEFAULT_SETTINGS = {
   apiBaseUrl: '',
   apiToken: '',
   deviceCode: '',
+  branchId: 1,
+  saleSource: 'branch_pos',
   printerName: '',
   receiptWidthMm: 58,
   receiptMarginMm: 2,

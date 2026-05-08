@@ -1,6 +1,7 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today' };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', lastFocusProductId: null, multiPayment: false, paymentLines: [] };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
+const APP_FOOTER = 'Adena POS Desktop ver 1.4.3';
 const $ = (s) => document.querySelector(s);
 let toastTimer;
 const imageCacheQueue = new Set();
@@ -90,19 +91,288 @@ function applyTheme(settings = {}) {
 
 function cartTotal() { return state.cart.reduce((a, b) => a + Number(b.qty || 0) * Number(b.price_each || 0), 0); }
 function isCashPayment(code) { const v = String(code || '').toLowerCase(); return v === 'cash' || v === 'tunai' || v.includes('cash') || v.includes('tunai'); }
+function isCreditCardPayment(code) { const v = String(code || '').toLowerCase(); return v === 'credit_card' || v.includes('credit') || v.includes('kartu_kredit'); }
+function creditCardFeePercent() { const raw = state.theme.credit_card_fee_percent || state.theme.pos_credit_card_fee_percent; return Math.max(0, Math.min(95, Number(raw === undefined || raw === null || raw === '' ? 2.5 : raw))); }
+function creditCardCharge(amount, feePercent = creditCardFeePercent()) {
+  const base = Number(amount || 0);
+  const fee = Number(feePercent || 0);
+  if (!base || fee <= 0) return { amount: base, fee_percent: fee, fee_amount: 0, charged_amount: base };
+  const charged = Math.ceil(base / (1 - fee / 100));
+  return { amount: base, fee_percent: fee, fee_amount: charged - base, charged_amount: charged };
+}
+function nextCashSuggestions(total) {
+  const t = Math.ceil(Number(total || 0));
+  if (!t) return [];
+  const bases = [1000, 5000, 10000, 20000, 50000, 100000];
+  const options = new Set();
+  for (const base of bases) {
+    const rounded = Math.ceil(t / base) * base;
+    if (rounded >= t) options.add(rounded);
+  }
+  [50000, 100000, 150000, 200000, 300000, 500000].forEach((v) => { if (v >= t) options.add(v); });
+  return Array.from(options).sort((a, b) => a - b).slice(0, 4);
+}
+function focusQtyInput(productId) {
+  if (!productId) return;
+  setTimeout(() => {
+    const input = document.querySelector(`[data-qty-id="${CSS.escape(String(productId))}"]`);
+    if (input) { input.focus(); input.select(); }
+  }, 0);
+}
+function paymentMethodLabel(code) {
+  const m = state.paymentMethods.find((x) => String(x.code) === String(code));
+  return m?.name || code || '-';
+}
+function selectedCustomerPayload() {
+  return { name: $('#customer-name')?.value?.trim() || '', phone: $('#customer-phone')?.value?.trim() || '' };
+}
+
+function receiptStoreIdentity() {
+  return {
+    name: String(state.theme.store_name || $('#brand-name')?.textContent || 'Adena').trim() || 'Adena',
+    address: String(state.theme.store_address || $('#brand-address')?.textContent || '').trim(),
+    logo: state.theme.store_logo_local_uri || state.theme.store_logo_url || state.theme.store_logo || $('#brand-logo')?.getAttribute('src') || ''
+  };
+}
+
+function paymentLineLabel(p = {}) {
+  return [paymentMethodLabel(p.method), p.bank_name].filter(Boolean).join(' - ') || paymentMethodLabel(p.method) || '-';
+}
+
+function receiptItemName(item = {}) {
+  return item.name || item.product_name || item.productName || 'Produk';
+}
+
+function buildReceiptHtml(receipt, includeActions = false) {
+  const store = receiptStoreIdentity();
+  const logoHtml = store.logo ? `<img class="receipt-logo" src="${escapeHtml(store.logo)}" alt="${escapeHtml(store.name)}">` : '<div class="receipt-logo-text">ADENA</div>';
+  const addressHtml = store.address ? `<div class="receipt-address">${escapeHtml(store.address)}</div>` : '';
+  const customer = receipt.customer || {};
+  const customerHtml = customer.name || customer.phone ? `<div class="receipt-line"><span>Pelanggan</span><strong>${escapeHtml([customer.name, customer.phone].filter(Boolean).join(' / '))}</strong></div>` : '';
+  const lines = Array.isArray(receipt.paymentLines) ? receipt.paymentLines : [];
+  const paymentHtml = lines.length ? `<hr><div class="receipt-section-title">Rincian Pembayaran</div>${lines.map((p) => {
+    const fee = Number(p.fee_amount || 0) > 0 ? `<div class="receipt-line sub"><span>Tagihan kartu</span><strong>${rupiah(p.charged_amount)}</strong></div><div class="receipt-line sub"><span>Fee kartu ${Number(p.fee_percent || 0)}%</span><strong>${rupiah(p.fee_amount)}</strong></div>` : '';
+    const cash = p.cash_received != null ? `<div class="receipt-line sub"><span>Diterima</span><strong>${rupiah(p.cash_received)}</strong></div><div class="receipt-line sub"><span>Kembalian</span><strong>${rupiah(p.cash_change || 0)}</strong></div>` : '';
+    return `<div class="receipt-payment-line"><div class="receipt-line"><span>${escapeHtml(paymentLineLabel(p))}</span><strong>${rupiah(p.amount)}</strong></div>${fee}${cash}</div>`;
+  }).join('')}` : '';
+  const itemsHtml = (receipt.items || []).map((i) => {
+    const qty = Number(i.qty || 0);
+    const price = Number(i.price_each || i.price || 0);
+    return `<div class="receipt-item"><div class="receipt-line"><span>${escapeHtml(receiptItemName(i))} x${qty}</span><strong>${rupiah(qty * price)}</strong></div><div class="receipt-line sub"><span>@ ${rupiah(price)}</span><strong></strong></div></div>`;
+  }).join('');
+  const actions = includeActions ? `<div class="receipt-actions no-print"><button id="btn-print">Print</button><button id="btn-new-transaction">Transaksi Baru</button></div>` : '';
+  return `<div class="receipt-preview">
+    <div class="receipt-header">${logoHtml}<div class="receipt-store">${escapeHtml(store.name)}</div>${addressHtml}</div>
+    <hr>
+    <div class="receipt-line"><span>Receipt</span><strong>${escapeHtml(receipt.transactionCode || '-')}</strong></div>
+    <div class="receipt-line"><span>Waktu</span><strong>${escapeHtml(receipt.soldAt || '-')}</strong></div>
+    <div class="receipt-line"><span>Kasir</span><strong>${escapeHtml(state.user?.name || '-')}</strong></div>
+    ${customerHtml}
+    <div class="receipt-line"><span>Guide</span><strong>${escapeHtml(receipt.guideName || '-')}</strong></div>
+    <div class="receipt-line"><span>Metode</span><strong>${escapeHtml(receipt.paymentMethod || '-')}</strong></div>
+    ${receipt.paymentBank ? `<div class="receipt-line"><span>Bank</span><strong>${escapeHtml(receipt.paymentBank)}</strong></div>` : ''}
+    <hr>
+    <div class="receipt-section-title">Item</div>
+    ${itemsHtml || '<div class="empty small">Tidak ada item.</div>'}
+    <div class="receipt-total receipt-line"><span>TOTAL</span><strong>${rupiah(receipt.total)}</strong></div>
+    ${paymentHtml}
+    <hr>
+    <div class="receipt-footer">Terima kasih<br>${APP_FOOTER}</div>
+    ${actions}
+  </div>`;
+}
+
+function buildRawReceiptFromLatestReceipt() {
+  const r = state.latestReceipt;
+  if (!r) return null;
+  const store = receiptStoreIdentity();
+  const paymentLines = (Array.isArray(r.paymentLines) ? r.paymentLines : []).map((p) => ({
+    label: paymentLineLabel(p),
+    method: p.method,
+    bankName: p.bank_name || '',
+    amount: Number(p.amount || 0),
+    amountText: rupiah(p.amount || 0),
+    feePercent: Number(p.fee_percent || 0),
+    feeAmount: Number(p.fee_amount || 0),
+    feeAmountText: rupiah(p.fee_amount || 0),
+    chargedAmount: Number(p.charged_amount || p.amount || 0),
+    chargedAmountText: rupiah(p.charged_amount || p.amount || 0),
+    cashReceived: p.cash_received,
+    cashReceivedText: p.cash_received == null ? '' : rupiah(p.cash_received),
+    cashChange: p.cash_change,
+    cashChangeText: p.cash_change == null ? '' : rupiah(p.cash_change || 0)
+  }));
+  const cash = paymentLines.find((p) => p.cashReceived != null);
+  return {
+    type: 'sale',
+    storeName: store.name,
+    storeAddress: store.address,
+    logo: store.logo,
+    transactionCode: r.transactionCode || '-',
+    soldAt: r.soldAt || '-',
+    cashierName: state.user?.name || '-',
+    customerName: r.customer?.name || '',
+    customerPhone: r.customer?.phone || '',
+    guideName: r.guideName || '',
+    paymentMethod: r.paymentMethod || '-',
+    paymentBank: r.paymentBank || '',
+    items: (r.items || []).map((i) => {
+      const qty = Number(i.qty || 0);
+      const price = Number(i.price_each || i.price || 0);
+      return { name: receiptItemName(i), qty, price, priceText: rupiah(price), total: qty * price, totalText: rupiah(qty * price) };
+    }),
+    total: Number(r.total || 0),
+    totalText: rupiah(r.total || 0),
+    paymentLines,
+    cashReceivedText: cash?.cashReceivedText || (r.cashReceived == null ? '' : rupiah(r.cashReceived)),
+    cashChangeText: cash?.cashChangeText || (r.cashChange == null ? '' : rupiah(r.cashChange || 0)),
+    appFooter: APP_FOOTER
+  };
+}
 function updateCashPaymentState() {
   const wrap = $('#cash-payment-wrap');
   const input = $('#cash-received');
   const change = $('#cash-change');
+  const quick = $('#cash-quick-buttons');
   if (!wrap || !input || !change) return;
   const cash = isCashPayment($('#payment-method')?.value);
   wrap.classList.toggle('hidden', !cash);
   input.required = cash;
-  if (!cash) { input.value = ''; change.textContent = 'Kembalian: Rp 0'; change.classList.remove('negative'); return; }
+  if (!cash) {
+    input.value = '';
+    change.textContent = 'Kembalian: Rp 0';
+    change.classList.remove('negative');
+    if (quick) quick.innerHTML = '';
+    updateCreditCardInfo();
+    return;
+  }
+  const total = cartTotal();
+  if (quick) {
+    quick.innerHTML = nextCashSuggestions(total).map((v) => `<button type="button" data-cash-suggest="${v}">${rupiah(v)}</button>`).join('');
+    quick.querySelectorAll('[data-cash-suggest]').forEach((btn) => btn.onclick = () => {
+      input.value = btn.dataset.cashSuggest;
+      updateCashPaymentState();
+      input.focus();
+      input.select();
+    });
+  }
   const received = Number(input.value || 0);
-  const diff = received - cartTotal();
+  const diff = received - total;
   change.textContent = diff >= 0 ? `Kembalian: ${rupiah(diff)}` : `Kurang: ${rupiah(Math.abs(diff))}`;
   change.classList.toggle('negative', diff < 0);
+  updateCreditCardInfo();
+}
+
+function updateCreditCardInfo() {
+  const info = $('#credit-card-info');
+  if (!info) return;
+  const method = $('#payment-method')?.value;
+  if (!isCreditCardPayment(method)) { info.classList.add('hidden'); info.innerHTML = ''; return; }
+  const calc = creditCardCharge(cartTotal());
+  info.classList.remove('hidden');
+  info.innerHTML = `Fee kartu kredit admin web: <strong>${calc.fee_percent}%</strong><br>Total belanja: <strong>${rupiah(calc.amount)}</strong><br>Ditagihkan ke kartu: <strong>${rupiah(calc.charged_amount)}</strong> · Fee: ${rupiah(calc.fee_amount)}`;
+}
+
+function updateMultiPaymentState() {
+  state.multiPayment = !!$('#multi-payment-toggle')?.checked;
+  $('#single-payment-wrap')?.classList.toggle('hidden', state.multiPayment);
+  $('#multi-payment-wrap')?.classList.toggle('hidden', !state.multiPayment);
+  if (state.multiPayment) {
+    fillMultiPaymentRemaining(true);
+  }
+  renderMultiPaymentOptions();
+  renderPaymentLines();
+  if (state.multiPayment) focusMultiPaymentAmount();
+}
+
+function getMultiPaymentRemaining() {
+  return Math.max(0, cartTotal() - state.paymentLines.reduce((a, p) => a + Number(p.amount || 0), 0));
+}
+
+function fillMultiPaymentRemaining(force = false) {
+  const input = $('#multi-payment-amount');
+  if (!input) return;
+  const remaining = getMultiPaymentRemaining();
+  if (force || !String(input.value || '').trim() || Number(input.value || 0) <= 0) {
+    input.value = remaining || '';
+  }
+}
+
+function focusMultiPaymentAmount() {
+  setTimeout(() => {
+    const input = $('#multi-payment-amount');
+    if (input && state.multiPayment && !input.disabled) { input.focus(); input.select(); }
+  }, 0);
+}
+
+function renderMultiPaymentOptions() {
+  const method = $('#multi-payment-method');
+  const bank = $('#multi-payment-bank');
+  if (!method || !bank) return;
+  const currentMethod = method.value;
+  const currentBank = bank.value;
+  method.innerHTML = state.paymentMethods.map((m) => `<option value="${m.code}">${m.name}</option>`).join('');
+  if (currentMethod) method.value = currentMethod;
+  bank.innerHTML = `<option value="">Pilih Bank</option>${state.banks.map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}`;
+  if (currentBank) bank.value = currentBank;
+  const requiresBank = bankRequiredCodes.has(method.value);
+  bank.disabled = !requiresBank;
+  if (!requiresBank) bank.value = '';
+  const cashField = $('#multi-cash-received-field');
+  const cashInput = $('#multi-cash-received');
+  const isCash = isCashPayment(method.value);
+  if (cashField) cashField.classList.toggle('hidden', !isCash);
+  if (cashInput && !isCash) cashInput.value = '';
+  const bankField = $('#multi-payment-bank-field');
+  if (bankField) bankField.classList.toggle('is-disabled', !requiresBank);
+  const info = $('#multi-credit-card-info');
+  if (info) {
+    if (isCreditCardPayment(method.value)) {
+      const calc = creditCardCharge(Number($('#multi-payment-amount')?.value || 0));
+      info.classList.remove('hidden');
+      info.innerHTML = `Fee kartu kredit admin web: <strong>${calc.fee_percent}%</strong> · Ditagihkan: <strong>${rupiah(calc.charged_amount)}</strong> · Fee: ${rupiah(calc.fee_amount)}`;
+    } else { info.classList.add('hidden'); info.innerHTML = ''; }
+  }
+}
+
+function renderPaymentLines() {
+  const list = $('#multi-payment-lines');
+  const summary = $('#multi-payment-summary');
+  if (!list || !summary) return;
+  const paid = state.paymentLines.reduce((a, p) => a + Number(p.amount || 0), 0);
+  const remaining = cartTotal() - paid;
+  list.innerHTML = state.paymentLines.map((p, idx) => {
+    const label = [paymentMethodLabel(p.method), p.bank_name].filter(Boolean).join(' - ');
+    const fee = Number(p.fee_amount || 0) > 0 ? ` · tagih ${rupiah(p.charged_amount)} (fee ${rupiah(p.fee_amount)})` : '';
+    return `<div class="multi-payment-line"><span>${escapeHtml(label)}: <strong>${rupiah(p.amount)}</strong>${fee}</span><button type="button" data-remove-payment="${idx}">×</button></div>`;
+  }).join('') || '<div class="empty small">Belum ada alokasi pembayaran.</div>';
+  list.querySelectorAll('[data-remove-payment]').forEach((btn) => btn.onclick = () => { state.paymentLines.splice(Number(btn.dataset.removePayment), 1); renderPaymentLines(); });
+  summary.textContent = `Terbayar: ${rupiah(paid)} · ${remaining > 0 ? 'Sisa' : 'Lebih'}: ${rupiah(Math.abs(remaining))}`;
+}
+
+function addPaymentLine() {
+  const method = $('#multi-payment-method')?.value;
+  const bankId = $('#multi-payment-bank')?.value;
+  const amount = Number($('#multi-payment-amount')?.value || 0);
+  if (!method) return alert('Metode pembayaran wajib dipilih.');
+  if (bankRequiredCodes.has(method) && !bankId) return alert('Bank wajib dipilih untuk metode non tunai.');
+  if (amount <= 0) return alert('Nominal pembayaran harus lebih dari 0.');
+  const bank = state.banks.find((b) => String(b.id) === String(bankId)) || null;
+  const calc = isCreditCardPayment(method) ? creditCardCharge(amount) : { amount, fee_percent: 0, fee_amount: 0, charged_amount: amount };
+  let cashReceived = null;
+  let cashChange = null;
+  if (isCashPayment(method)) {
+    cashReceived = Number($('#multi-cash-received')?.value || amount);
+    if (cashReceived < amount) return alert('Uang tunai diterima kurang dari nominal alokasi.');
+    cashChange = cashReceived - amount;
+  }
+  state.paymentLines.push({ method, bank_id: bank?.id || null, bank_name: bank?.name || null, amount, fee_percent: calc.fee_percent, fee_amount: calc.fee_amount, charged_amount: calc.charged_amount, cash_received: cashReceived, cash_change: cashChange });
+  const remaining = getMultiPaymentRemaining();
+  $('#multi-payment-amount').value = remaining || '';
+  if ($('#multi-cash-received')) $('#multi-cash-received').value = '';
+  renderMultiPaymentOptions();
+  renderPaymentLines();
+  focusMultiPaymentAmount();
 }
 function pad2(n) { return String(n).padStart(2, '0'); }
 function dateStart(d) { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} 00:00:00`; }
@@ -220,7 +490,9 @@ function addToCart(product) {
   const found = state.cart.find((x) => String(x.product_id) === String(product.id));
   if (found) found.qty += 1;
   else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price) });
+  state.lastFocusProductId = product.id;
   renderCart();
+  focusQtyInput(product.id);
 }
 
 function updateCartQty(productId, qty) {
@@ -248,11 +520,17 @@ function renderCart() {
         <strong>${rupiah(i.qty * i.price_each)}</strong>
         <button class="cart-remove" title="Hapus" data-remove-id="${i.product_id}">×</button>
       </div>`).join('');
-    wrap.querySelectorAll('[data-qty-id]').forEach((el) => el.onchange = () => updateCartQty(el.dataset.qtyId, el.value));
+    wrap.querySelectorAll('[data-qty-id]').forEach((el) => {
+      el.onchange = () => updateCartQty(el.dataset.qtyId, el.value);
+      el.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); updateCartQty(el.dataset.qtyId, el.value); el.focus(); el.select(); } };
+    });
     wrap.querySelectorAll('[data-remove-id]').forEach((el) => el.onclick = () => removeCartItem(el.dataset.removeId));
   }
   $('#cart-total').textContent = `Total: ${rupiah(cartTotal())}`;
   updateCashPaymentState();
+  updateCreditCardInfo();
+  renderPaymentLines();
+  if (state.lastFocusProductId) { const id = state.lastFocusProductId; state.lastFocusProductId = null; focusQtyInput(id); }
 }
 
 function renderPaymentOptions() {
@@ -261,9 +539,10 @@ function renderPaymentOptions() {
   $('#payment-bank').innerHTML = `<option value="">Pilih Bank</option>${state.banks.map((b) => `<option value="${b.id}">${b.name}</option>`).join('')}`;
   $('#history-guide-filter').innerHTML = `<option value="">Semua guide</option>${state.guides.map((g) => `<option value="${g.name}">${g.name}</option>`).join('')}`;
   $('#history-payment-filter').innerHTML = `<option value="">Semua pembayaran</option>${state.paymentMethods.map((m) => `<option value="${m.code}">${m.name}</option>`).join('')}`;
+  renderMultiPaymentOptions();
   updateBankState();
 }
-function updateBankState() { const code = $('#payment-method').value; $('#payment-bank').disabled = !bankRequiredCodes.has(code); if (!bankRequiredCodes.has(code)) $('#payment-bank').value = ''; updateCashPaymentState(); }
+function updateBankState() { const code = $('#payment-method').value; $('#payment-bank').disabled = !bankRequiredCodes.has(code); if (!bankRequiredCodes.has(code)) $('#payment-bank').value = ''; updateCashPaymentState(); updateCreditCardInfo(); }
 
 async function loadPosState() {
   const pos = await window.desktopAPI.getPosState();
@@ -329,7 +608,7 @@ async function submitCloseShift() {
   if (closeReport?.ok && closeReport.html) {
     try {
       const settings = await window.desktopAPI.getSettings();
-      await window.desktopAPI.printReceipt({ html: closeReport.html, printerName: settings.printerName, silent: true });
+      await window.desktopAPI.printReceipt({ html: closeReport.html, rawReceipt: closeReport.rawReceipt || null, printerName: settings.printerName, silent: true });
     } catch (error) {
       showToast(`Shift ditutup, tetapi print gagal: ${error.message || error}`);
     }
@@ -358,8 +637,20 @@ async function showHistoryDetail(transactionGroupId) {
   const h = items[0];
   const total = items.reduce((a, i) => a + Number(i.total || 0), 0);
   const rows = items.map((i) => '<div class="receipt-line"><span>' + escapeHtml(i.product_name || 'Produk') + ' x' + Number(i.qty || 0) + '<small>' + rupiah(i.price_each || 0) + '</small></span><strong>' + rupiah(i.total || 0) + '</strong></div>').join('');
-  $('#history-detail-content').innerHTML = '<div class="receipt-meta"><strong>' + escapeHtml(h.transaction_code || '-') + '</strong><div>Waktu: ' + escapeHtml(h.sold_at || '-') + '</div><div>Guide: ' + escapeHtml(h.guide_name || '-') + '</div><div>Pembayaran: ' + escapeHtml([h.payment_method, h.payment_bank].filter(Boolean).join(' - ') || '-') + '</div><div>Status sync: ' + escapeHtml(h.sync_status || '-') + '</div></div><div class="receipt-items">' + rows + '</div><div class="receipt-total">Total: ' + rupiah(total) + '</div>' + (isCashPayment(h.payment_method) ? '<div>Diterima: ' + rupiah(h.cash_received || total) + '</div><div>Kembalian: ' + rupiah(h.cash_change || 0) + '</div>' : '');
+  const canReturn = items.every((i) => (i.return_status || 'none') !== 'returned');
+  $('#history-detail-content').innerHTML = '<div class="receipt-meta"><strong>' + escapeHtml(h.transaction_code || '-') + '</strong><div>Waktu: ' + escapeHtml(h.sold_at || '-') + '</div><div>Guide: ' + escapeHtml(h.guide_name || '-') + '</div><div>Pembayaran: ' + escapeHtml([h.payment_method, h.payment_bank].filter(Boolean).join(' - ') || '-') + '</div><div>Status sync: ' + escapeHtml(h.sync_status || '-') + '</div></div><div class="receipt-items">' + rows + '</div><div class="receipt-total">Total: ' + rupiah(total) + '</div>' + (isCashPayment(h.payment_method) ? '<div>Diterima: ' + rupiah(h.cash_received || total) + '</div><div>Kembalian: ' + rupiah(h.cash_change || 0) + '</div>' : '') + (canReturn ? '<div class="pos-modal-actions"><button type="button" id="btn-return-transaction" class="danger">Retur transaksi</button></div>' : '<div class="empty">Transaksi sudah diretur.</div>');
   $('#history-detail-modal').hidden = false;
+  const btn = $('#btn-return-transaction');
+  if (btn) btn.onclick = async () => {
+    const reason = prompt('Alasan retur:', 'Retur penjualan');
+    if (reason === null) return;
+    const resp = await window.desktopAPI.returnHistoryTransaction({ transactionGroupId, reason, user_id: state.user?.id });
+    if (!resp?.ok) return showToast(resp?.message || 'Retur gagal');
+    await window.desktopAPI.syncPending();
+    $('#history-detail-modal').hidden = true;
+    await loadHistory();
+    showToast('Retur tersimpan dan masuk antrean sync', 'success');
+  };
 }
 
 async function loadRecap() {
@@ -494,30 +785,62 @@ async function payNow() {
   if (state.paying) return;
   if (!state.activeShift) return alert('Shift belum aktif. Buka shift terlebih dahulu.');
   if (!state.cart.length) return alert('Keranjang kosong');
-  const paymentMethod = $('#payment-method').value;
-  const bankId = $('#payment-bank').value;
-  if (bankRequiredCodes.has(paymentMethod) && !bankId) return alert('Bank wajib dipilih untuk non tunai');
   const total = cartTotal();
-  let cashReceived = null; let cashChange = null;
-  if (isCashPayment(paymentMethod)) {
-    cashReceived = Number($('#cash-received')?.value || 0);
-    if (cashReceived < total) return alert('Uang diterima kurang dari total belanja.');
-    cashChange = cashReceived - total;
+  const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
+  let paymentPayload = null;
+  let paymentMethod = $('#payment-method').value;
+  let paymentBankName = '';
+  let cashReceived = null;
+  let cashChange = null;
+
+  if (state.multiPayment) {
+    const paid = state.paymentLines.reduce((a, p) => a + Number(p.amount || 0), 0);
+    if (paid + 0.001 < total) return alert('Alokasi multi pembayaran masih kurang dari total belanja.');
+    paymentPayload = { method: 'multi', bank_name: state.paymentLines.map((p) => [paymentMethodLabel(p.method), p.bank_name].filter(Boolean).join(' ')).join(' + '), payments: state.paymentLines };
+    paymentMethod = 'multi';
+    paymentBankName = paymentPayload.bank_name;
+  } else {
+    const bankId = $('#payment-bank').value;
+    if (bankRequiredCodes.has(paymentMethod) && !bankId) return alert('Bank wajib dipilih untuk non tunai');
+    const bank = state.banks.find((b) => String(b.id) === bankId) || null;
+    paymentBankName = bank?.name || '';
+    let feePayload = { fee_percent: 0, fee_amount: 0, charged_amount: total };
+    if (isCreditCardPayment(paymentMethod)) feePayload = creditCardCharge(total);
+    if (isCashPayment(paymentMethod)) {
+      cashReceived = Number($('#cash-received')?.value || 0);
+      if (cashReceived < total) return alert('Uang diterima kurang dari total belanja.');
+      cashChange = cashReceived - total;
+    }
+    paymentPayload = { method: paymentMethod, bank_id: bank?.id || null, bank_name: paymentBankName || null, amount: total, cash_received: cashReceived, cash_change: cashChange, ...feePayload };
   }
+
   state.paying = true; $('#btn-pay').disabled = true;
   try {
-    const guide = state.guides.find((g) => String(g.id) === $('#guide').value) || null;
-    const bank = state.banks.find((b) => String(b.id) === bankId) || null;
-    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: { method: paymentMethod, bank_id: bank?.id || null, bank_name: bank?.name || null, cash_received: cashReceived, cash_change: cashChange }, shift: state.activeShift, items: state.cart });
+    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: paymentPayload, shift: state.activeShift, items: state.cart, customer: selectedCustomerPayload() });
     if (!localSave?.ok) return alert(localSave?.message || 'Gagal simpan transaksi lokal');
-    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: bank?.name || '', guideName: guide?.name || '', items: [...state.cart], total, cashReceived, cashChange };
+    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: paymentBankName, guideName: guide?.name || '', customer: selectedCustomerPayload(), paymentLines: state.multiPayment ? [...state.paymentLines] : [paymentPayload], items: [...state.cart], total, cashReceived, cashChange };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
     switchTab('receipt'); renderReceipt(); await loadPosState();
   } finally { state.paying = false; $('#btn-pay').disabled = false; }
 }
 
 function switchTab(name) { document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name)); document.querySelectorAll('.tab-panel').forEach((t) => t.classList.toggle('active', t.dataset.panel === name)); }
-function renderReceipt() { const w = $('#receipt-wrap'); if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; } w.innerHTML = `<h3>Receipt ${state.latestReceipt.transactionCode}</h3><div>Waktu lokal: ${state.latestReceipt.soldAt}</div><div>Kasir: ${state.user?.name || '-'}</div><div>Guide: ${state.latestReceipt.guideName || '-'}</div><div>Metode: ${state.latestReceipt.paymentMethod}</div><div>Bank: ${state.latestReceipt.paymentBank || '-'}</div><hr/>${state.latestReceipt.items.map((i) => `<div class='cart-row'><span>${i.name} x${i.qty}</span><span>${rupiah(i.qty * i.price_each)}</span></div>`).join('')}<div class='cart-total'>Total: ${rupiah(state.latestReceipt.total)}</div>${isCashPayment(state.latestReceipt.paymentMethod) ? `<div>Diterima: ${rupiah(state.latestReceipt.cashReceived || 0)}</div><div>Kembalian: ${rupiah(state.latestReceipt.cashChange || 0)}</div>` : ''}<button id='btn-print'>Print</button><button id='btn-new-transaction'>Transaksi Baru</button>`; $('#btn-print').onclick = async () => { const settings = await window.desktopAPI.getSettings(); await window.desktopAPI.printReceipt({ html: w.innerHTML, printerName: settings.printerName, silent: true }); }; $('#btn-new-transaction').onclick = () => { state.cart = []; state.latestReceipt = null; renderCart(); switchTab('pos'); }; }
+function renderReceipt() {
+  const w = $('#receipt-wrap');
+  if (!state.latestReceipt) { w.innerHTML = '<p>Belum ada transaksi.</p>'; return; }
+  const receiptHtml = buildReceiptHtml(state.latestReceipt, false);
+  w.innerHTML = `${receiptHtml}<div class="receipt-actions no-print"><button id="btn-print">Print</button><button id="btn-new-transaction">Transaksi Baru</button></div>`;
+  $('#btn-print').onclick = async () => {
+    const settings = await window.desktopAPI.getSettings();
+    await window.desktopAPI.printReceipt({
+      html: receiptHtml,
+      rawReceipt: buildRawReceiptFromLatestReceipt(),
+      printerName: settings.printerName,
+      silent: true
+    });
+  };
+  $('#btn-new-transaction').onclick = () => { state.cart = []; state.paymentLines = []; state.latestReceipt = null; renderCart(); renderPaymentLines(); switchTab('pos'); };
+}
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
 
@@ -701,6 +1024,12 @@ async function bootstrap() {
   $('#shift-opening-cash').oninput = (e) => { e.target.dataset.touched = '1'; };
   $('#payment-method').onchange = updateBankState;
   $('#cash-received').oninput = updateCashPaymentState;
+  $('#multi-payment-toggle').onchange = updateMultiPaymentState;
+  $('#multi-payment-method').onchange = () => { fillMultiPaymentRemaining(true); renderMultiPaymentOptions(); focusMultiPaymentAmount(); };
+  $('#multi-payment-bank').onchange = () => { renderMultiPaymentOptions(); focusMultiPaymentAmount(); };
+  $('#multi-payment-amount').oninput = renderMultiPaymentOptions;
+  $('#multi-cash-received').oninput = renderMultiPaymentOptions;
+  $('#btn-add-payment-line').onclick = addPaymentLine;
   document.querySelectorAll('.history-range').forEach((b) => b.onclick = async () => { setHistoryRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadHistory(); });
   document.querySelectorAll('.recap-range').forEach((b) => b.onclick = async () => { setRecapRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadRecap(); });
   setHistoryRange('today'); setRecapRange('today');

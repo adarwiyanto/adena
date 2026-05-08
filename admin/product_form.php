@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
+require_once __DIR__ . '/../core/ops14.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 
 start_secure_session();
@@ -18,7 +19,8 @@ ensure_products_category_column();
 ensure_product_categories_table();
 ensure_products_best_seller_column();
 ensure_inventory_module_schema();
-$product = ['name'=>'','category'=>'','price'=>'0','image_path'=>null,'is_best_seller'=>0,'product_type'=>'finished_good','track_stock'=>1,'allow_direct_purchase'=>0,'allow_bom'=>0,'show_on_pos'=>1,'show_on_landing'=>1,'base_unit'=>'pcs','purchase_unit'=>'pcs','purchase_to_base_factor'=>'1','sale_unit'=>'pcs','sale_to_base_factor'=>'1'];
+ensure_adena14_schema();
+$product = ['name'=>'','category'=>'','price'=>'0','image_path'=>null,'is_best_seller'=>0,'product_type'=>'finished_good','track_stock'=>1,'is_price_editable'=>0,'include_in_sales_report'=>1,'allow_direct_purchase'=>0,'allow_bom'=>0,'show_on_pos'=>1,'show_on_landing'=>1,'base_unit'=>'pcs','purchase_unit'=>'pcs','purchase_to_base_factor'=>'1','sale_unit'=>'pcs','sale_to_base_factor'=>'1'];
 
 if ($id) {
   $stmt = db()->prepare("SELECT * FROM products WHERE id=?");
@@ -45,6 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $productType = (string)($_POST['product_type'] ?? 'finished_good');
   $trackStock = isset($_POST['track_stock']) ? 1 : 0;
   $allowDirectPurchase = isset($_POST['allow_direct_purchase']) ? 1 : 0;
+  $isPriceEditable = isset($_POST['is_price_editable']) ? 1 : 0;
+  $includeInSalesReport = isset($_POST['include_in_sales_report']) ? 1 : 0;
   $allowBom = isset($_POST['allow_bom']) ? 1 : 0;
   $showOnPos = isset($_POST['show_on_pos']) ? 1 : 0;
   $showOnLanding = isset($_POST['show_on_landing']) ? 1 : 0;
@@ -114,11 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($id) {
-      $stmt = db()->prepare("UPDATE products SET name=?, category=?, is_best_seller=?, price=?, image_path=?, product_type=?, track_stock=?, allow_direct_purchase=?, allow_bom=?, show_on_pos=?, show_on_landing=?, base_unit=?, purchase_unit=?, purchase_to_base_factor=?, sale_unit=?, sale_to_base_factor=? WHERE id=?");
-      $stmt->execute([$name, $category, $isBestSeller, $price, $imagePath, $productType, $trackStock, $allowDirectPurchase, $allowBom, $showOnPos, $showOnLanding, $baseUnit, $purchaseUnit, $purchaseToBaseFactor, $saleUnit, $saleToBaseFactor, $id]);
+      $stmt = db()->prepare("UPDATE products SET name=?, category=?, is_best_seller=?, price=?, image_path=?, product_type=?, track_stock=?, is_price_editable=?, include_in_sales_report=?, allow_direct_purchase=?, allow_bom=?, show_on_pos=?, show_on_landing=?, base_unit=?, purchase_unit=?, purchase_to_base_factor=?, sale_unit=?, sale_to_base_factor=? WHERE id=?");
+      $stmt->execute([$name, $category, $isBestSeller, $price, $imagePath, $productType, $trackStock, $isPriceEditable, $includeInSalesReport, $allowDirectPurchase, $allowBom, $showOnPos, $showOnLanding, $baseUnit, $purchaseUnit, $purchaseToBaseFactor, $saleUnit, $saleToBaseFactor, $id]);
     } else {
-      $stmt = db()->prepare("INSERT INTO products (name, category, is_best_seller, price, image_path, product_type, track_stock, allow_direct_purchase, allow_bom, show_on_pos, show_on_landing, base_unit, purchase_unit, purchase_to_base_factor, sale_unit, sale_to_base_factor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-      $stmt->execute([$name, $category, $isBestSeller, $price, $imagePath, $productType, $trackStock, $allowDirectPurchase, $allowBom, $showOnPos, $showOnLanding, $baseUnit, $purchaseUnit, $purchaseToBaseFactor, $saleUnit, $saleToBaseFactor]);
+      $stmt = db()->prepare("INSERT INTO products (name, category, is_best_seller, price, image_path, product_type, track_stock, is_price_editable, include_in_sales_report, allow_direct_purchase, allow_bom, show_on_pos, show_on_landing, base_unit, purchase_unit, purchase_to_base_factor, sale_unit, sale_to_base_factor) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      $stmt->execute([$name, $category, $isBestSeller, $price, $imagePath, $productType, $trackStock, $isPriceEditable, $includeInSalesReport, $allowDirectPurchase, $allowBom, $showOnPos, $showOnLanding, $baseUnit, $purchaseUnit, $purchaseToBaseFactor, $saleUnit, $saleToBaseFactor]);
     }
 
     redirect(base_url('admin/products.php'));
@@ -255,6 +259,16 @@ $customCss = setting('custom_css', '');
               <label class="checkbox-row">
                 <input type="checkbox" name="track_stock" value="1" <?php echo !empty($_POST) ? (isset($_POST['track_stock']) ? 'checked' : '') : ((int)$product['track_stock'] === 1 ? 'checked' : ''); ?>>
                 Track stok produk ini
+              </label>
+            </div>
+            <div class="row">
+              <label class="checkbox-row">
+                <input type="checkbox" name="is_price_editable" value="1" <?php echo !empty($_POST) ? (isset($_POST['is_price_editable']) ? 'checked' : '') : ((int)($product['is_price_editable'] ?? 0) === 1 ? 'checked' : ''); ?>>
+                Harga bisa diubah di POS (contoh: ongkir)
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" name="include_in_sales_report" value="1" <?php echo !empty($_POST) ? (isset($_POST['include_in_sales_report']) ? 'checked' : '') : ((int)($product['include_in_sales_report'] ?? 1) === 1 ? 'checked' : ''); ?>>
+                Masuk laporan penjualan
               </label>
             </div>
             <div class="row">

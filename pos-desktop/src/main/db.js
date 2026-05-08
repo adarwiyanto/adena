@@ -58,6 +58,23 @@ function initDb() {
       updated_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS branches (
+      id INTEGER PRIMARY KEY,
+      branch_code TEXT,
+      branch_name TEXT,
+      unit_type TEXT DEFAULT 'branch',
+      is_kitchen INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS branch_product_prices (
+      branch_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      price REAL NOT NULL DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      PRIMARY KEY (branch_id, product_id)
+    );
+
     CREATE TABLE IF NOT EXISTS product_categories (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -182,6 +199,8 @@ function initDb() {
       guide_name TEXT,
       created_by INTEGER,
       branch_id INTEGER,
+      sale_source TEXT DEFAULT 'branch_pos',
+      unit_type TEXT DEFAULT 'branch',
       shift_id INTEGER,
       sold_at TEXT,
       discount_amount REAL DEFAULT 0,
@@ -282,9 +301,49 @@ function initDb() {
   safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
   safeExec('ALTER TABLE sales ADD COLUMN cash_received REAL');
   safeExec('ALTER TABLE sales ADD COLUMN cash_change REAL');
+  safeExec("ALTER TABLE sales ADD COLUMN sale_source TEXT DEFAULT 'branch_pos'");
+  safeExec("ALTER TABLE sales ADD COLUMN unit_type TEXT DEFAULT 'branch'");
+  safeExec('ALTER TABLE products ADD COLUMN product_type TEXT');
+  safeExec('ALTER TABLE products ADD COLUMN allow_bom INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');
+  // Adena POS v1.5 compatibility: migrate existing local SQLite from v1.4.x.
+  // CREATE TABLE IF NOT EXISTS does not add new columns to old tables, so sync may fail
+  // with: table branches has no column named unit_type.
+  safeExec("ALTER TABLE branches ADD COLUMN unit_type TEXT DEFAULT 'branch'");
+  safeExec('ALTER TABLE branches ADD COLUMN is_kitchen INTEGER DEFAULT 0');
+  safeExec('ALTER TABLE branches ADD COLUMN sort_order INTEGER DEFAULT 0');
+  safeExec("UPDATE branches SET unit_type = 'branch' WHERE unit_type IS NULL OR unit_type = ''");
+  safeExec('ALTER TABLE sales ADD COLUMN return_reason TEXT');
+  safeExec('ALTER TABLE sales ADD COLUMN returned_at TEXT');
+  safeExec('ALTER TABLE sales ADD COLUMN returned_by INTEGER');
+  safeExec("ALTER TABLE sales ADD COLUMN return_status TEXT DEFAULT 'none'");
+  safeExec('ALTER TABLE sales ADD COLUMN return_synced_at TEXT');
+  safeExec(`CREATE TABLE IF NOT EXISTS sales_returns (
+    id INTEGER PRIMARY KEY,
+    offline_uuid TEXT UNIQUE,
+    transaction_group_uuid TEXT,
+    local_transaction_id TEXT,
+    transaction_code TEXT,
+    branch_id INTEGER,
+    reason TEXT,
+    total_return REAL DEFAULT 0,
+    created_by INTEGER,
+    created_at TEXT,
+    sync_status TEXT DEFAULT 'pending',
+    sync_error TEXT,
+    synced_at TEXT
+  )`);
+  safeExec(`CREATE TABLE IF NOT EXISTS sales_return_items (
+    id INTEGER PRIMARY KEY,
+    return_offline_uuid TEXT,
+    sale_local_id INTEGER,
+    product_id INTEGER,
+    qty REAL DEFAULT 0,
+    price_each REAL DEFAULT 0,
+    subtotal REAL DEFAULT 0
+  )`);
 
   return db;
 }
