@@ -9,6 +9,7 @@ const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sy
 const { saveSaleLocally } = require('./transactions');
 const crypto = require('crypto');
 const { printReceipt } = require('./print');
+const { localDateTimeString } = require('./time');
 
 let mainWindow;
 let isQuittingConfirmed = false;
