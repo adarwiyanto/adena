@@ -88,8 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'invite') {
-      if (($me['role'] ?? '') !== 'owner') {
-        throw new Exception('Hanya owner yang bisa mengundang user.');
+      $currentRoleKey = (string)(resolve_user_role($me)['role_key'] ?? ($me['role'] ?? ''));
+      if (!in_array($currentRoleKey, ['owner', 'admin'], true)) {
+        throw new Exception('Hanya owner/admin yang bisa mengundang user.');
       }
       $email = trim($_POST['email'] ?? '');
       $role = strtolower(trim((string)($_POST['role'] ?? 'kasir')));
@@ -98,6 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $allowedRoles = array_column(db()->query("SELECT role_key FROM roles WHERE is_active=1")->fetchAll(), 'role_key');
       if (!in_array($role, $allowedRoles, true)) $role = 'kasir';
+      if ($currentRoleKey === 'admin' && $role !== 'kasir') throw new Exception('Admin hanya boleh menambahkan user kasir.');
       if ($role === 'owner') throw new Exception('Undangan owner tidak diizinkan dari halaman ini.');
 
       $token = bin2hex(random_bytes(16));

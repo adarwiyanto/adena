@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../core/db.php';
 require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/single_branch.php';
+require_once __DIR__ . '/../core/api_permissions.php';
 
 function api_json($data, int $status = 200): void {
     http_response_code($status);
@@ -25,23 +26,7 @@ function api_err(string $message, int $status = 400): void {
 }
 
 function ensure_api_tokens_table(): void {
-    $pdo = db();
-    $pdo->exec("CREATE TABLE IF NOT EXISTS api_tokens (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        token_hash VARCHAR(255) NOT NULL,
-        device_code VARCHAR(20) NULL,
-        is_active TINYINT(1) NOT NULL DEFAULT 1,
-        last_used_at DATETIME NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        revoked_at DATETIME NULL,
-        INDEX idx_api_tokens_active (is_active)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    try {
-        $pdo->exec("ALTER TABLE api_tokens ADD COLUMN device_code VARCHAR(20) NULL AFTER token_hash");
-    } catch (Throwable $e) {
-        // additive migration, abaikan jika kolom sudah ada
-    }
+    ensure_api_v1_schema();
 }
 
 function api_get_bearer_token(): ?string {
@@ -52,34 +37,50 @@ function api_get_bearer_token(): ?string {
     return null;
 }
 
-function require_api_token(): array {
-    ensure_api_tokens_table();
+function require_api_token(?string $permission = null): array {
+    ensure_api_v1_schema();
 
     $input = api_get_bearer_token();
     if (!$input || strlen($input) < 20) {
+        api_log_request(null, (string)($_SERVER['REQUEST_URI'] ?? ''), (string)($_SERVER['REQUEST_METHOD'] ?? 'GET'), $permission, 401, 'missing_or_short_token');
         api_err('API token tidak valid', 401);
     }
 
     $pdo = db();
-    $rows = $pdo->query('SELECT id, name, token_hash, device_code FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
+    $rows = $pdo->query('SELECT id, name, token_hash, device_code, branch_id, client_type, permissions, allowed_ips, is_active FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
                 ->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $row) {
         if (password_verify($input, (string)$row['token_hash'])) {
-            $pdo->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([(int)$row['id']]);
-            return [
+            $token = [
                 'id' => (int)$row['id'],
                 'name' => (string)$row['name'],
                 'device_code' => strtoupper(trim((string)($row['device_code'] ?? ''))),
+                'branch_id' => isset($row['branch_id']) ? (int)$row['branch_id'] : 0,
+                'client_type' => (string)($row['client_type'] ?? 'pos_desktop'),
+                'permissions' => (string)($row['permissions'] ?? ''),
+                'allowed_ips' => (string)($row['allowed_ips'] ?? ''),
             ];
+            if (!api_ip_allowed($token)) {
+                api_log_request($token, (string)($_SERVER['REQUEST_URI'] ?? ''), (string)($_SERVER['REQUEST_METHOD'] ?? 'GET'), $permission, 403, 'ip_not_allowed');
+                api_err('IP tidak diizinkan untuk token ini', 403);
+            }
+            if ($permission !== null && $permission !== '' && !api_token_has_permission($token, $permission)) {
+                api_log_request($token, (string)($_SERVER['REQUEST_URI'] ?? ''), (string)($_SERVER['REQUEST_METHOD'] ?? 'GET'), $permission, 403, 'permission_denied');
+                api_err('Permission API tidak mencukupi: ' . $permission, 403);
+            }
+            $pdo->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([(int)$row['id']]);
+            api_log_request($token, (string)($_SERVER['REQUEST_URI'] ?? ''), (string)($_SERVER['REQUEST_METHOD'] ?? 'GET'), $permission, 200, 'ok');
+            return $token;
         }
     }
 
+    api_log_request(null, (string)($_SERVER['REQUEST_URI'] ?? ''), (string)($_SERVER['REQUEST_METHOD'] ?? 'GET'), $permission, 401, 'token_not_found');
     api_err('API token tidak valid', 401);
 }
 
-function api_verify_token(): array {
-    return require_api_token();
+function api_verify_token(?string $permission = null): array {
+    return require_api_token($permission);
 }
 
 header('Access-Control-Allow-Origin: *');
