@@ -8,7 +8,11 @@ require_once __DIR__ . '/../api/helpers.php';
 
 start_secure_session();
 $me = require_menu_access('settings', 'view');
-if (!current_user_is_owner()) { redirect(base_url('admin/dashboard.php')); }
+function api_page_is_owner_safe(array $user): bool {
+  if (function_exists('current_user_is_owner')) { try { return (bool)current_user_is_owner(); } catch (Throwable $e) {} }
+  try { $resolved = function_exists('resolve_user_role') ? resolve_user_role($user) : []; return strtolower((string)($resolved['role_key'] ?? $user['role'] ?? '')) === 'owner'; } catch (Throwable $e) { return false; }
+}
+if (!api_page_is_owner_safe(is_array($me) ? $me : [])) { redirect(base_url('admin/dashboard.php')); }
 ensure_api_tokens_table();
 
 $tokenId = (int)($_GET['token_id'] ?? 0);

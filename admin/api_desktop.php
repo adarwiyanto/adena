@@ -5,14 +5,22 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
-require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../api/helpers.php';
 
 start_secure_session();
 $me = require_menu_access('settings', 'view');
-if (!current_user_is_owner()) { redirect(base_url('admin/dashboard.php')); }
+
+function api_page_is_owner_safe(array $user): bool {
+  if (function_exists('current_user_is_owner')) {
+    try { return (bool)current_user_is_owner(); } catch (Throwable $e) {}
+  }
+  try {
+    $resolved = function_exists('resolve_user_role') ? resolve_user_role($user) : [];
+    return strtolower((string)($resolved['role_key'] ?? $user['role'] ?? '')) === 'owner';
+  } catch (Throwable $e) { return false; }
+}
+if (!api_page_is_owner_safe(is_array($me) ? $me : [])) { redirect(base_url('admin/dashboard.php')); }
 ensure_api_tokens_table();
-ensure_inventory_schema();
 
 $err = ''; $ok = ''; $generatedToken = '';
 
@@ -40,6 +48,8 @@ function api_default_permissions(string $type): array {
 }
 function normalize_code(string $code): string { return preg_replace('/[^A-Z0-9_\-]/', '', strtoupper(trim($code))) ?? ''; }
 function save_token_permissions(int $tokenId, array $permissions): void {
+  try { ensure_api_tokens_table(); } catch (Throwable $e) {}
+  if (!api_table_exists('api_token_permissions')) return;
   db()->prepare('DELETE FROM api_token_permissions WHERE token_id=?')->execute([$tokenId]);
   $stmt = db()->prepare('INSERT INTO api_token_permissions (token_id, permission_key, is_allowed, created_at) VALUES (?,?,1,NOW())');
   foreach (array_unique($permissions) as $p) if ($p !== '') $stmt->execute([$tokenId, $p]);
@@ -48,6 +58,14 @@ function api_col_exists(string $table, string $col): bool {
   $stmt = db()->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?');
   $stmt->execute([$table, $col]);
   return (int)$stmt->fetchColumn() > 0;
+}
+function api_table_exists(string $table): bool {
+  $stmt = db()->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?');
+  $stmt->execute([$table]);
+  return (int)$stmt->fetchColumn() > 0;
+}
+function api_fetch_all_safe(string $sql): array {
+  try { return db()->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: []; } catch (Throwable $e) { return []; }
 }
 
 $branches = [];
@@ -112,8 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } catch (Throwable $e) { $err = $e->getMessage(); }
 }
 
-$tokens = db()->query('SELECT * FROM api_tokens ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
-$permRows = db()->query('SELECT token_id, permission_key FROM api_token_permissions WHERE is_allowed=1')->fetchAll(PDO::FETCH_ASSOC);
+$tokens = api_fetch_all_safe('SELECT * FROM api_tokens ORDER BY id DESC');
+$permRows = api_fetch_all_safe('SELECT token_id, permission_key FROM api_token_permissions WHERE is_allowed=1');
 $tokenPerms = [];
 foreach ($permRows as $r) $tokenPerms[(int)$r['token_id']][] = (string)$r['permission_key'];
 $customCss = setting('custom_css', '');
