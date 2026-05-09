@@ -16,8 +16,6 @@ if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
 }
 $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
-$branchName = function_exists('adena_single_branch_name') ? adena_single_branch_name() : (string)setting('branch_name','Belitung');
-$branchCode = function_exists('adena_single_branch_code') ? adena_single_branch_code() : (string)setting('branch_code','BLT');
 ?>
 <div class="sidebar">
   <div class="sb-top">
@@ -40,7 +38,6 @@ $branchCode = function_exists('adena_single_branch_code') ? adena_single_branch_
         </div>
       </button>
     </div>
-    <div class="single-branch-badge" style="margin:10px 12px 0;padding:8px 10px;border-radius:12px;background:#eaf4ff;border:1px solid #bfdbfe;color:#075985;font-weight:800;font-size:12px;">Cabang aktif: <?php echo e($branchName); ?> <span style="opacity:.75">(<?php echo e($branchCode); ?>)</span></div>
     <div class="submenu profile-submenu" id="profile-menu">
       <a href="<?php echo e(base_url('profile.php')); ?>">Edit Profil</a>
       <a href="<?php echo e(base_url('password.php')); ?>">Ubah Password</a>
@@ -135,7 +132,8 @@ $branchCode = function_exists('adena_single_branch_code') ? adena_single_branch_
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/payment_methods.php')); ?>">Metode Pembayaran</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/guides.php')); ?>">Daftar Guide</a><?php endif; ?>
-          <?php if (current_user_is_owner()): ?><a href="<?php echo e(base_url('admin/api_settings.php')); ?>">Pengaturan API</a><?php endif; ?>
+          <?php if (current_user_is_owner()): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">Pengaturan API</a><?php endif; ?>
+          <?php if (current_user_is_owner()): ?><a href="<?php echo e(base_url('admin/api_logs.php')); ?>">Log API</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
           <?php if (current_user_is_owner()): ?>
             <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
