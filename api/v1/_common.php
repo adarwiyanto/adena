@@ -23,6 +23,22 @@ function api_v1_col_exists(string $table, string $col): bool {
   catch (Throwable $e) { return false; }
 }
 
+
+function api_v1_branch_id_from_unit_code(?string $unitCode): int {
+  $unitCode = strtoupper(trim((string)$unitCode));
+  if ($unitCode === '') return 0;
+  if (function_exists('adena_branch_id_by_code')) return adena_branch_id_by_code($unitCode);
+  try { $st = db()->prepare('SELECT id FROM branches WHERE UPPER(branch_code)=UPPER(?) LIMIT 1'); $st->execute([$unitCode]); return (int)($st->fetchColumn() ?: 0); }
+  catch (Throwable $e) { return 0; }
+}
+
+function api_v1_branch_id_from_payload(array $row, array $token): int {
+  $unitCode = (string)($row['unit_code'] ?? $row['branch_code'] ?? $token['unit_code'] ?? '');
+  $id = api_v1_branch_id_from_unit_code($unitCode);
+  if ($id > 0) return $id;
+  return (int)($row['branch_id'] ?? ($token['branch_id'] ?? 0));
+}
+
 function api_v1_filter_branch_sql(array $token, string $alias = ''): array {
   $branchId = (int)($token['branch_id'] ?? 0);
   if ($branchId <= 0) return ['', []];

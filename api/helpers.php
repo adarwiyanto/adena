@@ -47,16 +47,22 @@ function require_api_token(?string $permission = null): array {
     }
 
     $pdo = db();
-    $rows = $pdo->query('SELECT id, name, token_hash, device_code, branch_id, client_type, permissions, allowed_ips, is_active FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
+    $rows = $pdo->query('SELECT id, name, token_hash, device_code, branch_id, unit_code, client_type, permissions, allowed_ips, is_active FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')
                 ->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($rows as $row) {
         if (password_verify($input, (string)$row['token_hash'])) {
+            $unitCode = strtoupper(trim((string)($row['unit_code'] ?? $row['device_code'] ?? '')));
+            $branchId = isset($row['branch_id']) ? (int)$row['branch_id'] : 0;
+            if ($branchId <= 0 && $unitCode !== '' && function_exists('adena_branch_id_by_code')) {
+                $branchId = adena_branch_id_by_code($unitCode);
+            }
             $token = [
                 'id' => (int)$row['id'],
                 'name' => (string)$row['name'],
                 'device_code' => strtoupper(trim((string)($row['device_code'] ?? ''))),
-                'branch_id' => isset($row['branch_id']) ? (int)$row['branch_id'] : 0,
+                'unit_code' => $unitCode,
+                'branch_id' => $branchId,
                 'client_type' => (string)($row['client_type'] ?? 'pos_desktop'),
                 'permissions' => (string)($row['permissions'] ?? ''),
                 'allowed_ips' => (string)($row['allowed_ips'] ?? ''),

@@ -87,6 +87,7 @@ function ensure_api_v1_schema(): void {
     token_hash VARCHAR(255) NOT NULL,
     device_code VARCHAR(20) NULL,
     branch_id INT NULL,
+    unit_code VARCHAR(40) NULL,
     token_plain TEXT NULL,
     client_type VARCHAR(30) NOT NULL DEFAULT 'pos_desktop',
     permissions TEXT NULL,
@@ -98,12 +99,14 @@ function ensure_api_v1_schema(): void {
     revoked_at DATETIME NULL,
     INDEX idx_api_tokens_active (is_active),
     INDEX idx_api_tokens_client_type (client_type),
-    INDEX idx_api_tokens_branch_id (branch_id)
+    INDEX idx_api_tokens_branch_id (branch_id),
+    INDEX idx_api_tokens_unit_code (unit_code)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
   $cols = [
     'device_code' => "ALTER TABLE api_tokens ADD COLUMN device_code VARCHAR(20) NULL AFTER token_hash",
     'branch_id' => "ALTER TABLE api_tokens ADD COLUMN branch_id INT NULL AFTER device_code",
-    'token_plain' => "ALTER TABLE api_tokens ADD COLUMN token_plain TEXT NULL AFTER branch_id",
+    'unit_code' => "ALTER TABLE api_tokens ADD COLUMN unit_code VARCHAR(40) NULL AFTER branch_id",
+    'token_plain' => "ALTER TABLE api_tokens ADD COLUMN token_plain TEXT NULL AFTER unit_code",
     'client_type' => "ALTER TABLE api_tokens ADD COLUMN client_type VARCHAR(30) NOT NULL DEFAULT 'pos_desktop' AFTER token_plain",
     'permissions' => "ALTER TABLE api_tokens ADD COLUMN permissions TEXT NULL AFTER client_type",
     'allowed_ips' => "ALTER TABLE api_tokens ADD COLUMN allowed_ips TEXT NULL AFTER permissions",
@@ -118,7 +121,9 @@ function ensure_api_v1_schema(): void {
   }
   try { $pdo->exec("ALTER TABLE api_tokens ADD INDEX idx_api_tokens_client_type (client_type)"); } catch (Throwable $e) {}
   try { $pdo->exec("ALTER TABLE api_tokens ADD INDEX idx_api_tokens_branch_id (branch_id)"); } catch (Throwable $e) {}
+  try { $pdo->exec("ALTER TABLE api_tokens ADD INDEX idx_api_tokens_unit_code (unit_code)"); } catch (Throwable $e) {}
   try { $pdo->exec("UPDATE api_tokens SET client_type='pos_desktop' WHERE client_type IS NULL OR client_type='' "); } catch (Throwable $e) {}
+  try { $pdo->exec("UPDATE api_tokens SET unit_code=UPPER(device_code) WHERE (unit_code IS NULL OR unit_code='') AND device_code IS NOT NULL AND device_code<>'' "); } catch (Throwable $e) {}
   try { $pdo->exec("UPDATE api_tokens SET permissions='[\"master.view\",\"categories.view\",\"products.view\",\"sales.view\",\"sales.push\",\"stocks.view\",\"users.view\"]' WHERE permissions IS NULL OR permissions='' "); } catch (Throwable $e) {}
 
   $pdo->exec("CREATE TABLE IF NOT EXISTS api_request_logs (

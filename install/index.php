@@ -38,14 +38,30 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     run_sql_file($pdo,__DIR__.'/../db/updates_api_settings_permissions_v1.sql');
     $branchType = $unit_mode === 'kitchen' ? 'kitchen' : 'branch';
     $isKitchen = $unit_mode === 'kitchen' ? 1 : 0;
-    $pdo->prepare("INSERT INTO branches (id,branch_code,branch_name,unit_type,is_kitchen,is_active,sort_order) VALUES (1,?,?, ?,?,1,0) ON DUPLICATE KEY UPDATE branch_code=VALUES(branch_code), branch_name=VALUES(branch_name), unit_type=VALUES(unit_type), is_kitchen=VALUES(is_kitchen), is_active=1")->execute([$unit_code,$unit_name,$branchType,$isKitchen]);
-    if($unit_mode !== 'backoffice') { try{$pdo->exec("UPDATE branches SET is_active=0 WHERE id<>1");}catch(Throwable $e){} }
-    try{$pdo->exec("UPDATE api_tokens SET branch_id=1 WHERE branch_id IS NULL OR branch_id<>1");}catch(Throwable $e){}
+    $activeBranchId = null;
+    if ($unit_mode !== 'backoffice') {
+      $st = $pdo->prepare("SELECT id FROM branches WHERE UPPER(branch_code)=UPPER(?) LIMIT 1");
+      $st->execute([$unit_code]);
+      $activeBranchId = (int)($st->fetchColumn() ?: 0);
+      if ($activeBranchId > 0) {
+        $pdo->prepare("UPDATE branches SET branch_name=?, unit_type=?, is_kitchen=?, is_active=1, updated_at=NOW() WHERE id=?")
+          ->execute([$unit_name,$branchType,$isKitchen,$activeBranchId]);
+      } else {
+        $pdo->prepare("INSERT INTO branches (branch_code,branch_name,unit_type,is_kitchen,is_active,sort_order) VALUES (?,?,?,?,1,0)")
+          ->execute([$unit_code,$unit_name,$branchType,$isKitchen]);
+        $activeBranchId = (int)$pdo->lastInsertId();
+      }
+      try{$pdo->prepare("UPDATE branches SET is_active=0 WHERE UPPER(branch_code)<>UPPER(?)")->execute([$unit_code]);}catch(Throwable $e){}
+      try{$pdo->prepare("UPDATE api_tokens SET unit_code=COALESCE(NULLIF(unit_code,''), device_code) WHERE unit_code IS NULL OR unit_code=''")->execute();}catch(Throwable $e){}
+      try{$pdo->prepare("UPDATE api_tokens SET branch_id=? WHERE (branch_id IS NULL OR branch_id=0) AND (UPPER(device_code)=UPPER(?) OR UPPER(unit_code)=UPPER(?))")->execute([$activeBranchId,$unit_code,$unit_code]);}catch(Throwable $e){}
+    } else {
+      try{$pdo->exec("UPDATE branches SET is_active=1");}catch(Throwable $e){}
+    }
     $roleId = null; try { $st=$pdo->prepare("SELECT id FROM roles WHERE role_key='owner' LIMIT 1"); $st->execute(); $roleId=(int)($st->fetchColumn() ?: 0); } catch(Throwable $e) {}
     $pdo->prepare("INSERT INTO users (username,name,role,role_id,password_hash) VALUES (?,?, 'owner', ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), role='owner', role_id=VALUES(role_id), password_hash=VALUES(password_hash)")->execute([$admin_username,$admin_name,$roleId ?: null,password_hash($admin_pass1,PASSWORD_DEFAULT)]);
     $set=$pdo->prepare("INSERT INTO settings (`key`,`value`) VALUES (?,?) ON DUPLICATE KEY UPDATE `value`=VALUES(`value`)");
     foreach([
-      'active_branch_id'=>'1','branch_mode'=>'single','system_unit_type'=>$unit_mode,'unit_name'=>$unit_name,'unit_code'=>$unit_code,
+      'active_branch_id'=>(string)($activeBranchId ?: ''),'active_unit_code'=>$unit_code,'active_unit_type'=>$unit_mode,'branch_mode'=>($unit_mode==='backoffice'?'multi':'single'),'system_unit_type'=>$unit_mode,'unit_name'=>$unit_name,'unit_code'=>$unit_code,
       'branch_name'=>$unit_name,'branch_code'=>$unit_code,'store_name'=>$app_name,'store_subtitle'=>'Makanan Khas Belitung','central_api_url'=>$central_url,
       'api_topology'=>'branch_to_branch,branch_to_kitchen,branch_to_backoffice,kitchen_to_backoffice,backoffice_to_branch'
     ] as $k=>$v){$set->execute([$k,$v]);}

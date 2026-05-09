@@ -12,7 +12,7 @@ if ($method === 'POST') {
   $in = api_v1_input(); $items = $in['items'] ?? [$in]; $count=0;
   foreach ($items as $r) {
     if (!is_array($r)) continue;
-    $branchId = (int)($r['branch_id'] ?? ($token['branch_id'] ?? 0));
+    $branchId = api_v1_branch_id_from_payload($r, $token);
     $cols = ['transaction_code','transaction_group_uuid','offline_uuid','product_id','branch_id','qty','price_each','total','payment_method','payment_bank','guide_id','guide_name','created_by','sold_at','sale_source','unit_type','local_device_id','local_transaction_id','customer_name','customer_phone'];
     $use=[];$vals=[];
     foreach ($cols as $c) if (api_v1_col_exists('sales',$c) && array_key_exists($c,$r)) { $use[]=$c; $vals[]=$r[$c]; }

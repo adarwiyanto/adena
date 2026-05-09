@@ -32,6 +32,18 @@ function api_norm_device_code(string $code): string {
   return preg_replace('/\s+/', '', $normalized) ?? '';
 }
 
+
+function api_branch_id_from_unit_code(string $unitCode): ?int {
+  $unitCode = strtoupper(trim($unitCode));
+  if ($unitCode === '') return null;
+  try {
+    $st = db()->prepare("SELECT id FROM branches WHERE UPPER(branch_code)=UPPER(?) LIMIT 1");
+    $st->execute([$unitCode]);
+    $id = (int)($st->fetchColumn() ?: 0);
+    return $id > 0 ? $id : null;
+  } catch (Throwable $e) { return null; }
+}
+
 function api_post_permissions(): array {
   $perms = $_POST['permissions'] ?? [];
   return is_array($perms) ? api_clean_permissions($perms) : [];
@@ -52,28 +64,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $clientType = strtolower(trim((string)($_POST['client_type'] ?? 'pos_desktop')));
       if (!isset($clientTypes[$clientType])) $clientType = 'integration';
       $deviceCode = api_norm_device_code((string)($_POST['device_code'] ?? ''));
-      $branchId = (int)($_POST['branch_id'] ?? 0);
+      $unitCode = api_norm_device_code((string)($_POST['unit_code'] ?? $deviceCode));
+      $branchId = api_branch_id_from_unit_code($unitCode);
       $allowedIps = trim((string)($_POST['allowed_ips'] ?? ''));
       $notes = trim((string)($_POST['notes'] ?? ''));
       $permissions = api_default_or_post_permissions($clientType);
       if ($name === '') throw new Exception('Nama API client wajib diisi.');
       if ($deviceCode !== '' && !preg_match('/^[A-Z0-9_-]+$/', $deviceCode)) throw new Exception('Kode device/unit hanya boleh huruf, angka, strip, dan underscore.');
+      if ($unitCode !== '' && !preg_match('/^[A-Z0-9_-]+$/', $unitCode)) throw new Exception('Kode unit hanya boleh huruf, angka, strip, dan underscore.');
       $generatedToken = bin2hex(random_bytes(32));
-      db()->prepare("INSERT INTO api_tokens (name, token_hash, device_code, branch_id, token_plain, client_type, permissions, allowed_ips, notes, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,1,NOW())")
-        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $deviceCode !== '' ? $deviceCode : null, $branchId > 0 ? $branchId : null, null, $clientType, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null]);
+      db()->prepare("INSERT INTO api_tokens (name, token_hash, device_code, branch_id, unit_code, token_plain, client_type, permissions, allowed_ips, notes, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,NOW())")
+        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $deviceCode !== '' ? $deviceCode : null, $branchId, $unitCode !== '' ? $unitCode : null, null, $clientType, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null]);
       $ok = 'Token API berhasil dibuat. Salin token sekarang karena hanya tampil sekali.';
     } elseif ($action === 'save' && $id > 0) {
       $name = trim((string)($_POST['name'] ?? ''));
       $clientType = strtolower(trim((string)($_POST['client_type'] ?? 'pos_desktop')));
       if (!isset($clientTypes[$clientType])) $clientType = 'integration';
       $deviceCode = api_norm_device_code((string)($_POST['device_code'] ?? ''));
-      $branchId = (int)($_POST['branch_id'] ?? 0);
+      $unitCode = api_norm_device_code((string)($_POST['unit_code'] ?? $deviceCode));
+      $branchId = api_branch_id_from_unit_code($unitCode);
       $allowedIps = trim((string)($_POST['allowed_ips'] ?? ''));
       $notes = trim((string)($_POST['notes'] ?? ''));
       $permissions = api_post_permissions();
       if ($name === '') throw new Exception('Nama API client wajib diisi.');
-      db()->prepare("UPDATE api_tokens SET name=?, client_type=?, device_code=?, branch_id=?, permissions=?, allowed_ips=?, notes=? WHERE id=?")
-        ->execute([$name, $clientType, $deviceCode !== '' ? $deviceCode : null, $branchId > 0 ? $branchId : null, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null, $id]);
+      db()->prepare("UPDATE api_tokens SET name=?, client_type=?, device_code=?, branch_id=?, unit_code=?, permissions=?, allowed_ips=?, notes=? WHERE id=?")
+        ->execute([$name, $clientType, $deviceCode !== '' ? $deviceCode : null, $branchId, $unitCode !== '' ? $unitCode : null, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null, $id]);
       $ok = 'Pengaturan API berhasil disimpan.';
     } elseif ($action === 'regenerate' && $id > 0) {
       $stmt = db()->prepare('SELECT * FROM api_tokens WHERE id=? LIMIT 1');
@@ -106,7 +121,7 @@ foreach ($catalog as $key => $meta) {
 }
 $branches = [];
 try { $branches = inventory_branches(); } catch (Throwable $e) {}
-$tokens = db()->query("SELECT t.*, b.branch_name FROM api_tokens t LEFT JOIN branches b ON b.id=t.branch_id ORDER BY t.id DESC")->fetchAll(PDO::FETCH_ASSOC);
+$tokens = db()->query("SELECT t.*, COALESCE(b.branch_name, t.unit_code, t.device_code) AS branch_name FROM api_tokens t LEFT JOIN branches b ON b.id=t.branch_id ORDER BY t.id DESC")->fetchAll(PDO::FETCH_ASSOC);
 $logs = db()->query("SELECT l.*, t.name AS token_name FROM api_request_logs l LEFT JOIN api_tokens t ON t.id=l.token_id ORDER BY l.id DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
 $customCss = function_exists('setting') ? setting('custom_css', '') : '';
 ?>
@@ -138,7 +153,7 @@ $customCss = function_exists('setting') ? setting('custom_css', '') : '';
           <div class="row"><label>Nama API Client</label><input type="text" name="name" required maxlength="100" placeholder="Contoh: Backoffice Pusat / Dapur Utama / POS Toko A"></div>
           <div class="row"><label>Jenis API</label><select name="client_type"><?php foreach ($clientTypes as $k=>$v): ?><option value="<?php echo e($k); ?>"><?php echo e($v); ?></option><?php endforeach; ?></select></div>
           <div class="row"><label>Kode Device/Unit</label><input type="text" name="device_code" maxlength="20" placeholder="Contoh: BLT, DAPUR, OWNER"></div>
-          <div class="row"><label>Cabang/Dapur terkait</label><select name="branch_id"><option value="0">Tidak terikat unit</option><?php foreach ($branches as $b): ?><option value="<?php echo e((string)$b['id']); ?>"><?php echo e($b['branch_name']); ?></option><?php endforeach; ?></select></div>
+          <div class="row"><label>Kode Unit Terkait</label><select name="unit_code"><option value="">Tidak terikat unit</option><?php foreach ($branches as $b): ?><option value="<?php echo e((string)$b['branch_code']); ?>"><?php echo e($b['branch_code'] . ' - ' . $b['branch_name']); ?></option><?php endforeach; ?></select></div>
           <div class="row"><label>Allowed IP (opsional, pisahkan baris/koma)</label><textarea name="allowed_ips" rows="2" placeholder="Kosongkan bila tidak dibatasi"></textarea></div>
           <div class="row"><label>Catatan</label><textarea name="notes" rows="2"></textarea></div>
           <h4>Permission API</h4>
@@ -162,7 +177,7 @@ $customCss = function_exists('setting') ? setting('custom_css', '') : '';
                 <div><label>Nama</label><input name="name" value="<?php echo e((string)$t['name']); ?>"></div>
                 <div><label>Jenis</label><select name="client_type"><?php foreach ($clientTypes as $k=>$v): ?><option value="<?php echo e($k); ?>" <?php echo (($t['client_type'] ?? '')===$k?'selected':''); ?>><?php echo e($v); ?></option><?php endforeach; ?></select></div>
                 <div><label>Kode</label><input name="device_code" value="<?php echo e((string)($t['device_code'] ?? '')); ?>"></div>
-                <div><label>Unit</label><select name="branch_id"><option value="0">Tidak terikat</option><?php foreach ($branches as $b): ?><option value="<?php echo e((string)$b['id']); ?>" <?php echo ((int)($t['branch_id'] ?? 0)===(int)$b['id']?'selected':''); ?>><?php echo e($b['branch_name']); ?></option><?php endforeach; ?></select></div>
+                <div><label>Kode Unit</label><select name="unit_code"><option value="">Tidak terikat</option><?php foreach ($branches as $b): $uc=(string)$b['branch_code']; ?><option value="<?php echo e($uc); ?>" <?php echo (strtoupper((string)($t['unit_code'] ?? $t['device_code'] ?? ''))===strtoupper($uc)?'selected':''); ?>><?php echo e($b['branch_code'] . ' - ' . $b['branch_name']); ?></option><?php endforeach; ?></select></div>
               </div>
               <div class="row"><label>Allowed IP</label><textarea name="allowed_ips" rows="2"><?php echo e((string)($t['allowed_ips'] ?? '')); ?></textarea></div>
               <div class="row"><label>Catatan</label><textarea name="notes" rows="2"><?php echo e((string)($t['notes'] ?? '')); ?></textarea></div>
