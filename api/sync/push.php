@@ -4,12 +4,11 @@
  * Upload transaksi, shift, dan cash movements dari POS Desktop ke server.
  */
 require_once __DIR__ . '/../helpers.php';
-require_once __DIR__ . '/../../core/unit_workflow.php';
+require_once __DIR__ . '/../../core/single_branch.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
 $user = api_verify_token();
-try { ensure_unit_workflow_schema(); } catch (Throwable $_) {}
 $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
@@ -22,34 +21,14 @@ $safeExec("ALTER TABLE sales ADD COLUMN local_transaction_id VARCHAR(120) NULL")
 $safeExec("ALTER TABLE sales ADD COLUMN payment_channel_id BIGINT NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN payment_channel_name VARCHAR(120) NULL");
 $safeExec("ALTER TABLE sales ADD COLUMN guide_id BIGINT NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN branch_id INT NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN sale_source VARCHAR(30) NOT NULL DEFAULT 'branch_pos'");
-$safeExec("ALTER TABLE sales ADD COLUMN unit_type VARCHAR(30) NULL");
 $safeExec("ALTER TABLE sales ADD KEY idx_sales_device_local (local_device_id, local_transaction_id)");
-$safeExec("ALTER TABLE sales ADD COLUMN return_reason TEXT NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN returned_at DATETIME NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN returned_by BIGINT NULL");
-$safeExec("ALTER TABLE sales ADD COLUMN return_status VARCHAR(30) NOT NULL DEFAULT 'none'");
-$safeExec("CREATE TABLE IF NOT EXISTS sales_returns (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, offline_uuid VARCHAR(120) NULL UNIQUE, transaction_group_uuid VARCHAR(120) NULL, local_transaction_id VARCHAR(120) NULL, transaction_code VARCHAR(120) NULL, branch_id INT NULL, reason TEXT NULL, total_return DECIMAL(14,2) NOT NULL DEFAULT 0, created_by BIGINT NULL, created_at DATETIME NULL, sync_status VARCHAR(30) NOT NULL DEFAULT 'synced') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-$safeExec("CREATE TABLE IF NOT EXISTS sales_return_items (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, return_id BIGINT NULL, sale_id BIGINT NULL, product_id BIGINT NULL, qty DECIMAL(14,3) NOT NULL DEFAULT 0, price_each DECIMAL(14,2) NOT NULL DEFAULT 0, subtotal DECIMAL(14,2) NOT NULL DEFAULT 0) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $debugMode = (($_GET['debug'] ?? '0') === '1') || (($_SERVER['HTTP_X_DEBUG_SYNC'] ?? '0') === '1');
 $incomingShifts = (array)($body['shifts'] ?? []);
 $incomingMovements = (array)($body['cash_movements'] ?? []);
 $incomingTransactions = (array)($body['transactions'] ?? []);
-$incomingReturns = (array)($body['returns'] ?? []);
-$tokenBranchId = (int)($user['branch_id'] ?? 0);
-$tokenUnitType = 'branch';
-if ($tokenBranchId > 0) {
-    try {
-        $st = $pdo->prepare("SELECT COALESCE(unit_type,'branch') AS unit_type, COALESCE(is_kitchen,0) AS is_kitchen FROM branches WHERE id=? LIMIT 1");
-        $st->execute([$tokenBranchId]);
-        $br = $st->fetch(PDO::FETCH_ASSOC) ?: [];
-        $tokenUnitType = ((string)($br['unit_type'] ?? 'branch') === 'kitchen' || (int)($br['is_kitchen'] ?? 0) === 1) ? 'kitchen' : 'branch';
-    } catch (Throwable $_) {}
-}
 
-if (count($incomingShifts) === 0 && count($incomingMovements) === 0 && count($incomingTransactions) === 0 && count($incomingReturns) === 0) {
+if (count($incomingShifts) === 0 && count($incomingMovements) === 0 && count($incomingTransactions) === 0) {
     api_json([
         'ok' => false,
         'message' => 'Payload sync kosong. Tidak ada shifts/cash_movements/transactions.',
@@ -115,12 +94,11 @@ try {
         $shiftCode = 'SHIFT-' . date('Ymd-His') . '-' . strtoupper(substr($uuid, 0, 6));
         $pdo->prepare("
             INSERT INTO pos_shifts
-                (shift_code, branch_id, status, opened_at, opened_by,
+                (shift_code, status, opened_at, opened_by,
                  opening_cash_actual, offline_open_uuid, sync_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'synced')
+            VALUES (?, ?, ?, ?, ?, ?, 'synced')
         ")->execute([
             $shiftCode,
-            $tokenBranchId > 0 ? $tokenBranchId : (int)($sh['branch_id'] ?? 1),
             $sh['status'] ?? 'open',
             $sh['opened_at'] ?? date('Y-m-d H:i:s'),
             $user['id'],
@@ -169,33 +147,6 @@ try {
             $cm['created_at'] ?? date('Y-m-d H:i:s'),
         ]);
         $results['cash_movements'][$uuid] = (int)$pdo->lastInsertId();
-    }
-
-    // ── 2b. Returns ───────────────────────────────────────────────────────────
-    foreach ($incomingReturns as $ret) {
-        $uuid = trim((string)($ret['offline_uuid'] ?? ''));
-        if ($uuid === '') continue;
-        $existing = $pdo->prepare("SELECT id FROM sales_returns WHERE offline_uuid=? LIMIT 1");
-        $existing->execute([$uuid]);
-        if ($existing->fetch(PDO::FETCH_ASSOC)) { $results['returns'][$uuid] = ['status'=>'exists']; continue; }
-        $branchIdRet = $tokenBranchId > 0 ? $tokenBranchId : (int)($ret['branch_id'] ?? 1);
-        $pdo->prepare("INSERT INTO sales_returns (offline_uuid, transaction_group_uuid, local_transaction_id, transaction_code, branch_id, reason, total_return, created_by, created_at, sync_status) VALUES (?,?,?,?,?,?,?,?,?,'synced')")
-            ->execute([$uuid, $ret['transaction_group_uuid'] ?? null, $ret['local_transaction_id'] ?? null, $ret['transaction_code'] ?? null, $branchIdRet, $ret['reason'] ?? '', (float)($ret['total_return'] ?? 0), $user['id'], $ret['created_at'] ?? date('Y-m-d H:i:s')]);
-        $returnId = (int)$pdo->lastInsertId();
-        foreach ((array)($ret['items'] ?? []) as $it) {
-            $saleId = !empty($it['web_sale_id']) ? (int)$it['web_sale_id'] : null;
-            $pdo->prepare("INSERT INTO sales_return_items (return_id, sale_id, product_id, qty, price_each, subtotal) VALUES (?,?,?,?,?,?)")
-                ->execute([$returnId, $saleId, (int)($it['product_id'] ?? 0), (float)($it['qty'] ?? 0), (float)($it['price_each'] ?? 0), (float)($it['subtotal'] ?? 0)]);
-            if ($saleId) {
-                $pdo->prepare("UPDATE sales SET return_status='returned', return_reason=?, returned_at=?, returned_by=? WHERE id=? AND branch_id=?")
-                    ->execute([$ret['reason'] ?? '', $ret['created_at'] ?? date('Y-m-d H:i:s'), $user['id'], $saleId, $branchIdRet]);
-            }
-            try {
-                $pdo->prepare("INSERT INTO stock_ledger (branch_id, product_id, trans_type, ref_table, ref_id, qty_in, qty_out, note, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-                    ->execute([$branchIdRet, (int)($it['product_id'] ?? 0), 'sale_return', 'sales_returns', $returnId, (float)($it['qty'] ?? 0), 0, $ret['reason'] ?? 'Retur penjualan', $user['id'], $ret['created_at'] ?? date('Y-m-d H:i:s')]);
-            } catch (Throwable $_) {}
-        }
-        $results['returns'][$uuid] = ['status'=>'inserted'];
     }
 
     // ── 3. Transactions ───────────────────────────────────────────────────────
@@ -283,12 +234,6 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
         $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
         $txDiscAmt = (float)($tx['tx_discount_amount'] ?? 0);
         $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
-        // Server is authoritative: all desktop transactions follow the branch/unit bound to the API token.
-        $branchId = $tokenBranchId > 0 ? $tokenBranchId : (int)($tx['branch_id'] ?? 1);
-        if ($branchId <= 0) $branchId = 1;
-        $saleSource = trim((string)($tx['sale_source'] ?? ($tokenUnitType === 'kitchen' ? 'kitchen_direct' : 'branch_pos')));
-        if ($saleSource === '') $saleSource = $tokenUnitType === 'kitchen' ? 'kitchen_direct' : 'branch_pos';
-        $unitType = $tokenUnitType;
 
         $firstId = null;
         try {
@@ -300,7 +245,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                 $pdo->prepare("
                     INSERT INTO sales
                         (transaction_code, transaction_group_uuid, offline_uuid,
-                         product_id, branch_id, sale_source, unit_type, qty, price_each, total,
+                         product_id, qty, price_each, total,
                          discount_amount, discount_type,
                          tx_discount_amount, tx_discount_type,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
@@ -311,7 +256,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          base_sale_code)
                     VALUES
                         (?, ?, ?,
-                         ?, ?, ?, ?, ?, ?, ?,
+                         ?, ?, ?, ?,
                          ?, ?,
                          ?, ?,
                          ?, ?, ?, ?, ?, ?,
@@ -322,7 +267,6 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                 ")->execute([
                     $txCode, $txGroupUuid, $itemUuid,
                     (int)($item['product_id'] ?? 0),
-                    $branchId, $saleSource, $unitType,
                     (int)($item['qty'] ?? 1),
                     $priceEach,
                     $itemTotal,

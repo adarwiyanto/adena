@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/single_branch.php';
 function e(string $s): string {
   return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 }
@@ -180,15 +181,7 @@ function setting(string $key, $default = null) {
 
 if (!function_exists('active_branch_id')) {
   function active_branch_id(): int {
-    try {
-      if (function_exists('setting')) {
-        $id = (int)setting('active_branch_id', '1');
-        if ($id > 0) return $id;
-      }
-    } catch (Throwable $e) {
-      // fallback ke default branch single-store.
-    }
-    return 1;
+    return function_exists('adena_single_branch_id') ? adena_single_branch_id() : 1;
   }
 }
 
@@ -478,16 +471,6 @@ function ensure_landing_order_tables(): void {
     if (!$hasBirth) {
       $db->exec("ALTER TABLE customers ADD COLUMN birth_date DATE NULL AFTER gender");
     }
-    $stmt = $db->query("SHOW COLUMNS FROM customers LIKE 'domicile'");
-    $hasDomicile = (bool)$stmt->fetch();
-    if (!$hasDomicile) {
-      $db->exec("ALTER TABLE customers ADD COLUMN domicile VARCHAR(120) NULL AFTER birth_date");
-    }
-    $stmt = $db->query("SHOW COLUMNS FROM customers LIKE 'instagram'");
-    $hasInstagram = (bool)$stmt->fetch();
-    if (!$hasInstagram) {
-      $db->exec("ALTER TABLE customers ADD COLUMN instagram VARCHAR(120) NULL AFTER domicile");
-    }
     $stmt = $db->query("SHOW COLUMNS FROM customers LIKE 'loyalty_points'");
     $hasPoints = (bool)$stmt->fetch();
     if (!$hasPoints) {
@@ -568,7 +551,7 @@ function ensure_owner_role(): void {
     $type = (string)($column['Type'] ?? '');
     if (strpos($type, "'owner'") === false || strpos($type, "'superadmin'") !== false) {
       db()->exec("UPDATE users SET role='owner' WHERE role='superadmin'");
-      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','manager','manager_cabang','pegawai_cabang','kasir','gudang','user','pegawai') NOT NULL DEFAULT 'admin'");
+      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','manager','kasir','gudang','user','pegawai') NOT NULL DEFAULT 'admin'");
     }
   } catch (Throwable $e) {
     // Diamkan jika gagal agar tidak mengganggu halaman.

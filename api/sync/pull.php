@@ -4,7 +4,6 @@
  * Download data master untuk POS Desktop.
  */
 require_once __DIR__ . '/../helpers.php';
-require_once __DIR__ . '/../../core/inventory.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     api_err('Method tidak diizinkan.', 405);
@@ -86,35 +85,19 @@ function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
 try {
     $user = api_verify_token();
     $pdo = db();
-    ensure_branch_product_prices_table();
-    $tokenBranchId = (int)($user['branch_id'] ?? 0);
 
     $sinceRaw = safe_string($_GET['since'] ?? '');
     $sinceParam = parse_since_param($sinceRaw, $debugNotes);
     $hasFilter = $sinceParam !== null;
 
-    $productParams = [];
-    if ($tokenBranchId > 0) {
-        $productParams[] = $tokenBranchId;
-    }
-    if ($hasFilter) {
-        $productParams[] = $sinceParam;
-    }
-    $productPriceExpr = $tokenBranchId > 0
-        ? "CASE WHEN bpp.is_active = 1 THEN bpp.price ELSE p.price END"
-        : "p.price";
-    $productJoin = $tokenBranchId > 0
-        ? " LEFT JOIN branch_product_prices bpp ON bpp.product_id = p.id AND bpp.branch_id = ?"
-        : "";
-    $productSql = "SELECT p.id, p.name, {$productPriceExpr} AS price, p.price AS default_price,
-                          p.category, p.category AS category_id, p.image_path,
-                          p.is_favorite, p.is_best_seller, p.show_on_pos,
-                          p.track_stock, p.base_unit, p.updated_at
-                   FROM products p" . $productJoin .
-                   " WHERE p.show_on_pos = 1" .
-                   ($hasFilter ? " AND p.updated_at >= ?" : "") .
-                   " ORDER BY p.is_favorite DESC, p.name ASC";
-    $products = safe_rows($pdo, 'products', $productSql, $productParams, $debugNotes);
+    $productSql = "SELECT id, name, price, category, category AS category_id, image_path,
+                          is_favorite, is_best_seller, show_on_pos,
+                          track_stock, base_unit, updated_at
+                   FROM products
+                   WHERE show_on_pos = 1" .
+                   ($hasFilter ? " AND updated_at >= ?" : "") .
+                   " ORDER BY is_favorite DESC, name ASC";
+    $products = safe_rows($pdo, 'products', $productSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
 
     $categories = safe_rows(
         $pdo,
@@ -171,6 +154,7 @@ try {
         'loyalty_point_value', 'loyalty_remainder_mode', 'pos_default_opening_cash', 'store_intro',
         'theme_primary', 'theme_secondary', 'theme_accent', 'theme_surface', 'theme_sidebar',
         'theme_header', 'theme_text', 'theme_muted', 'custom_css',
+        'branch_name', 'branch_code', 'branch_mode',
     ];
     $settings = [];
     foreach ($settingKeys as $key) {
@@ -252,12 +236,12 @@ try {
             'pending_orders' => array_values($pendingOrders),
             'pending_order_items' => array_values($pendingOrderItems),
             'active_shift' => $activeShiftRows[0] ?? null,
+            'branches' => adena_single_branch_payload(),
         ],
         'token' => [
             'id' => (int)($user['id'] ?? 0),
             'name' => (string)($user['name'] ?? ''),
             'device_code' => strtoupper(trim((string)($user['device_code'] ?? ''))),
-            'branch_id' => $tokenBranchId,
         ],
     ];
 

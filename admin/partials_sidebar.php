@@ -16,6 +16,8 @@ if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
 }
 $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
+$branchName = function_exists('adena_single_branch_name') ? adena_single_branch_name() : (string)setting('branch_name','Belitung');
+$branchCode = function_exists('adena_single_branch_code') ? adena_single_branch_code() : (string)setting('branch_code','BLT');
 ?>
 <div class="sidebar">
   <div class="sb-top">
@@ -38,6 +40,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </div>
       </button>
     </div>
+    <div class="single-branch-badge" style="margin:10px 12px 0;padding:8px 10px;border-radius:12px;background:#eaf4ff;border:1px solid #bfdbfe;color:#075985;font-weight:800;font-size:12px;">Cabang aktif: <?php echo e($branchName); ?> <span style="opacity:.75">(<?php echo e($branchCode); ?>)</span></div>
     <div class="submenu profile-submenu" id="profile-menu">
       <a href="<?php echo e(base_url('profile.php')); ?>">Edit Profil</a>
       <a href="<?php echo e(base_url('password.php')); ?>">Ubah Password</a>
@@ -53,7 +56,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
     </div>
     <?php endif; ?>
 
-    <?php if (has_menu_access($u, 'dashboard') || has_menu_access($u, 'pos') || has_menu_access($u, 'produk') || has_menu_access($u, 'branch_prices') || has_menu_access($u, 'sales')): ?>
+    <?php if (has_menu_access($u, 'dashboard') || has_menu_access($u, 'pos') || has_menu_access($u, 'produk') || has_menu_access($u, 'sales')): ?>
     <?php if (has_menu_access($u, 'dashboard')): ?>
     <div class="item">
       <a class="<?php echo (basename($_SERVER['PHP_SELF'])==='dashboard.php')?'active':''; ?>"
@@ -72,7 +75,6 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/products.php')); ?>">Produk</a><?php endif; ?>
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a><?php endif; ?>
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/bom.php')); ?>">BOM Produk</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'branch_prices')): ?><a href="<?php echo e(base_url('admin/branch_product_prices.php')); ?>">Harga Produk Cabang</a><?php endif; ?>
         <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/production.php')); ?>">Produksi</a><?php endif; ?>
         <?php if (has_menu_access($u, 'inventori', 'export')): ?><a href="<?php echo e(base_url('admin/inventory_reports.php')); ?>">Laporan Inventory</a><?php endif; ?>
       </div>
