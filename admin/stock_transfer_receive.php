@@ -6,7 +6,82 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
-require_once __DIR__ . '/../core/ops14.php';
+if (file_exists(__DIR__ . '/../core/ops14.php')) { require_once __DIR__ . '/../core/ops14.php'; }
+
+
+
+// HARDFIX fallback: halaman tetap hidup walau core/ops14.php belum ter-upload.
+if (!function_exists('ensure_adena14_schema')) {
+  function ensure_adena14_schema(): void {
+    static $done=false; if($done) return; $done=true;
+    try { $db=db(); } catch (Throwable $e) { return; }
+    $safe = static function(string $sql) use ($db): void { try { $db->exec($sql); } catch (Throwable $e) {} };
+    $safe("CREATE TABLE IF NOT EXISTS stock_locations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      location_code VARCHAR(40) NOT NULL,
+      location_name VARCHAR(160) NOT NULL,
+      location_type ENUM('kitchen','store','branch') NOT NULL DEFAULT 'branch',
+      branch_id INT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_stock_locations_code (location_code)
+    ) ENGINE=InnoDB");
+    $safe("ALTER TABLE stock_locations ADD COLUMN location_code VARCHAR(40) NOT NULL AFTER id");
+    $safe("ALTER TABLE stock_locations ADD COLUMN location_name VARCHAR(160) NOT NULL AFTER location_code");
+    $safe("ALTER TABLE stock_locations ADD COLUMN location_type ENUM('kitchen','store','branch') NOT NULL DEFAULT 'branch' AFTER location_name");
+    $safe("ALTER TABLE stock_locations ADD COLUMN branch_id INT NULL AFTER location_type");
+    $safe("ALTER TABLE stock_locations ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_id");
+
+    $safe("CREATE TABLE IF NOT EXISTS stock_transfers (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      transfer_no VARCHAR(60) NOT NULL,
+      from_location_id INT NOT NULL,
+      to_location_id INT NOT NULL,
+      status ENUM('draft','sent','accepted','rejected','cancelled') NOT NULL DEFAULT 'draft',
+      sent_at TIMESTAMP NULL DEFAULT NULL,
+      accepted_at TIMESTAMP NULL DEFAULT NULL,
+      rejected_at TIMESTAMP NULL DEFAULT NULL,
+      created_by INT NULL,
+      sent_by INT NULL,
+      received_by INT NULL,
+      notes TEXT NULL,
+      receiver_notes TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_stock_transfer_no (transfer_no)
+    ) ENGINE=InnoDB");
+    foreach(['transfer_no VARCHAR(60) NOT NULL','from_location_id INT NOT NULL','to_location_id INT NOT NULL',"status ENUM('draft','sent','accepted','rejected','cancelled') NOT NULL DEFAULT 'draft'",'sent_at TIMESTAMP NULL DEFAULT NULL','accepted_at TIMESTAMP NULL DEFAULT NULL','rejected_at TIMESTAMP NULL DEFAULT NULL','created_by INT NULL','sent_by INT NULL','received_by INT NULL','notes TEXT NULL','receiver_notes TEXT NULL'] as $def){ $safe('ALTER TABLE stock_transfers ADD COLUMN '.$def); }
+
+    $safe("CREATE TABLE IF NOT EXISTS stock_transfer_items (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id BIGINT NOT NULL,
+      product_id INT NOT NULL,
+      qty DECIMAL(18,4) NOT NULL DEFAULT 0,
+      unit_cost DECIMAL(18,2) NULL,
+      note VARCHAR(255) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB");
+    foreach(['transfer_id BIGINT NOT NULL','product_id INT NOT NULL','qty DECIMAL(18,4) NOT NULL DEFAULT 0','unit_cost DECIMAL(18,2) NULL','note VARCHAR(255) NULL'] as $def){ $safe('ALTER TABLE stock_transfer_items ADD COLUMN '.$def); }
+
+    $safe("ALTER TABLE stock_ledger ADD COLUMN location_id INT NULL AFTER branch_id");
+    try {
+      $db->exec("INSERT INTO stock_locations (location_code,location_name,location_type,branch_id,is_active)
+        SELECT 'KITCHEN','Dapur Produksi','kitchen',1,1 FROM DUAL
+        WHERE NOT EXISTS (SELECT 1 FROM stock_locations WHERE location_code='KITCHEN')");
+      $db->exec("INSERT INTO stock_locations (location_code,location_name,location_type,branch_id,is_active)
+        SELECT CONCAT('TOKO-',branch_code), branch_name, 'branch', id, 1 FROM branches b
+        WHERE NOT EXISTS (SELECT 1 FROM stock_locations sl WHERE sl.branch_id=b.id)");
+    } catch (Throwable $e) {}
+  }
+}
+if (!function_exists('adena14_locations')) {
+  function adena14_locations(): array {
+    ensure_adena14_schema();
+    try { return db()->query("SELECT * FROM stock_locations WHERE is_active=1 ORDER BY FIELD(location_type,'kitchen','store','branch'), location_name")->fetchAll(PDO::FETCH_ASSOC) ?: []; }
+    catch (Throwable $e) { return []; }
+  }
+}
 
 start_secure_session();
 require_admin();
