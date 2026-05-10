@@ -107,7 +107,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customers.php')); ?>">Pelanggan</a><?php endif; ?>
         <?php if (has_menu_access($u, 'purchase') && $canRawMaterialPurchaseHere): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku Dapur</a><?php endif; ?>
         <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_general.php')); ?>">Pembelian Umum</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_transfer.php')); ?>">Transfer Stok</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_transfers.php')); ?>">Transfer Stok</a><?php endif; ?>
         <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_transfer_receive.php')); ?>">Penerimaan Stok</a><?php endif; ?>
         <?php if (has_menu_access($u, 'suppliers')): ?><a href="<?php echo e(base_url('admin/suppliers.php')); ?>">Master Supplier</a><?php endif; ?>
       </div>
