@@ -6,52 +6,65 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/api_permissions.php';
-require_once __DIR__ . '/../core/inventory.php';
 
 start_secure_session();
 $me = require_admin();
-if (!current_user_is_owner()) {
-  redirect(base_url('admin/dashboard.php'));
-}
+if (!current_user_is_owner()) redirect(base_url('admin/dashboard.php'));
 ensure_api_v1_schema();
-try { ensure_inventory_module_schema(); } catch (Throwable $e) {}
 
 $err = '';
 $ok = '';
 $generatedToken = '';
-$clientTypes = [
-  'pos_desktop' => 'POS Desktop',
-  'backoffice' => 'Backoffice',
-  'branch' => 'Cabang / Toko',
-  'kitchen' => 'Dapur',
-  'integration' => 'Integrasi Lain',
-];
+$testResult = null;
+$modes = ['sender' => 'Pembuat / Pengirim API', 'receiver' => 'Penerima API'];
 
-function api_norm_device_code(string $code): string {
-  $normalized = strtoupper(trim($code));
-  return preg_replace('/\s+/', '', $normalized) ?? '';
+function adena_api_norm_url(string $url): string {
+  $url = trim($url);
+  if ($url === '') return '';
+  if (!preg_match('~^https?://~i', $url)) $url = 'https://' . $url;
+  return rtrim($url, '/');
 }
-
-
-function api_branch_id_from_unit_code(string $unitCode): ?int {
-  $unitCode = strtoupper(trim($unitCode));
-  if ($unitCode === '') return null;
-  try {
-    $st = db()->prepare("SELECT id FROM branches WHERE UPPER(branch_code)=UPPER(?) LIMIT 1");
-    $st->execute([$unitCode]);
-    $id = (int)($st->fetchColumn() ?: 0);
-    return $id > 0 ? $id : null;
-  } catch (Throwable $e) { return null; }
-}
-
-function api_post_permissions(): array {
+function adena_api_post_permissions(): array {
   $perms = $_POST['permissions'] ?? [];
   return is_array($perms) ? api_clean_permissions($perms) : [];
 }
-
-function api_default_or_post_permissions(string $clientType): array {
-  $posted = api_post_permissions();
-  return $posted ?: api_default_permissions($clientType);
+function adena_api_permission_summary(array $perms, array $catalog, int $limit = 5): string {
+  if (!$perms) return 'Belum ada permission';
+  $labels = [];
+  foreach ($perms as $p) $labels[] = $catalog[$p]['label'] ?? $p;
+  $more = max(0, count($labels) - $limit);
+  $labels = array_slice($labels, 0, $limit);
+  return implode(', ', $labels) . ($more ? ' +' . $more . ' lainnya' : '');
+}
+function adena_api_test_remote(string $baseUrl, string $token): array {
+  $baseUrl = adena_api_norm_url($baseUrl);
+  $token = trim($token);
+  if ($baseUrl === '' || $token === '') return ['ok'=>false,'message'=>'Domain pembuat dan API token wajib diisi.'];
+  $url = $baseUrl . '/api/auth.php';
+  $headers = ['Authorization: Bearer ' . $token, 'Accept: application/json', 'X-Debug-Sync: 1'];
+  $body = false; $status = 0; $err = '';
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$headers, CURLOPT_CONNECTTIMEOUT=>8, CURLOPT_TIMEOUT=>15, CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_SSL_VERIFYHOST=>2]);
+    $body = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = (string)curl_error($ch);
+    curl_close($ch);
+  } else {
+    $ctx = stream_context_create(['http'=>['method'=>'GET','header'=>implode("\r\n", $headers),'timeout'=>15,'ignore_errors'=>true]]);
+    $body = @file_get_contents($url, false, $ctx);
+    if (isset($http_response_header) && is_array($http_response_header)) {
+      foreach ($http_response_header as $h) if (preg_match('~HTTP/\S+\s+(\d+)~', $h, $m)) { $status=(int)$m[1]; break; }
+    }
+    $err = $body === false ? 'Tidak dapat menghubungi domain pembuat.' : '';
+  }
+  if ($body === false || $body === '') return ['ok'=>false,'status'=>$status,'message'=>$err ?: 'Tidak ada response dari domain pembuat.','url'=>$url];
+  $json = json_decode((string)$body, true);
+  if (!is_array($json)) return ['ok'=>false,'status'=>$status,'message'=>'Response bukan JSON valid.','url'=>$url,'raw'=>substr((string)$body,0,500)];
+  $remoteToken = $json['token'] ?? [];
+  $permissions = [];
+  if (isset($remoteToken['permissions'])) $permissions = api_permissions_decode($remoteToken['permissions']);
+  return ['ok'=>!empty($json['ok']),'status'=>$status,'message'=>(string)($json['message'] ?? (!empty($json['ok']) ? 'Koneksi berhasil.' : 'Koneksi gagal.')),'url'=>$url,'remote'=>$remoteToken,'permissions'=>$permissions];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -59,149 +72,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
   $id = (int)($_POST['id'] ?? 0);
   try {
-    if ($action === 'generate') {
+    if ($action === 'test_receiver') {
+      $testResult = adena_api_test_remote((string)($_POST['remote_base_url'] ?? ''), (string)($_POST['remote_token'] ?? ''));
+    } elseif ($action === 'create_sender') {
       $name = trim((string)($_POST['name'] ?? ''));
-      $clientType = strtolower(trim((string)($_POST['client_type'] ?? 'pos_desktop')));
-      if (!isset($clientTypes[$clientType])) $clientType = 'integration';
-      $deviceCode = api_norm_device_code((string)($_POST['device_code'] ?? ''));
-      $unitCode = api_norm_device_code((string)($_POST['unit_code'] ?? $deviceCode));
-      $branchId = api_branch_id_from_unit_code($unitCode);
-      $allowedIps = trim((string)($_POST['allowed_ips'] ?? ''));
-      $notes = trim((string)($_POST['notes'] ?? ''));
-      $permissions = api_default_or_post_permissions($clientType);
-      if ($name === '') throw new Exception('Nama API client wajib diisi.');
-      if ($deviceCode !== '' && !preg_match('/^[A-Z0-9_-]+$/', $deviceCode)) throw new Exception('Kode device/unit hanya boleh huruf, angka, strip, dan underscore.');
-      if ($unitCode !== '' && !preg_match('/^[A-Z0-9_-]+$/', $unitCode)) throw new Exception('Kode unit hanya boleh huruf, angka, strip, dan underscore.');
+      $permissions = adena_api_post_permissions();
+      if ($name === '') throw new Exception('Nama API wajib diisi.');
+      if (!$permissions) throw new Exception('Pilih minimal satu permission.');
       $generatedToken = bin2hex(random_bytes(32));
-      db()->prepare("INSERT INTO api_tokens (name, token_hash, device_code, branch_id, unit_code, token_plain, client_type, permissions, allowed_ips, notes, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,1,NOW())")
-        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), $deviceCode !== '' ? $deviceCode : null, $branchId, $unitCode !== '' ? $unitCode : null, null, $clientType, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null]);
-      $ok = 'Token API berhasil dibuat. Salin token sekarang karena hanya tampil sekali.';
+      db()->prepare("INSERT INTO api_tokens (name, token_hash, token_plain, client_type, api_type, permissions, is_active, created_at) VALUES (?,?,?,?,?,?,1,NOW())")
+        ->execute([$name, password_hash($generatedToken, PASSWORD_DEFAULT), null, 'sender', 'sender', api_permissions_encode($permissions)]);
+      $ok = 'API pembuat berhasil dibuat. Salin token sekarang karena hanya tampil sekali.';
+    } elseif ($action === 'create_receiver') {
+      $name = trim((string)($_POST['name'] ?? ''));
+      $remoteBaseUrl = adena_api_norm_url((string)($_POST['remote_base_url'] ?? ''));
+      $remoteToken = trim((string)($_POST['remote_token'] ?? ''));
+      $permissions = adena_api_post_permissions();
+      if ($name === '') throw new Exception('Nama koneksi wajib diisi.');
+      if ($remoteBaseUrl === '') throw new Exception('Domain pembuat wajib diisi.');
+      if ($remoteToken === '') throw new Exception('API token dari pembuat wajib diisi.');
+      if (!$permissions) throw new Exception('Pilih minimal satu permission lokal untuk koneksi ini.');
+      $localSecret = bin2hex(random_bytes(32));
+      db()->prepare("INSERT INTO api_tokens (name, token_hash, token_plain, client_type, api_type, remote_base_url, remote_token, permissions, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,1,NOW())")
+        ->execute([$name, password_hash($localSecret, PASSWORD_DEFAULT), null, 'receiver', 'receiver', $remoteBaseUrl, $remoteToken, api_permissions_encode($permissions)]);
+      $ok = 'Koneksi penerima berhasil disimpan.';
     } elseif ($action === 'save' && $id > 0) {
       $name = trim((string)($_POST['name'] ?? ''));
-      $clientType = strtolower(trim((string)($_POST['client_type'] ?? 'pos_desktop')));
-      if (!isset($clientTypes[$clientType])) $clientType = 'integration';
-      $deviceCode = api_norm_device_code((string)($_POST['device_code'] ?? ''));
-      $unitCode = api_norm_device_code((string)($_POST['unit_code'] ?? $deviceCode));
-      $branchId = api_branch_id_from_unit_code($unitCode);
-      $allowedIps = trim((string)($_POST['allowed_ips'] ?? ''));
-      $notes = trim((string)($_POST['notes'] ?? ''));
-      $permissions = api_post_permissions();
-      if ($name === '') throw new Exception('Nama API client wajib diisi.');
-      db()->prepare("UPDATE api_tokens SET name=?, client_type=?, device_code=?, branch_id=?, unit_code=?, permissions=?, allowed_ips=?, notes=? WHERE id=?")
-        ->execute([$name, $clientType, $deviceCode !== '' ? $deviceCode : null, $branchId, $unitCode !== '' ? $unitCode : null, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null, $id]);
+      $mode = (string)($_POST['api_mode'] ?? 'sender');
+      if (!isset($modes[$mode])) $mode = 'sender';
+      $remoteBaseUrl = $mode === 'receiver' ? adena_api_norm_url((string)($_POST['remote_base_url'] ?? '')) : null;
+      $remoteToken = $mode === 'receiver' ? trim((string)($_POST['remote_token'] ?? '')) : null;
+      $permissions = adena_api_post_permissions();
+      if ($name === '') throw new Exception('Nama wajib diisi.');
+      if ($mode === 'receiver' && ($remoteBaseUrl === '' || $remoteToken === '')) throw new Exception('Domain pembuat dan API token wajib diisi untuk penerima.');
+      if (!$permissions) throw new Exception('Pilih minimal satu permission.');
+      db()->prepare("UPDATE api_tokens SET name=?, client_type=?, api_type=?, remote_base_url=?, remote_token=?, permissions=? WHERE id=?")
+        ->execute([$name, $mode, $mode, $remoteBaseUrl, $remoteToken, api_permissions_encode($permissions), $id]);
       $ok = 'Pengaturan API berhasil disimpan.';
     } elseif ($action === 'regenerate' && $id > 0) {
-      $stmt = db()->prepare('SELECT * FROM api_tokens WHERE id=? LIMIT 1');
-      $stmt->execute([$id]);
-      $old = $stmt->fetch(PDO::FETCH_ASSOC);
-      if (!$old) throw new Exception('Token tidak ditemukan.');
       $generatedToken = bin2hex(random_bytes(32));
       db()->prepare('UPDATE api_tokens SET token_hash=?, is_active=1, revoked_at=NULL, created_at=NOW() WHERE id=?')
         ->execute([password_hash($generatedToken, PASSWORD_DEFAULT), $id]);
       $ok = 'Token digenerate ulang. Salin token baru sekarang.';
     } elseif ($action === 'revoke' && $id > 0) {
       db()->prepare('UPDATE api_tokens SET is_active=0, revoked_at=NOW() WHERE id=?')->execute([$id]);
-      $ok = 'Token berhasil dinonaktifkan.';
+      $ok = 'API berhasil dinonaktifkan.';
     } elseif ($action === 'activate' && $id > 0) {
       db()->prepare('UPDATE api_tokens SET is_active=1, revoked_at=NULL WHERE id=?')->execute([$id]);
-      $ok = 'Token berhasil diaktifkan kembali.';
+      $ok = 'API berhasil diaktifkan kembali.';
     } elseif ($action === 'delete' && $id > 0) {
       db()->prepare('DELETE FROM api_tokens WHERE id=?')->execute([$id]);
-      $ok = 'Token berhasil dihapus.';
+      $ok = 'API berhasil dihapus.';
     }
-  } catch (Throwable $e) {
-    $err = $e->getMessage();
-  }
+  } catch (Throwable $e) { $err = $e->getMessage(); }
 }
 
 $catalog = api_permission_catalog();
 $grouped = [];
-foreach ($catalog as $key => $meta) {
-  $grouped[$meta['group']][$key] = $meta['label'];
-}
-$branches = [];
-try { $branches = inventory_branches(); } catch (Throwable $e) {}
-$tokens = db()->query("SELECT t.*, COALESCE(b.branch_name, t.unit_code, t.device_code) AS branch_name FROM api_tokens t LEFT JOIN branches b ON b.id=t.branch_id ORDER BY t.id DESC")->fetchAll(PDO::FETCH_ASSOC);
-$logs = db()->query("SELECT l.*, t.name AS token_name FROM api_request_logs l LEFT JOIN api_tokens t ON t.id=l.token_id ORDER BY l.id DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
+foreach ($catalog as $key => $meta) $grouped[$meta['group']][$key] = $meta['label'];
+$tokens = db()->query("SELECT * FROM api_tokens ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
 $customCss = function_exists('setting') ? setting('custom_css', '') : '';
-?>
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Pengaturan API</title>
-  <link rel="icon" href="<?php echo e(favicon_url()); ?>">
-  <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
-  <style><?php echo $customCss; ?> .perm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.perm-box{border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#fff}.perm-box h4{margin:0 0 8px}.perm-box label{display:block;font-weight:500;margin:6px 0}.muted{opacity:.7}.token-card{border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:12px}</style>
-</head>
-<body>
-<div class="container">
-  <?php include __DIR__ . '/partials_sidebar.php'; ?>
-  <div class="main">
-    <div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
-    <div class="content">
-      <div class="card">
-        <h3 style="margin-top:0">Pengaturan API</h3>
-        <p><small>Menu ini khusus owner. Token POS lama tetap memakai Authorization Bearer dan tetap kompatibel.</small></p>
-        <?php if ($err): ?><div class="card" style="border-color:#fca5a5;background:#fef2f2"><?php echo e($err); ?></div><?php endif; ?>
-        <?php if ($ok): ?><div class="card" style="border-color:#86efac;background:#ecfdf5"><?php echo e($ok); ?></div><?php endif; ?>
-        <?php if ($generatedToken !== ''): ?><div class="card" style="border-color:#93c5fd;background:#eff6ff"><strong>Token baru (tampil sekali):</strong><div style="margin-top:6px"><code style="word-break:break-all"><?php echo e($generatedToken); ?></code></div></div><?php endif; ?>
-        <form method="post" style="margin-top:12px">
-          <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-          <input type="hidden" name="action" value="generate">
-          <div class="row"><label>Nama API Client</label><input type="text" name="name" required maxlength="100" placeholder="Contoh: Backoffice Pusat / Dapur Utama / POS Toko A"></div>
-          <div class="row"><label>Jenis API</label><select name="client_type"><?php foreach ($clientTypes as $k=>$v): ?><option value="<?php echo e($k); ?>"><?php echo e($v); ?></option><?php endforeach; ?></select></div>
-          <div class="row"><label>Kode Device/Unit</label><input type="text" name="device_code" maxlength="20" placeholder="Contoh: BLT, DAPUR, OWNER"></div>
-          <div class="row"><label>Kode Unit Terkait</label><select name="unit_code"><option value="">Tidak terikat unit</option><?php foreach ($branches as $b): ?><option value="<?php echo e((string)$b['branch_code']); ?>"><?php echo e($b['branch_code'] . ' - ' . $b['branch_name']); ?></option><?php endforeach; ?></select></div>
-          <div class="row"><label>Allowed IP (opsional, pisahkan baris/koma)</label><textarea name="allowed_ips" rows="2" placeholder="Kosongkan bila tidak dibatasi"></textarea></div>
-          <div class="row"><label>Catatan</label><textarea name="notes" rows="2"></textarea></div>
-          <h4>Permission API</h4>
-          <p class="muted"><small>Bila tidak dicentang saat membuat token, sistem memakai default sesuai jenis API. Setelah dibuat, permission bisa diedit per token.</small></p>
-          <div class="perm-grid">
-            <?php foreach ($grouped as $group=>$items): ?><div class="perm-box"><h4><?php echo e($group); ?></h4><?php foreach ($items as $key=>$label): ?><label><input type="checkbox" name="permissions[]" value="<?php echo e($key); ?>"> <?php echo e($label); ?></label><?php endforeach; ?></div><?php endforeach; ?>
-          </div>
-          <p style="margin-top:12px"><button class="btn" type="submit">Generate Token API</button></p>
-        </form>
-      </div>
-
-      <div class="card" style="margin-top:16px">
-        <h3 style="margin-top:0">Daftar Token API</h3>
-        <?php foreach ($tokens as $t): $perms=api_permissions_decode($t['permissions'] ?? ''); ?>
-          <div class="token-card">
-            <form method="post">
-              <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
-              <input type="hidden" name="action" value="save">
-              <input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>">
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
-                <div><label>Nama</label><input name="name" value="<?php echo e((string)$t['name']); ?>"></div>
-                <div><label>Jenis</label><select name="client_type"><?php foreach ($clientTypes as $k=>$v): ?><option value="<?php echo e($k); ?>" <?php echo (($t['client_type'] ?? '')===$k?'selected':''); ?>><?php echo e($v); ?></option><?php endforeach; ?></select></div>
-                <div><label>Kode</label><input name="device_code" value="<?php echo e((string)($t['device_code'] ?? '')); ?>"></div>
-                <div><label>Kode Unit</label><select name="unit_code"><option value="">Tidak terikat</option><?php foreach ($branches as $b): $uc=(string)$b['branch_code']; ?><option value="<?php echo e($uc); ?>" <?php echo (strtoupper((string)($t['unit_code'] ?? $t['device_code'] ?? ''))===strtoupper($uc)?'selected':''); ?>><?php echo e($b['branch_code'] . ' - ' . $b['branch_name']); ?></option><?php endforeach; ?></select></div>
-              </div>
-              <div class="row"><label>Allowed IP</label><textarea name="allowed_ips" rows="2"><?php echo e((string)($t['allowed_ips'] ?? '')); ?></textarea></div>
-              <div class="row"><label>Catatan</label><textarea name="notes" rows="2"><?php echo e((string)($t['notes'] ?? '')); ?></textarea></div>
-              <div class="perm-grid"><?php foreach ($grouped as $group=>$items): ?><div class="perm-box"><h4><?php echo e($group); ?></h4><?php foreach ($items as $key=>$label): ?><label><input type="checkbox" name="permissions[]" value="<?php echo e($key); ?>" <?php echo in_array($key,$perms,true)?'checked':''; ?>> <?php echo e($label); ?></label><?php endforeach; ?></div><?php endforeach; ?></div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center">
-                <span>Status: <?php echo ((int)$t['is_active']===1)?'<b style="color:#16a34a">Aktif</b>':'<b class="muted">Nonaktif</b>'; ?></span>
-                <span class="muted">Last used: <?php echo e((string)($t['last_used_at'] ?: '-')); ?></span>
-                <button class="btn" type="submit">Simpan</button>
-            </form>
-                <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="action" value="regenerate"><button class="btn" type="submit">Generate Ulang</button></form>
-                <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="action" value="<?php echo ((int)$t['is_active']===1)?'revoke':'activate'; ?>"><button class="btn" type="submit"><?php echo ((int)$t['is_active']===1)?'Nonaktifkan':'Aktifkan'; ?></button></form>
-                <form method="post" onsubmit="return confirm('Hapus token ini?')"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="action" value="delete"><button class="btn" type="submit">Hapus</button></form>
-              </div>
-          </div>
-        <?php endforeach; ?>
-      </div>
-
-      <div class="card" style="margin-top:16px">
-        <h3 style="margin-top:0">Log API Terakhir</h3>
-        <div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Token</th><th>Endpoint</th><th>Method</th><th>Permission</th><th>Status</th><th>IP</th></tr></thead><tbody><?php foreach ($logs as $l): ?><tr><td><?php echo e($l['created_at']); ?></td><td><?php echo e((string)($l['token_name'] ?? '-')); ?></td><td><?php echo e($l['endpoint']); ?></td><td><?php echo e($l['method']); ?></td><td><?php echo e((string)($l['permission'] ?? '-')); ?></td><td><?php echo e((string)$l['status_code']); ?></td><td><?php echo e((string)($l['ip_address'] ?? '-')); ?></td></tr><?php endforeach; ?></tbody></table></div>
-      </div>
-    </div>
+function render_permission_list(array $grouped, array $selected = []): void { ?>
+  <div class="api-perm-list">
+    <?php foreach ($grouped as $group=>$items): ?>
+      <details class="api-perm-group" open>
+        <summary><?php echo e($group); ?></summary>
+        <div class="api-perm-items">
+          <?php foreach ($items as $key=>$label): ?>
+            <label><input type="checkbox" name="permissions[]" value="<?php echo e($key); ?>" <?php echo in_array($key,$selected,true)?'checked':''; ?>> <span><?php echo e($label); ?></span></label>
+          <?php endforeach; ?>
+        </div>
+      </details>
+    <?php endforeach; ?>
   </div>
-</div>
-<script src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
-</body>
-</html>
+<?php }
+?>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pengaturan API</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?>
+.api-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}.api-panel{border:1px solid #e5e7eb;border-radius:16px;padding:14px;background:#fff}.api-panel h4{margin:0 0 8px}.api-help{color:#64748b;font-size:13px;line-height:1.45}.api-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.api-perm-list{border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;background:#fff}.api-perm-group{border-bottom:1px solid #eef2f7}.api-perm-group:last-child{border-bottom:0}.api-perm-group summary{cursor:pointer;font-weight:700;padding:10px 12px;background:#f8fafc}.api-perm-items{padding:8px 12px}.api-perm-items label{display:flex;gap:9px;align-items:flex-start;padding:6px 0;font-weight:500}.api-token-card{border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:12px;background:#fff}.api-token-head{display:grid;grid-template-columns:1.5fr 160px 1fr auto;gap:10px;align-items:center}.api-badge{display:inline-block;border-radius:999px;padding:3px 9px;background:#dcfce7;color:#166534;font-size:12px;font-weight:700}.api-badge.off{background:#f1f5f9;color:#475569}.api-summary{color:#64748b;font-size:13px}.api-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.api-test-ok{border-color:#86efac!important;background:#ecfdf5}.api-test-bad{border-color:#fca5a5!important;background:#fef2f2}@media(max-width:760px){.api-token-head{grid-template-columns:1fr}}
+</style></head><body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
+<div class="card"><h3 style="margin-top:0">Pengaturan API</h3><p class="api-help">Dibuat sederhana: <b>Pembuat/Pengirim</b> untuk membuat token, <b>Penerima</b> untuk connect ke website pembuat. Log API tetap berada di menu Log API.</p><?php if($err): ?><div class="card api-test-bad"><?php echo e($err); ?></div><?php endif; ?><?php if($ok): ?><div class="card api-test-ok"><?php echo e($ok); ?></div><?php endif; ?><?php if($generatedToken): ?><div class="card" style="border-color:#93c5fd;background:#eff6ff"><b>Token baru, tampil sekali:</b><div style="margin-top:6px"><code style="word-break:break-all"><?php echo e($generatedToken); ?></code></div></div><?php endif; ?><?php if(is_array($testResult)): ?><div class="card <?php echo !empty($testResult['ok'])?'api-test-ok':'api-test-bad'; ?>"><b>Hasil Test Koneksi:</b> <?php echo e($testResult['message'] ?? ''); ?><br><small>Status HTTP: <?php echo e((string)($testResult['status'] ?? '-')); ?> · URL: <?php echo e((string)($testResult['url'] ?? '-')); ?></small><?php if(!empty($testResult['remote'])): ?><br><small>Remote: <?php echo e((string)($testResult['remote']['name'] ?? '-')); ?> · Unit: <?php echo e((string)($testResult['remote']['unit_code'] ?? $testResult['remote']['device_code'] ?? '-')); ?></small><?php endif; ?><?php if(!empty($testResult['permissions'])): ?><br><small>Permission remote: <?php echo e(adena_api_permission_summary($testResult['permissions'], $catalog, 12)); ?></small><?php endif; ?></div><?php endif; ?>
+<div class="api-tabs">
+  <div class="api-panel"><h4>Pembuat / Pengirim API</h4><p class="api-help">Untuk website yang membuat token agar website lain/POS bisa mengambil atau mengirim data.</p><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="create_sender"><div class="row"><label>Nama</label><input name="name" required placeholder="Contoh: API Adena Pusat"></div><h4>Permission</h4><?php render_permission_list($grouped, api_default_permissions('integration')); ?><p><button class="btn" type="submit">Generate API</button></p></form></div>
+  <div class="api-panel"><h4>Penerima API</h4><p class="api-help">Untuk website yang connect ke domain pembuat memakai token dari website pembuat.</p><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="create_receiver"><div class="row"><label>Nama</label><input name="name" required placeholder="Contoh: Connect ke Dapur Pusat"></div><div class="row"><label>Domain pembuat</label><input name="remote_base_url" placeholder="https://domain-pembuat.com"></div><div class="row"><label>API token dari pembuat</label><input name="remote_token" placeholder="Paste token dari website pembuat"></div><h4>Permission lokal</h4><?php render_permission_list($grouped, api_default_permissions('integration')); ?><div class="api-actions"><button class="btn" type="submit">Simpan Penerima</button><button class="btn" type="submit" name="action" value="test_receiver">Test Koneksi</button></div></form></div>
+</div></div>
+<div class="card" style="margin-top:16px"><h3 style="margin-top:0">Daftar API</h3><?php foreach($tokens as $t): $mode=(string)($t['api_type'] ?: $t['client_type'] ?: 'sender'); if(!isset($modes[$mode])) $mode = (($t['remote_base_url'] ?? '') !== '' ? 'receiver' : 'sender'); $perms=api_permissions_decode($t['permissions'] ?? ''); ?><div class="api-token-card"><div class="api-token-head"><div><b><?php echo e((string)$t['name']); ?></b><div class="api-summary"><?php echo e(adena_api_permission_summary($perms,$catalog)); ?></div></div><div><?php echo e($modes[$mode]); ?></div><div class="api-summary"><?php echo $mode==='receiver' ? e((string)($t['remote_base_url'] ?? '-')) : 'Token lokal'; ?></div><div><?php echo ((int)$t['is_active']===1)?'<span class="api-badge">Aktif</span>':'<span class="api-badge off">Nonaktif</span>'; ?></div></div><details style="margin-top:10px"><summary class="btn" style="display:inline-block;list-style:none;cursor:pointer">Detail</summary><form method="post" style="margin-top:12px"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="api_mode" value="<?php echo e($mode); ?>"><div class="api-grid"><div><label>Nama</label><input name="name" value="<?php echo e((string)$t['name']); ?>"></div><div><label>Mode</label><input value="<?php echo e($modes[$mode]); ?>" disabled></div><?php if($mode==='receiver'): ?><div><label>Domain pembuat</label><input name="remote_base_url" value="<?php echo e((string)($t['remote_base_url'] ?? '')); ?>"></div><div><label>API token pembuat</label><input name="remote_token" value="<?php echo e((string)($t['remote_token'] ?? '')); ?>"></div><?php endif; ?></div><h4>Permission</h4><?php render_permission_list($grouped,$perms); ?><div class="api-actions"><button class="btn" type="submit">Simpan</button></form><?php if($mode==='sender'): ?><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="action" value="regenerate"><button class="btn" type="submit">Generate Ulang Token</button></form><?php endif; ?><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="action" value="<?php echo ((int)$t['is_active']===1)?'revoke':'activate'; ?>"><button class="btn" type="submit"><?php echo ((int)$t['is_active']===1)?'Nonaktifkan':'Aktifkan'; ?></button></form><form method="post" onsubmit="return confirm('Hapus API ini?')"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$t['id']); ?>"><input type="hidden" name="action" value="delete"><button class="btn" type="submit">Hapus</button></form><?php if($mode==='receiver'): ?><form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="test_receiver"><input type="hidden" name="remote_base_url" value="<?php echo e((string)($t['remote_base_url'] ?? '')); ?>"><input type="hidden" name="remote_token" value="<?php echo e((string)($t['remote_token'] ?? '')); ?>"><button class="btn" type="submit">Test Koneksi</button></form><?php endif; ?></div></details></div><?php endforeach; ?><?php if(!$tokens): ?><p class="api-help">Belum ada API.</p><?php endif; ?></div>
+</div></div></div><script src="<?php echo e(asset_url('assets/app.js')); ?>"></script></body></html>
