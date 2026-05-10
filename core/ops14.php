@@ -37,6 +37,15 @@ function ensure_adena14_schema(): void {
     KEY idx_stock_locations_type (location_type,is_active)
   ) ENGINE=InnoDB");
 
+  // Repair schema bila tabel sudah ada dari patch yang sempat berhenti di tengah.
+  $safe("ALTER TABLE stock_locations ADD COLUMN location_code VARCHAR(40) NOT NULL AFTER id");
+  $safe("ALTER TABLE stock_locations ADD COLUMN location_name VARCHAR(160) NOT NULL AFTER location_code");
+  $safe("ALTER TABLE stock_locations ADD COLUMN location_type ENUM('kitchen','store','branch') NOT NULL DEFAULT 'branch' AFTER location_name");
+  $safe("ALTER TABLE stock_locations ADD COLUMN branch_id INT NULL AFTER location_type");
+  $safe("ALTER TABLE stock_locations ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER branch_id");
+  $safe("ALTER TABLE stock_locations ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER is_active");
+  $safe("ALTER TABLE stock_locations ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP AFTER created_at");
+
   $safe("CREATE TABLE IF NOT EXISTS initial_stock_entries (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     location_id INT NOT NULL,
@@ -76,6 +85,21 @@ function ensure_adena14_schema(): void {
     KEY idx_stock_transfer_status (status,from_location_id,to_location_id)
   ) ENGINE=InnoDB");
 
+  $safe("ALTER TABLE stock_transfers ADD COLUMN transfer_no VARCHAR(60) NOT NULL AFTER id");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN from_location_id INT NOT NULL AFTER transfer_no");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN to_location_id INT NOT NULL AFTER from_location_id");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN status ENUM('draft','sent','accepted','rejected','cancelled') NOT NULL DEFAULT 'draft' AFTER to_location_id");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN sent_at TIMESTAMP NULL DEFAULT NULL AFTER status");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN accepted_at TIMESTAMP NULL DEFAULT NULL AFTER sent_at");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN rejected_at TIMESTAMP NULL DEFAULT NULL AFTER accepted_at");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN created_by INT NULL AFTER rejected_at");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN sent_by INT NULL AFTER created_by");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN received_by INT NULL AFTER sent_by");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN notes TEXT NULL AFTER received_by");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN receiver_notes TEXT NULL AFTER notes");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER receiver_notes");
+  $safe("ALTER TABLE stock_transfers ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP AFTER created_at");
+
   $safe("CREATE TABLE IF NOT EXISTS stock_transfer_items (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     transfer_id BIGINT NOT NULL,
@@ -87,6 +111,13 @@ function ensure_adena14_schema(): void {
     KEY idx_transfer_items_transfer (transfer_id),
     KEY idx_transfer_items_product (product_id)
   ) ENGINE=InnoDB");
+
+  $safe("ALTER TABLE stock_transfer_items ADD COLUMN transfer_id BIGINT NOT NULL AFTER id");
+  $safe("ALTER TABLE stock_transfer_items ADD COLUMN product_id INT NOT NULL AFTER transfer_id");
+  $safe("ALTER TABLE stock_transfer_items ADD COLUMN qty DECIMAL(18,4) NOT NULL DEFAULT 0 AFTER product_id");
+  $safe("ALTER TABLE stock_transfer_items ADD COLUMN unit_cost DECIMAL(18,2) NULL AFTER qty");
+  $safe("ALTER TABLE stock_transfer_items ADD COLUMN note VARCHAR(255) NULL AFTER unit_cost");
+  $safe("ALTER TABLE stock_transfer_items ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER note");
 
   $safe("CREATE TABLE IF NOT EXISTS pos_pending_orders (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

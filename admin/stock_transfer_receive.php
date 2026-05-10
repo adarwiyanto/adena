@@ -19,12 +19,36 @@ csrf_token();
 $u=current_user() ?: [];
 $err=''; $msg='';
 
+function adena_transfer_schema_ready(?string &$reason = null): bool {
+  try {
+    $db = db();
+    $must = [
+      'stock_locations' => ['id','location_code','location_name','location_type','branch_id','is_active'],
+      'stock_transfers' => ['id','transfer_no','from_location_id','to_location_id','status','sent_at','accepted_at','rejected_at','created_by','sent_by','received_by','notes','receiver_notes'],
+      'stock_transfer_items' => ['id','transfer_id','product_id','qty','note'],
+      'stock_ledger' => ['branch_id','location_id','product_id','trans_type','ref_table','ref_id','qty_in','qty_out']
+    ];
+    foreach ($must as $table => $cols) {
+      $q = $db->prepare("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
+      $q->execute([$table]);
+      $have = array_flip($q->fetchAll(PDO::FETCH_COLUMN) ?: []);
+      if (!$have) { $reason = "Tabel {$table} belum ada."; return false; }
+      foreach ($cols as $c) if (!isset($have[$c])) { $reason = "Kolom {$table}.{$c} belum ada."; return false; }
+    }
+    return true;
+  } catch (Throwable $e) { $reason = $e->getMessage(); return false; }
+}
+
 function adena_receive_location_branch_id(array $loc): int {
   $bid=(int)($loc['branch_id'] ?? 0);
   return $bid>0 ? $bid : (int)(function_exists('active_branch_id') ? active_branch_id() : 1);
 }
 
-if($_SERVER['REQUEST_METHOD']==='POST'){
+$schemaReason = '';
+$schemaReady = adena_transfer_schema_ready($schemaReason);
+if (!$schemaReady) { $err = 'Database Penerimaan Stok belum lengkap: '.$schemaReason.' Jalankan db/update_store_receive_v2_REPAIR.sql.'; }
+
+if($schemaReady && $_SERVER['REQUEST_METHOD']==='POST'){
   try{
     csrf_check();
     $id=(int)($_POST['id']??0);
@@ -52,11 +76,11 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
       $msg='Transfer diterima. Stok tujuan sudah bertambah.';
     }
     $db->commit();
-  }catch(Throwable $e){ if(db()->inTransaction()) db()->rollBack(); $err=$e->getMessage(); }
+  }catch(Throwable $e){ try { if(db()->inTransaction()) db()->rollBack(); } catch(Throwable $ignore) {} $err=$e->getMessage(); }
 }
 
 $rows=[];
-try{
+if ($schemaReady) try{
   $rows=db()->query("SELECT st.*, fl.location_name from_name, tl.location_name to_name FROM stock_transfers st LEFT JOIN stock_locations fl ON fl.id=st.from_location_id LEFT JOIN stock_locations tl ON tl.id=st.to_location_id WHERE st.status='sent' ORDER BY st.id DESC LIMIT 100")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }catch(Throwable $e){ $err=$err ?: $e->getMessage(); }
 $customCss=setting('custom_css','');
