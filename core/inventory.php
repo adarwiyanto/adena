@@ -16,12 +16,12 @@ function ensure_inventory_module_schema(): void {
   ensure_bom_tables();
   ensure_production_tables();
   ensure_stock_ledger_table();
+  ensure_general_purchase_transfer_schema();
   ensure_products_reorder_level_column();
   ensure_stock_opname_tables();
   ensure_sales_inventory_columns();
   ensure_sales_production_links_table();
   ensure_inventory_settings_defaults();
-  ensure_branch_product_prices_table();
 }
 
 function ensure_branches_table(): void {
@@ -77,27 +77,6 @@ function ensure_products_inventory_columns(): void {
   }
 }
 
-
-
-function ensure_branch_product_prices_table(): void {
-  try {
-    db()->exec("CREATE TABLE IF NOT EXISTS branch_product_prices (
-      id BIGINT AUTO_INCREMENT PRIMARY KEY,
-      branch_id INT NOT NULL,
-      product_id INT NOT NULL,
-      price DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-      is_active TINYINT(1) NOT NULL DEFAULT 1,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_branch_product_price (branch_id, product_id),
-      KEY idx_bpp_branch (branch_id),
-      KEY idx_bpp_product (product_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-  } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branch_product_prices ADD UNIQUE KEY uniq_branch_product_price (branch_id, product_id)"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branch_product_prices ADD KEY idx_bpp_branch (branch_id)"); } catch (Throwable $e) {}
-  try { db()->exec("ALTER TABLE branch_product_prices ADD KEY idx_bpp_product (product_id)"); } catch (Throwable $e) {}
-}
 
 function ensure_suppliers_table(): void {
   try {
@@ -276,6 +255,52 @@ function ensure_stock_ledger_table(): void {
     ) ENGINE=InnoDB");
   } catch (Throwable $e) {
   }
+}
+
+
+function ensure_general_purchase_transfer_schema(): void {
+  $db = db();
+  $alters = [
+    "ALTER TABLE purchase_headers ADD COLUMN purchase_type ENUM('raw_material','general') NOT NULL DEFAULT 'raw_material' AFTER purchase_date",
+    "ALTER TABLE purchase_items MODIFY product_id INT NULL",
+    "ALTER TABLE purchase_items ADD COLUMN item_name VARCHAR(190) NULL AFTER product_id"
+  ];
+  foreach ($alters as $sql) {
+    try { $db->exec($sql); } catch (Throwable $e) { /* already exists / unsupported */ }
+  }
+  try {
+    $db->exec("CREATE TABLE IF NOT EXISTS stock_transfer_headers (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_no VARCHAR(50) NOT NULL,
+      transfer_date DATE NOT NULL,
+      source_branch_id INT NOT NULL,
+      dest_branch_id INT NOT NULL,
+      status ENUM('draft','sent','received','cancelled') NOT NULL DEFAULT 'draft',
+      notes TEXT NULL,
+      created_by INT NULL,
+      sent_by INT NULL,
+      sent_at TIMESTAMP NULL DEFAULT NULL,
+      received_by INT NULL,
+      received_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_transfer_no (transfer_no),
+      KEY idx_transfer_status (source_branch_id,dest_branch_id,status,transfer_date)
+    ) ENGINE=InnoDB");
+  } catch (Throwable $e) {}
+  try {
+    $db->exec("CREATE TABLE IF NOT EXISTS stock_transfer_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      transfer_id INT NOT NULL,
+      product_id INT NOT NULL,
+      qty DECIMAL(18,4) NOT NULL,
+      unit_cost DECIMAL(18,2) NULL,
+      notes VARCHAR(255) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_transfer_items_header (transfer_id),
+      KEY idx_transfer_items_product (product_id)
+    ) ENGINE=InnoDB");
+  } catch (Throwable $e) {}
 }
 
 function ensure_sales_inventory_columns(): void {

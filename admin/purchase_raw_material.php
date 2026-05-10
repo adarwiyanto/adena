@@ -415,18 +415,18 @@ if ($editId > 0) {
   }
 }
 
-$docs = db()->query("SELECT ph.*, b.branch_name, s.supplier_name FROM purchase_headers ph JOIN branches b ON b.id=ph.branch_id JOIN suppliers s ON s.id=ph.supplier_id ORDER BY ph.id DESC LIMIT 100")->fetchAll();
+$docs = db()->query("SELECT ph.*, b.branch_name, s.supplier_name FROM purchase_headers ph JOIN branches b ON b.id=ph.branch_id JOIN suppliers s ON s.id=ph.supplier_id WHERE COALESCE(ph.purchase_type,'raw_material')='raw_material' ORDER BY ph.id DESC LIMIT 100")->fetchAll();
 $customCss = setting('custom_css', '');
 ?>
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pembelian Bahan Baku</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pembelian Bahan Baku Dapur</title>
 <link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style>
 </head>
 <body>
 <div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
-<div class="card"><h3><?php echo $editDoc ? 'Edit Purchase Bahan Baku' : 'Pembelian Bahan Baku'; ?></h3><?php if ($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
+<div class="card"><h3><?php echo $editDoc ? 'Edit Purchase Bahan Baku Dapur' : 'Pembelian Bahan Baku Dapur'; ?></h3><p><small>Menu ini khusus dapur/admin produksi. Toko/cabang memakai menu Transfer Stok untuk menerima stok dari dapur, atau Pembelian Umum untuk barang harian.</small></p><?php if ($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
 <form method="post" id="purchase-form">
 <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
 <input type="hidden" name="action" value="<?php echo $editDoc ? 'update' : 'create'; ?>">

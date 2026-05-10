@@ -7,7 +7,6 @@ $appName = app_config()['app']['name'];
 $u = current_user();
 ensure_rbac_schema();
 $resolvedRole = resolve_user_role(is_array($u) ? $u : []);
-$isOwnerSafe = strtolower((string)($resolvedRole['role_key'] ?? '')) === 'owner';
 $displayRole = (string)($resolvedRole['role_name'] ?? '');
 if ($displayRole === '') {
   $displayRole = (string)($resolvedRole['role_key'] ?? 'unknown');
@@ -74,6 +73,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a><?php endif; ?>
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/bom.php')); ?>">BOM Produk</a><?php endif; ?>
         <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/production.php')); ?>">Produksi</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_transfers.php')); ?>">Transfer Stok</a><?php endif; ?>
         <?php if (has_menu_access($u, 'inventori', 'export')): ?><a href="<?php echo e(base_url('admin/inventory_reports.php')); ?>">Laporan Inventory</a><?php endif; ?>
       </div>
     </div>
@@ -88,7 +88,8 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <?php if (has_menu_access($u, 'sales')): ?><a href="<?php echo e(base_url('admin/pos_shifts.php')); ?>">Laporan Shift POS</a><?php endif; ?>
         <?php if (has_menu_access($u, 'rekap_omset')): ?><a href="<?php echo e(base_url('admin/rekap_omset.php')); ?>">Rekap Omset</a><?php endif; ?>
         <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customers.php')); ?>">Pelanggan</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku Dapur</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_general.php')); ?>">Pembelian Umum</a><?php endif; ?>
         <?php if (has_menu_access($u, 'suppliers')): ?><a href="<?php echo e(base_url('admin/suppliers.php')); ?>">Master Supplier</a><?php endif; ?>
       </div>
     </div>
@@ -125,7 +126,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         </button>
         <div class="submenu" id="m-admin">
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
-          <?php if ($isOwnerSafe || has_menu_access($u, 'roles')): ?>
+          <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
           <?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/store.php')); ?>">Profil Toko</a><?php endif; ?>
@@ -133,10 +134,9 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/payment_methods.php')); ?>">Metode Pembayaran</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/guides.php')); ?>">Daftar Guide</a><?php endif; ?>
-          <?php if ($isOwnerSafe): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">Pengaturan API</a><?php endif; ?>
-          <?php if ($isOwnerSafe): ?><a href="<?php echo e(base_url('admin/api_logs.php')); ?>">Log API</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">Kasir Desktop</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
-          <?php if ($isOwnerSafe): ?>
+          <?php if (current_user_is_owner()): ?>
             <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
           <?php endif; ?>
         </div>
