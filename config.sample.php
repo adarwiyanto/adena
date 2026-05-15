@@ -4,13 +4,13 @@
 return [
   'app' => [
     'name' => 'Hope Noodles Belitung',
-    'base_url' => 'http://localhost/toko_online', // diset saat instalasi
+    'base_url' => 'http://adena.co.id', // diset saat instalasi
     'version' => '1.0.0', // cache busting asset
   ],
   'db' => [
     'host' => '127.0.0.1',
     'port' => '3306',
-    'name' => 'toko_online',
+    'name' => 'adena',
     'user' => 'root',
     'pass' => '',
     'charset' => 'utf8mb4',
