@@ -592,6 +592,67 @@ function store_goods_for_purchase(int $branchId = 0, string $search = '', string
   return $stmt->fetchAll();
 }
 
+
+function stock_products_for_stock_view(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
+  $validTypes = ['raw_material', 'finished_good', 'service'];
+  $params = [$branchId];
+  $sql = "SELECT
+      p.id,
+      p.name,
+      p.category,
+      p.product_type,
+      COALESCE(p.track_stock,0) AS track_stock,
+      COALESCE(p.allow_direct_purchase,0) AS allow_direct_purchase,
+      COALESCE(p.show_on_pos,0) AS show_on_pos,
+      COALESCE(p.show_on_landing,0) AS show_on_landing,
+      COALESCE(p.reorder_level,0) AS reorder_level,
+      p.base_unit,
+      p.purchase_unit,
+      p.purchase_to_base_factor,
+      p.sale_unit,
+      p.sale_to_base_factor,
+      COALESCE(st.current_stock,0) AS current_stock
+    FROM products p
+    LEFT JOIN (
+      SELECT product_id, SUM(qty_in - qty_out) AS current_stock
+      FROM stock_ledger
+      WHERE branch_id=?
+      GROUP BY product_id
+    ) st ON st.product_id=p.id
+    WHERE COALESCE(p.name,'')<>''";
+
+  if ($productType !== '' && in_array($productType, $validTypes, true)) {
+    $sql .= " AND p.product_type=?";
+    $params[] = $productType;
+  } else {
+    // Mode toko: default halaman stok menampilkan barang jual/finished good, bukan bahan baku dapur.
+    $sql .= " AND p.product_type='finished_good'";
+  }
+
+  $sql .= " AND (COALESCE(p.track_stock,0)=1
+      OR COALESCE(p.allow_direct_purchase,0)=1
+      OR COALESCE(p.show_on_pos,0)=1
+      OR COALESCE(p.show_on_landing,0)=1)";
+
+  if ($search !== '') {
+    $term = '%' . $search . '%';
+    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+  }
+
+  if ($category !== '') {
+    $sql .= " AND COALESCE(p.category,'') = ?";
+    $params[] = $category;
+  }
+
+  $sql .= " ORDER BY p.name ASC, p.id ASC";
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  return $stmt->fetchAll();
+}
+
 function stock_products_for_opname(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
   $params = [$branchId];
   $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.reorder_level, p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
