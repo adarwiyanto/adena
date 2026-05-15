@@ -184,7 +184,6 @@ function role_menu_tree(): array {
     'pos_history' => ['label' => 'Riwayat Transaksi POS', 'actions' => ['view', 'print']],
     'sales' => ['label' => 'Penjualan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'produk' => ['label' => 'Produk', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export']],
-    'branch_prices' => ['label' => 'Harga Produk Cabang', 'actions' => ['view', 'edit', 'export']],
     'inventori' => ['label' => 'Inventori', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'stok_opname' => ['label' => 'Stok Opname', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'customers' => ['label' => 'Pelanggan', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
@@ -201,10 +200,10 @@ function role_menu_tree(): array {
 function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
-    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'branch_prices', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset'],
-    'manager' => ['dashboard', 'pos_history', 'sales', 'branch_prices', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
+    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset'],
+    'manager' => ['dashboard', 'pos_history', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
     'kasir' => ['pos', 'pos_history', 'shift'],
-    'gudang' => ['inventori', 'stok_opname', 'purchase', 'branch_prices'],
+    'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
   foreach ($menuDefaults as $roleKey => $menus) {
     $roleId = role_id_by_key($roleKey);
@@ -297,7 +296,6 @@ function get_menu_landing_order(): array {
     ['menu' => 'pos', 'url' => base_url('pos/index.php')],
     ['menu' => 'sales', 'url' => base_url('admin/sales.php')],
     ['menu' => 'produk', 'url' => base_url('admin/products.php')],
-    ['menu' => 'branch_prices', 'url' => base_url('admin/branch_product_prices.php')],
     ['menu' => 'inventori', 'url' => base_url('admin/stocks.php')],
     ['menu' => 'stok_opname', 'url' => base_url('admin/stock_opname.php')],
     ['menu' => 'users', 'url' => base_url('admin/users.php')],

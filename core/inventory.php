@@ -136,6 +136,14 @@ function ensure_purchase_tables(): void {
     ) ENGINE=InnoDB");
   } catch (Throwable $e) {
   }
+  foreach ([
+    "ALTER TABLE purchase_headers ADD COLUMN purchase_type ENUM('raw_material','general') NOT NULL DEFAULT 'raw_material' AFTER purchase_date",
+    "ALTER TABLE purchase_items ADD COLUMN item_name VARCHAR(190) NULL AFTER product_id",
+    "ALTER TABLE products ADD COLUMN track_stock TINYINT(1) NOT NULL DEFAULT 1 AFTER product_type",
+    "ALTER TABLE products ADD COLUMN allow_direct_purchase TINYINT(1) NOT NULL DEFAULT 0 AFTER track_stock"
+  ] as $sql) {
+    try { db()->exec($sql); } catch (Throwable $e) {}
+  }
 }
 
 function ensure_purchase_revision_audit_table(): void {
@@ -551,47 +559,7 @@ function generate_stock_opname_no(PDO $db): string {
   return $prefix . '-' . strtoupper(bin2hex(random_bytes(4)));
 }
 
-function stock_products_base_query(int $branchId, string $search = '', string $category = '', string $productType = '', bool $trackedOnly = true): array {
-  $params = [$branchId];
-  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.reorder_level, p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
-      COALESCE(SUM(sl.qty_in - sl.qty_out),0) AS current_stock
-    FROM products p
-    LEFT JOIN stock_ledger sl ON sl.product_id=p.id AND sl.branch_id=?
-    WHERE p.product_type IN ('raw_material','finished_good')";
 
-  if ($trackedOnly) {
-    $sql .= " AND p.track_stock=1";
-  }
-  if ($search !== '') {
-    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
-    $term = '%' . $search . '%';
-    $params[] = $term;
-    $params[] = $term;
-    $params[] = $term;
-  }
-  if ($category !== '') {
-    $sql .= " AND COALESCE(p.category,'') = ?";
-    $params[] = $category;
-  }
-  if ($productType !== '' && in_array($productType, ['raw_material', 'finished_good'], true)) {
-    $sql .= " AND p.product_type = ?";
-    $params[] = $productType;
-  }
-  $sql .= " GROUP BY p.id ORDER BY p.name ASC";
-
-  $stmt = db()->prepare($sql);
-  $stmt->execute($params);
-  return $stmt->fetchAll();
-}
-
-function stock_products_for_opname(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
-  // Mode toko: stok opname default hanya untuk barang toko/produk jadi yang ditrack stok.
-  // Raw material dan BOM/produksi tidak ditampilkan default agar alur toko tidak bercampur dengan dapur.
-  if ($productType === '') {
-    $productType = 'finished_good';
-  }
-  return stock_products_base_query($branchId, $search, $category, $productType, true);
-}
 
 function store_goods_for_purchase(int $branchId = 0, string $search = '', string $category = ''): array {
   $params = [];
@@ -604,9 +572,9 @@ function store_goods_for_purchase(int $branchId = 0, string $search = '', string
     $sql .= " AND sl.branch_id=?";
     $params[] = $branchId;
   }
-  $sql .= " WHERE p.track_stock=1
-      AND p.product_type='finished_good'
-      AND (p.allow_direct_purchase=1 OR p.show_on_pos=1 OR p.show_on_landing=1)";
+  $sql .= " WHERE p.product_type='finished_good'
+      AND COALESCE(p.name,'')<>''
+      AND (p.allow_direct_purchase=1 OR p.show_on_pos=1 OR p.show_on_landing=1 OR p.track_stock=1)";
   if ($search !== '') {
     $term = '%' . $search . '%';
     $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
@@ -624,9 +592,34 @@ function store_goods_for_purchase(int $branchId = 0, string $search = '', string
   return $stmt->fetchAll();
 }
 
+function stock_products_for_opname(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
+  $params = [$branchId];
+  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.reorder_level, p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
+      COALESCE(SUM(sl.qty_in - sl.qty_out),0) AS current_stock
+    FROM products p
+    LEFT JOIN stock_ledger sl ON sl.product_id=p.id AND sl.branch_id=?
+    WHERE p.track_stock=1 AND p.product_type='finished_good'";
 
-function stock_products_for_stock_view(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
-  return stock_products_base_query($branchId, $search, $category, $productType, false);
+  if ($search !== '') {
+    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
+    $term = '%' . $search . '%';
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+  }
+  if ($category !== '') {
+    $sql .= " AND COALESCE(p.category,'') = ?";
+    $params[] = $category;
+  }
+  if ($productType !== '' && in_array($productType, ['raw_material', 'finished_good', 'service'], true)) {
+    $sql .= " AND p.product_type = ?";
+    $params[] = $productType;
+  }
+  $sql .= " GROUP BY p.id ORDER BY p.name ASC";
+
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  return $stmt->fetchAll();
 }
 
 function stock_categories(): array {

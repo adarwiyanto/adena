@@ -74,8 +74,8 @@ function purchase_goods_collect_items(array $src): array {
   foreach ($items as $idx => $it) {
     $p = $map[(int)$it['product_id']] ?? null;
     if (!$p) throw new Exception('Produk pembelian tidak ditemukan.');
-    if (($p['product_type'] ?? '') !== 'finished_good' || (int)($p['track_stock'] ?? 0) !== 1) {
-      throw new Exception('Pembelian barang toko hanya boleh memakai produk jadi yang ditrack stok.');
+    if (($p['product_type'] ?? '') !== 'finished_good') {
+      throw new Exception('Pembelian barang toko hanya boleh memakai produk jadi.');
     }
     $meta = product_unit_fallback($p);
     $items[$idx]['item_name'] = (string)($p['name'] ?? '');
@@ -106,6 +106,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $db = db();
     $db->beginTransaction();
+
+    // Barang yang dibeli dari menu toko otomatis dijadikan stockable,
+    // supaya pembelian berikutnya, kartu stok, dan stok opname memakai logika yang sama.
+    $markStockStmt = $db->prepare("UPDATE products SET track_stock=1, allow_direct_purchase=1 WHERE id=? AND product_type='finished_good'");
+    foreach ($items as $it) {
+      $markStockStmt->execute([(int)$it['product_id']]);
+    }
+
     $status = $postNow ? 'posted' : 'draft';
     $stmt = $db->prepare("INSERT INTO purchase_headers (branch_id,supplier_id,purchase_no,purchase_date,purchase_type,status,subtotal,grand_total,notes,created_by,posted_by,posted_at) VALUES (?,?,?,?, 'general',?,?,?,?,?,?,?)");
     $stmt->execute([
