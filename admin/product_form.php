@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $allowDirectPurchase = isset($_POST['allow_direct_purchase']) ? 1 : 0;
   $isPriceEditable = isset($_POST['is_price_editable']) ? 1 : 0;
   $includeInSalesReport = isset($_POST['include_in_sales_report']) ? 1 : 0;
-  $allowBom = isset($_POST['allow_bom']) ? 1 : 0;
+  $allowBom = 0; // Mode toko: BOM/produksi diarsipkan.
   $showOnPos = isset($_POST['show_on_pos']) ? 1 : 0;
   $showOnLanding = isset($_POST['show_on_landing']) ? 1 : 0;
   $baseUnit = trim((string)($_POST['base_unit'] ?? ''));
@@ -274,11 +274,7 @@ $customCss = setting('custom_css', '');
             <div class="row">
               <label class="checkbox-row">
                 <input type="checkbox" name="allow_direct_purchase" value="1" <?php echo !empty($_POST) ? (isset($_POST['allow_direct_purchase']) ? 'checked' : '') : ((int)$product['allow_direct_purchase'] === 1 ? 'checked' : ''); ?>>
-                Boleh dibeli langsung (raw material)
-              </label>
-              <label class="checkbox-row">
-                <input type="checkbox" name="allow_bom" value="1" <?php echo !empty($_POST) ? (isset($_POST['allow_bom']) ? 'checked' : '') : ((int)$product['allow_bom'] === 1 ? 'checked' : ''); ?>>
-                Gunakan BOM untuk produksi
+                Boleh dibeli langsung di menu Pembelian Barang
               </label>
             </div>
             <div class="row">
@@ -295,10 +291,6 @@ $customCss = setting('custom_css', '');
             </div>
           </div>
           <button class="btn" type="submit">Simpan</button>
-          <?php if ($id > 0): ?>
-            <a class="btn" href="<?php echo e(base_url('admin/bom.php')); ?>">Kelola BOM</a>
-            <small>Status BOM aktif: <?php echo $bomStatus > 0 ? 'Ada' : 'Belum ada'; ?></small>
-          <?php endif; ?>
         </form>
       </div>
     </div>

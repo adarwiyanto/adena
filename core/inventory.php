@@ -585,8 +585,45 @@ function stock_products_base_query(int $branchId, string $search = '', string $c
 }
 
 function stock_products_for_opname(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
+  // Mode toko: stok opname default hanya untuk barang toko/produk jadi yang ditrack stok.
+  // Raw material dan BOM/produksi tidak ditampilkan default agar alur toko tidak bercampur dengan dapur.
+  if ($productType === '') {
+    $productType = 'finished_good';
+  }
   return stock_products_base_query($branchId, $search, $category, $productType, true);
 }
+
+function store_goods_for_purchase(int $branchId = 0, string $search = '', string $category = ''): array {
+  $params = [];
+  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.allow_direct_purchase,
+      p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
+      COALESCE(SUM(sl.qty_in - sl.qty_out),0) AS current_stock
+    FROM products p
+    LEFT JOIN stock_ledger sl ON sl.product_id=p.id";
+  if ($branchId > 0) {
+    $sql .= " AND sl.branch_id=?";
+    $params[] = $branchId;
+  }
+  $sql .= " WHERE p.track_stock=1
+      AND p.product_type='finished_good'
+      AND (p.allow_direct_purchase=1 OR p.show_on_pos=1 OR p.show_on_landing=1)";
+  if ($search !== '') {
+    $term = '%' . $search . '%';
+    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+  }
+  if ($category !== '') {
+    $sql .= " AND COALESCE(p.category,'') = ?";
+    $params[] = $category;
+  }
+  $sql .= " GROUP BY p.id ORDER BY p.name ASC";
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  return $stmt->fetchAll();
+}
+
 
 function stock_products_for_stock_view(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
   return stock_products_base_query($branchId, $search, $category, $productType, false);

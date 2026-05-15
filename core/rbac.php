@@ -189,7 +189,7 @@ function role_menu_tree(): array {
     'stok_opname' => ['label' => 'Stok Opname', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'customers' => ['label' => 'Pelanggan', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
     'suppliers' => ['label' => 'Supplier', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
-    'purchase' => ['label' => 'Pembelian Bahan Baku', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'purchase' => ['label' => 'Pembelian Barang', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'users' => ['label' => 'Manajemen User', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'roles' => ['label' => 'Role & Permission', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'shift' => ['label' => 'Buka / Tutup Shift', 'actions' => ['create', 'delete']],
