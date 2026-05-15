@@ -26,7 +26,7 @@ $err = '';
 $msg = '';
 $branches = inventory_branches();
 $suppliers = db()->query("SELECT id,supplier_name FROM suppliers WHERE is_active=1 ORDER BY supplier_name ASC")->fetchAll(PDO::FETCH_ASSOC) ?: [];
-$products = db()->query("SELECT id,name FROM products WHERE is_active=1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+$products = db()->query("SELECT id,name FROM products WHERE show_on_pos=1 ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 function gp_collect_items(array $src): array {
   $productIds = $src['item_product_id'] ?? [];
