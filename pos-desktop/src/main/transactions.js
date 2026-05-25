@@ -19,7 +19,7 @@ function formatTransactionCode(deviceCode) {
   return `TRX-${date}-${time}-post${deviceCode}`;
 }
 
-function saveSaleLocally({ user, guide, payment, shift, items }) {
+function saveSaleLocally({ user, guide, payment, shift, items, tx_discount_amount = 0, tx_discount_type = 'fixed' }) {
   const device = ensureDeviceCode();
   if (!device.ok) {
     return { ok: false, message: device.message };
@@ -41,8 +41,9 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
      payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, sale_source, unit_type, shift_id, sold_at,
+     discount_amount, discount_type, tx_discount_amount, tx_discount_type,
      local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     for (const item of items) {
@@ -54,7 +55,7 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
         item.product_id,
         item.qty,
         item.price_each,
-        item.qty * item.price_each,
+        Number(item.line_total ?? item.total ?? (Number(item.qty || 0) * Number(item.price_each || 0))),
         payment.method,
         payment.bank_name || null,
         guide?.id || null,
@@ -65,6 +66,10 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
         unitType,
         activeShift.id,
         nowLocal,
+        Number(item.discount_amount || 0),
+        String(item.discount_type || 'fixed') === 'percent' ? 'percent' : 'fixed',
+        Number(tx_discount_amount || 0),
+        String(tx_discount_type || 'fixed') === 'percent' ? 'percent' : 'fixed',
         store.get('deviceId'),
         localTransactionId,
         'pending',

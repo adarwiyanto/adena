@@ -1,7 +1,7 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', lastFocusProductId: null, multiPayment: false, paymentLines: [] };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', lastFocusProductId: null, multiPayment: false, paymentLines: [], txDiscountAmount: 0, txDiscountType: 'fixed' };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
-const APP_FOOTER = 'Adena POS Desktop ver 1.4.3';
+const APP_FOOTER = 'Adena POS Desktop ver 1.5.3';
 const $ = (s) => document.querySelector(s);
 let toastTimer;
 const imageCacheQueue = new Set();
@@ -89,7 +89,66 @@ function applyTheme(settings = {}) {
 }
 
 
-function cartTotal() { return state.cart.reduce((a, b) => a + Number(b.qty || 0) * Number(b.price_each || 0), 0); }
+function normalizeDiscountType(value) {
+  return String(value || 'fixed') === 'percent' ? 'percent' : 'fixed';
+}
+function normalizeDiscountAmount(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+function lineGross(item) {
+  return Number(item.qty || 0) * Number(item.price_each || 0);
+}
+function calcDiscountValue(base, amount, type) {
+  const safeBase = Math.max(0, Number(base || 0));
+  const safeAmount = normalizeDiscountAmount(amount);
+  if (!safeBase || !safeAmount) return 0;
+  if (normalizeDiscountType(type) === 'percent') return Math.min(safeBase, Math.round((safeBase * Math.min(safeAmount, 100) / 100) * 100) / 100);
+  return Math.min(safeBase, safeAmount);
+}
+function itemDiscountValue(item) {
+  return calcDiscountValue(lineGross(item), item.discount_amount || 0, item.discount_type || 'fixed');
+}
+function lineNet(item) {
+  return Math.max(0, lineGross(item) - itemDiscountValue(item));
+}
+function cartSubtotal() {
+  return state.cart.reduce((a, b) => a + lineGross(b), 0);
+}
+function cartItemDiscountTotal() {
+  return state.cart.reduce((a, b) => a + itemDiscountValue(b), 0);
+}
+function cartTotalBeforeTransactionDiscount() {
+  return state.cart.reduce((a, b) => a + lineNet(b), 0);
+}
+function transactionDiscountValue() {
+  return calcDiscountValue(cartTotalBeforeTransactionDiscount(), state.txDiscountAmount || 0, state.txDiscountType || 'fixed');
+}
+function cartTotal() {
+  return Math.max(0, cartTotalBeforeTransactionDiscount() - transactionDiscountValue());
+}
+function discountLabel(amount, type) {
+  const safeAmount = normalizeDiscountAmount(amount);
+  return normalizeDiscountType(type) === 'percent' ? `${safeAmount}%` : rupiah(safeAmount);
+}
+function itemPayload(item) {
+  return {
+    ...item,
+    discount_amount: normalizeDiscountAmount(item.discount_amount || 0),
+    discount_type: normalizeDiscountType(item.discount_type || 'fixed'),
+    gross_total: lineGross(item),
+    discount_value: itemDiscountValue(item),
+    line_total: lineNet(item)
+  };
+}
+function resetTransactionDiscount() {
+  state.txDiscountAmount = 0;
+  state.txDiscountType = 'fixed';
+  const amount = $('#tx-discount-amount');
+  const type = $('#tx-discount-type');
+  if (amount) amount.value = '0';
+  if (type) type.value = 'fixed';
+}
 function isCashPayment(code) { const v = String(code || '').toLowerCase(); return v === 'cash' || v === 'tunai' || v.includes('cash') || v.includes('tunai'); }
 function isCreditCardPayment(code) { const v = String(code || '').toLowerCase(); return v === 'credit_card' || v.includes('credit') || v.includes('kartu_kredit'); }
 function creditCardFeePercent() { const raw = state.theme.credit_card_fee_percent || state.theme.pos_credit_card_fee_percent; return Math.max(0, Math.min(95, Number(raw === undefined || raw === null || raw === '' ? 2.5 : raw))); }
@@ -158,7 +217,8 @@ function buildReceiptHtml(receipt, includeActions = false) {
   const itemsHtml = (receipt.items || []).map((i) => {
     const qty = Number(i.qty || 0);
     const price = Number(i.price_each || i.price || 0);
-    return `<div class="receipt-item"><div class="receipt-line"><span>${escapeHtml(receiptItemName(i))} x${qty}</span><strong>${rupiah(qty * price)}</strong></div><div class="receipt-line sub"><span>@ ${rupiah(price)}</span><strong></strong></div></div>`;
+    const disc = Number(i.discount_value || 0) > 0 ? `<div class="receipt-line sub"><span>Diskon item ${discountLabel(i.discount_amount, i.discount_type)}</span><strong>- ${rupiah(i.discount_value)}</strong></div>` : '';
+    return `<div class="receipt-item"><div class="receipt-line"><span>${escapeHtml(receiptItemName(i))} x${qty}</span><strong>${rupiah(i.line_total ?? lineNet(i))}</strong></div><div class="receipt-line sub"><span>@ ${rupiah(price)}</span><strong></strong></div>${disc}</div>`;
   }).join('');
   const actions = includeActions ? `<div class="receipt-actions no-print"><button id="btn-print">Print</button><button id="btn-new-transaction">Transaksi Baru</button></div>` : '';
   return `<div class="receipt-preview">
@@ -174,7 +234,7 @@ function buildReceiptHtml(receipt, includeActions = false) {
     <hr>
     <div class="receipt-section-title">Item</div>
     ${itemsHtml || '<div class="empty small">Tidak ada item.</div>'}
-    <div class="receipt-total receipt-line"><span>TOTAL</span><strong>${rupiah(receipt.total)}</strong></div>
+    ${Number(receipt.itemDiscountTotal || 0) > 0 ? `<div class="receipt-line"><span>Diskon item</span><strong>- ${rupiah(receipt.itemDiscountTotal)}</strong></div>` : ''}${Number(receipt.txDiscount?.value || 0) > 0 ? `<div class="receipt-line"><span>Diskon transaksi (${discountLabel(receipt.txDiscount.amount, receipt.txDiscount.type)})</span><strong>- ${rupiah(receipt.txDiscount.value)}</strong></div>` : ''}<div class="receipt-total receipt-line"><span>TOTAL</span><strong>${rupiah(receipt.total)}</strong></div>
     ${paymentHtml}
     <hr>
     <div class="receipt-footer">Terima kasih<br>${APP_FOOTER}</div>
@@ -219,13 +279,16 @@ function buildRawReceiptFromLatestReceipt() {
     items: (r.items || []).map((i) => {
       const qty = Number(i.qty || 0);
       const price = Number(i.price_each || i.price || 0);
-      return { name: receiptItemName(i), qty, price, priceText: rupiah(price), total: qty * price, totalText: rupiah(qty * price) };
+      return { name: receiptItemName(i), qty, price, priceText: rupiah(price), discountValue: Number(i.discount_value || 0), discountText: Number(i.discount_value || 0) > 0 ? rupiah(i.discount_value) : '', total: Number(i.line_total ?? lineNet(i)), totalText: rupiah(i.line_total ?? lineNet(i)) };
     }),
     total: Number(r.total || 0),
     totalText: rupiah(r.total || 0),
     paymentLines,
     cashReceivedText: cash?.cashReceivedText || (r.cashReceived == null ? '' : rupiah(r.cashReceived)),
     cashChangeText: cash?.cashChangeText || (r.cashChange == null ? '' : rupiah(r.cashChange || 0)),
+    subtotalText: rupiah(r.subtotal || cartSubtotal()),
+    itemDiscountTotalText: Number(r.itemDiscountTotal || 0) > 0 ? rupiah(r.itemDiscountTotal) : '',
+    txDiscountText: Number(r.txDiscount?.value || 0) > 0 ? rupiah(r.txDiscount.value) : '',
     appFooter: APP_FOOTER
   };
 }
@@ -489,7 +552,7 @@ function renderProducts(filter = '') {
 function addToCart(product) {
   const found = state.cart.find((x) => String(x.product_id) === String(product.id));
   if (found) found.qty += 1;
-  else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price) });
+  else state.cart.push({ product_id: product.id, name: product.name, qty: 1, price_each: Number(product.price), discount_amount: 0, discount_type: 'fixed' });
   state.lastFocusProductId = product.id;
   renderCart();
   focusQtyInput(product.id);
@@ -503,6 +566,20 @@ function updateCartQty(productId, qty) {
   renderCart();
 }
 
+function updateCartDiscount(productId, field, value) {
+  const item = state.cart.find((x) => String(x.product_id) === String(productId));
+  if (!item) return;
+  if (field === 'type') item.discount_type = normalizeDiscountType(value);
+  if (field === 'amount') item.discount_amount = normalizeDiscountAmount(value);
+  renderCart();
+}
+
+function updateTransactionDiscount() {
+  state.txDiscountType = normalizeDiscountType($('#tx-discount-type')?.value);
+  state.txDiscountAmount = normalizeDiscountAmount($('#tx-discount-amount')?.value);
+  renderCart();
+}
+
 function removeCartItem(productId) {
   state.cart = state.cart.filter((x) => String(x.product_id) !== String(productId));
   renderCart();
@@ -512,25 +589,49 @@ function renderCart() {
   const wrap = $('#cart-items');
   if (!state.cart.length) {
     wrap.innerHTML = '<div class="empty small">Keranjang kosong.</div>';
+    state.paymentLines = [];
+    resetTransactionDiscount();
   } else {
-    wrap.innerHTML = state.cart.map((i) => `
-      <div class="cart-row cart-row-edit">
-        <div class="cart-name">${i.name}<small>${rupiah(i.price_each)}</small></div>
-        <input class="cart-qty" type="number" min="1" step="1" value="${i.qty}" data-qty-id="${i.product_id}" />
-        <strong>${rupiah(i.qty * i.price_each)}</strong>
-        <button class="cart-remove" title="Hapus" data-remove-id="${i.product_id}">×</button>
-      </div>`).join('');
-    wrap.querySelectorAll('[data-qty-id]').forEach((el) => {
-      el.onchange = () => updateCartQty(el.dataset.qtyId, el.value);
-      el.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); updateCartQty(el.dataset.qtyId, el.value); el.focus(); el.select(); } };
-    });
+    wrap.innerHTML = state.cart.map((raw) => {
+      const i = itemPayload(raw);
+      const hasItemDiscount = i.discount_value > 0;
+      return `
+      <div class="cart-row cart-row-edit cart-row-with-discount">
+        <div class="cart-row-main">
+          <div class="cart-name">${escapeHtml(i.name)}<small>${rupiah(i.price_each)} x ${i.qty}</small></div>
+          <button class="cart-remove" title="Hapus" data-remove-id="${i.product_id}">×</button>
+        </div>
+        <div class="cart-row-controls">
+          <input class="cart-qty" type="number" min="1" step="1" value="${i.qty}" data-qty-id="${i.product_id}" />
+          <div class="item-discount-control">
+            <select data-disc-type-id="${i.product_id}" aria-label="Tipe diskon item ${escapeHtml(i.name)}">
+              <option value="fixed"${i.discount_type === 'fixed' ? ' selected' : ''}>Rp</option>
+              <option value="percent"${i.discount_type === 'percent' ? ' selected' : ''}>%</option>
+            </select>
+            <input type="number" min="0" step="any" value="${i.discount_amount || 0}" data-disc-amount-id="${i.product_id}" placeholder="Diskon" />
+          </div>
+          <strong class="cart-line-total">${rupiah(i.line_total)}</strong>
+        </div>
+        ${hasItemDiscount ? `<div class="cart-discount-note">Diskon item: ${discountLabel(i.discount_amount, i.discount_type)} (${rupiah(i.discount_value)})</div>` : ''}
+      </div>`;
+    }).join('');
+    wrap.querySelectorAll('[data-qty-id]').forEach((el) => el.onchange = () => updateCartQty(el.dataset.qtyId, el.value));
+    wrap.querySelectorAll('[data-disc-type-id]').forEach((el) => el.onchange = () => updateCartDiscount(el.dataset.discTypeId, 'type', el.value));
+    wrap.querySelectorAll('[data-disc-amount-id]').forEach((el) => el.onchange = () => updateCartDiscount(el.dataset.discAmountId, 'amount', el.value));
     wrap.querySelectorAll('[data-remove-id]').forEach((el) => el.onclick = () => removeCartItem(el.dataset.removeId));
   }
+  const subtotal = cartSubtotal();
+  const itemDiscount = cartItemDiscountTotal();
+  const txDiscount = transactionDiscountValue();
+  $('#cart-subtotal').textContent = rupiah(subtotal);
+  $('#cart-item-discount').textContent = `- ${rupiah(itemDiscount)}`;
+  $('#cart-tx-discount').textContent = `- ${rupiah(txDiscount)}`;
+  $('#cart-item-discount-row').classList.toggle('hidden', itemDiscount <= 0);
+  $('#cart-tx-discount-row').classList.toggle('hidden', txDiscount <= 0);
   $('#cart-total').textContent = `Total: ${rupiah(cartTotal())}`;
   updateCashPaymentState();
-  updateCreditCardInfo();
+  fillMultiPaymentRemaining(false);
   renderPaymentLines();
-  if (state.lastFocusProductId) { const id = state.lastFocusProductId; state.lastFocusProductId = null; focusQtyInput(id); }
 }
 
 function renderPaymentOptions() {
@@ -816,9 +917,11 @@ async function payNow() {
 
   state.paying = true; $('#btn-pay').disabled = true;
   try {
-    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: paymentPayload, shift: state.activeShift, items: state.cart, customer: selectedCustomerPayload() });
+    const items = state.cart.map(itemPayload);
+    const txDiscount = { amount: normalizeDiscountAmount(state.txDiscountAmount), type: normalizeDiscountType(state.txDiscountType), value: transactionDiscountValue() };
+    const localSave = await window.desktopAPI.saveSaleLocal({ user: state.user, guide, payment: paymentPayload, shift: state.activeShift, items, customer: selectedCustomerPayload(), tx_discount_amount: txDiscount.amount, tx_discount_type: txDiscount.type });
     if (!localSave?.ok) return alert(localSave?.message || 'Gagal simpan transaksi lokal');
-    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: paymentBankName, guideName: guide?.name || '', customer: selectedCustomerPayload(), paymentLines: state.multiPayment ? [...state.paymentLines] : [paymentPayload], items: [...state.cart], total, cashReceived, cashChange };
+    state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: paymentBankName, guideName: guide?.name || '', customer: selectedCustomerPayload(), paymentLines: state.multiPayment ? [...state.paymentLines] : [paymentPayload], items, subtotal: cartSubtotal(), itemDiscountTotal: cartItemDiscountTotal(), subtotalBeforeTxDiscount: cartTotalBeforeTransactionDiscount(), txDiscount, total, cashReceived, cashChange };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
     switchTab('receipt'); renderReceipt(); await loadPosState();
   } finally { state.paying = false; $('#btn-pay').disabled = false; }
@@ -839,7 +942,7 @@ function renderReceipt() {
       silent: true
     });
   };
-  $('#btn-new-transaction').onclick = () => { state.cart = []; state.paymentLines = []; state.latestReceipt = null; renderCart(); renderPaymentLines(); switchTab('pos'); };
+  $('#btn-new-transaction').onclick = () => { state.cart = []; state.paymentLines = []; state.latestReceipt = null; resetTransactionDiscount(); renderCart(); renderPaymentLines(); switchTab('pos'); };
 }
 
 async function initApiDialog() { const s = await window.desktopAPI.getSettings(); $('#api-base-url').value = s.apiBaseUrl || ''; $('#api-token').value = ''; $('#api-token-preview').textContent = s.apiTokenMasked || '(kosong)'; }
@@ -1033,6 +1136,8 @@ async function bootstrap() {
   document.querySelectorAll('.history-range').forEach((b) => b.onclick = async () => { setHistoryRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadHistory(); });
   document.querySelectorAll('.recap-range').forEach((b) => b.onclick = async () => { setRecapRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadRecap(); });
   setHistoryRange('today'); setRecapRange('today');
+  $('#tx-discount-type').onchange = updateTransactionDiscount;
+  $('#tx-discount-amount').oninput = updateTransactionDiscount;
   $('#btn-pay').onclick = payNow;
   $('#product-search').oninput = (e) => renderProducts(e.target.value);
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = null; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };

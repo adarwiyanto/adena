@@ -624,3 +624,28 @@ button { background: var(--desktop-secondary); }
 .receipt-preview .receipt-payment-line { margin:5px 0; }
 .receipt-preview .receipt-footer { text-align:center; font-size:11px; margin-top:8px; }
 .receipt-actions { display:flex; justify-content:center; gap:10px; margin-top:14px; }
+
+
+/* Patch v1.5.3: restore multi-payment, keep discount controls desktop-friendly */
+.layout { grid-template-columns: minmax(104px, 120px) minmax(560px, 1fr) minmax(440px, 520px); }
+.cart-panel { min-width: 0; }
+.cart-row.cart-row-with-discount { display:grid; grid-template-columns:1fr; gap:8px; align-items:stretch; }
+.cart-row-main { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.cart-row-controls { display:grid; grid-template-columns:72px minmax(150px, 1fr) auto; gap:8px; align-items:center; }
+.cart-qty { width:100%; min-width:0; }
+.item-discount-control { display:grid; grid-template-columns:76px minmax(70px, 1fr); gap:6px; align-items:center; }
+.item-discount-control select, .item-discount-control input { width:100%; min-width:0; }
+.cart-line-total { white-space:nowrap; text-align:right; }
+.cart-remove { width:30px; height:30px; border-radius:999px; border:0; background:#fee2e2; color:#991b1b; font-weight:800; cursor:pointer; }
+.cart-discount-note { font-size:.78rem; color:#64748b; padding-top:2px; border-top:1px dashed rgba(148,163,184,.5); }
+.tx-discount-box { border:1px dashed rgba(148,163,184,.45); border-radius:14px; padding:10px 12px; background:rgba(248,250,252,.85); display:grid; gap:6px; }
+.discount-control { display:grid; grid-template-columns:82px 1fr; gap:8px; }
+.discount-control select, .discount-control input { width:100%; min-width:0; }
+@media (max-width: 1360px) {
+  .layout { grid-template-columns: minmax(96px, 112px) minmax(520px, 1fr) minmax(420px, 440px); }
+  .cart-row-controls { grid-template-columns:64px minmax(140px,1fr) auto; }
+}
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: 112px 1fr; }
+  .cart-panel { grid-column:1 / -1; }
+}
