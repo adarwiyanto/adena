@@ -5,6 +5,7 @@
  */
 require_once __DIR__ . '/../helpers.php';
 require_once __DIR__ . '/../../core/single_branch.php';
+require_once __DIR__ . '/../../core/inventory.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
@@ -27,6 +28,8 @@ $debugMode = (($_GET['debug'] ?? '0') === '1') || (($_SERVER['HTTP_X_DEBUG_SYNC'
 $incomingShifts = (array)($body['shifts'] ?? []);
 $incomingMovements = (array)($body['cash_movements'] ?? []);
 $incomingTransactions = (array)($body['transactions'] ?? []);
+$branchId = adena_normalize_branch_id($user['branch_id'] ?? ($body['branch_id'] ?? null));
+ensure_inventory_module_schema();
 
 if (count($incomingShifts) === 0 && count($incomingMovements) === 0 && count($incomingTransactions) === 0) {
     api_json([
@@ -194,6 +197,11 @@ try {
         $existing = $pdo->prepare("SELECT id FROM sales WHERE offline_uuid = ? LIMIT 1");
         $existing->execute([$txUuid]);
         if ($existing->fetch(PDO::FETCH_ASSOC)) {
+            $rows = $pdo->prepare("SELECT id FROM sales WHERE offline_uuid = ? OR local_transaction_id = ?");
+            $rows->execute([$txUuid, $localTxId]);
+            foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                apply_sale_stock_out_by_sale_id((int)$r['id'], (int)$user['id'], 'Backfill stok penjualan POS Desktop');
+            }
             $results['transactions'][$txUuid] = ['status' => 'exists', 'message' => 'offline_uuid sudah ada'];
             $summary['exists']++;
             continue;
@@ -203,6 +211,11 @@ try {
             $dup = $pdo->prepare("SELECT id FROM sales WHERE local_device_id = ? AND local_transaction_id = ? LIMIT 1");
             $dup->execute([$deviceId, $localTxId]);
             if ($dup->fetch(PDO::FETCH_ASSOC)) {
+                $rows = $pdo->prepare("SELECT id FROM sales WHERE local_device_id = ? AND local_transaction_id = ?");
+                $rows->execute([$deviceId, $localTxId]);
+                foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    apply_sale_stock_out_by_sale_id((int)$r['id'], (int)$user['id'], 'Backfill stok penjualan POS Desktop');
+                }
                 $results['transactions'][$txUuid] = ['status' => 'exists', 'message' => 'local_transaction_id sudah ada'];
                 $summary['exists']++;
                 continue;
@@ -250,7 +263,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          tx_discount_amount, tx_discount_type,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
                          local_device_id, local_transaction_id,
-                         created_by, shift_id, sold_at,
+                         created_by, branch_id, shift_id, sold_at,
                          sync_status, original_sale_id,
                          is_active_revision, revision_no, revision_status,
                          base_sale_code)
@@ -260,7 +273,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          ?, ?,
                          ?, ?,
                          ?, ?, ?, ?, ?, ?,
-                         ?, ?, ?, ?, ?,
+                         ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
                          ?)
@@ -275,7 +288,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     $txDiscAmt, $txDiscType,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
                     $deviceId ?: null, $localTxId ?: $txUuid,
-                    $cashierId, $shiftServerId, $soldAt,
+                    $cashierId, $branchId, $shiftServerId, $soldAt,
                     $firstId,
                     $txCode,
                 ]);
@@ -285,6 +298,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     $firstId = $newId;
                     $pdo->prepare("UPDATE sales SET original_sale_id = ? WHERE id = ?")->execute([$newId, $newId]);
                 }
+                apply_sale_stock_out_by_sale_id($newId, (int)$user['id'], 'Penjualan POS Desktop sync');
             }
 
             if ($customerId && $txDiscAmt >= 0) {

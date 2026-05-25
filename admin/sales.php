@@ -57,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
           }
         }
+        rollback_sale_stock_in_by_transaction_code($transactionCode, (int)($me['id'] ?? 0), 'Rollback hapus transaksi');
         $stmt = db()->prepare("DELETE FROM sales WHERE transaction_code=?");
         $stmt->execute([$transactionCode]);
       } else {
@@ -75,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             upload_secure_delete($sale['payment_proof_path'], 'image');
           }
         }
+        rollback_sale_stock_in_by_sale_id($legacySaleId, (int)($me['id'] ?? 0), 'Rollback hapus transaksi legacy');
         $stmt = db()->prepare("DELETE FROM sales WHERE id=?");
         $stmt->execute([$legacySaleId]);
       }
@@ -118,10 +120,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $reason = trim($_POST['return_reason'] ?? '');
       if ($reason === '') throw new Exception('Alasan retur wajib diisi.');
       if ($transactionCode !== '' && strpos($transactionCode, 'LEGACY-') !== 0) {
+        rollback_sale_stock_in_by_transaction_code($transactionCode, (int)($me['id'] ?? 0), 'Rollback retur transaksi');
         $stmt = db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW() WHERE transaction_code=?");
         $stmt->execute([$reason, $transactionCode]);
       } else {
         if ($legacySaleId <= 0) throw new Exception('Transaksi tidak ditemukan.');
+        rollback_sale_stock_in_by_sale_id($legacySaleId, (int)($me['id'] ?? 0), 'Rollback retur transaksi legacy');
         $stmt = db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW() WHERE id=?");
         $stmt->execute([$reason, $legacySaleId]);
       }
@@ -148,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute([$transactionCode, $transactionCode, $product_id, $qty, $price, $total, (int)($me['id'] ?? 0), $branchId]);
     $saleId = (int)db()->lastInsertId();
     db()->prepare("UPDATE sales SET original_sale_id=? WHERE id=?")->execute([$saleId, $saleId]);
+    apply_sale_stock_out_by_sale_id($saleId, (int)($me['id'] ?? 0), 'Penjualan admin/web');
 
     redirect(base_url('admin/sales.php'));
   } catch (Throwable $e) {

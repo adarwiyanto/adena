@@ -44,11 +44,15 @@ function saveSaleLocally({ user, guide, payment, shift, items, tx_discount_amoun
      discount_amount, discount_type, tx_discount_amount, tx_discount_type,
      local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const insertLedger = db.prepare(`INSERT INTO stock_ledger
+    (branch_id, product_id, trans_type, ref_table, ref_id, qty_in, qty_out, unit_cost, note, created_by, created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+  const productTracksStock = db.prepare('SELECT COALESCE(track_stock, 1) AS track_stock FROM products WHERE id = ? LIMIT 1');
 
   const tx = db.transaction(() => {
     for (const item of items) {
       const itemOfflineUuid = uuidv4();
-      insert.run(
+      const info = insert.run(
         transactionCode,
         transactionGroupUuid,
         itemOfflineUuid,
@@ -76,6 +80,23 @@ function saveSaleLocally({ user, guide, payment, shift, items, tx_discount_amoun
         payment.cash_received ?? null,
         payment.cash_change ?? null
       );
+      const saleLocalId = Number(info.lastInsertRowid || 0);
+      const p = productTracksStock.get(item.product_id);
+      if (saleLocalId > 0 && (!p || Number(p.track_stock ?? 1) === 1)) {
+        insertLedger.run(
+          branchId,
+          item.product_id,
+          'pos_sale_local',
+          'sales',
+          saleLocalId,
+          0,
+          Number(item.qty || 0),
+          null,
+          `Penjualan lokal ${transactionCode}`,
+          user.id,
+          nowLocal
+        );
+      }
     }
   });
 

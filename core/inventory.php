@@ -399,6 +399,84 @@ function add_stock_ledger(array $row): void {
   ]);
 }
 
+function inventory_product_tracks_stock(int $productId): bool {
+  try {
+    $stmt = db()->prepare("SELECT COALESCE(track_stock,1) AS track_stock FROM products WHERE id=? LIMIT 1");
+    $stmt->execute([$productId]);
+    $row = $stmt->fetch();
+    if (!$row) return false;
+    return (int)($row['track_stock'] ?? 1) === 1;
+  } catch (Throwable $e) {
+    return true;
+  }
+}
+
+function stock_ledger_ref_exists(string $transType, string $refTable, int $refId): bool {
+  try {
+    $stmt = db()->prepare("SELECT id FROM stock_ledger WHERE trans_type=? AND ref_table=? AND ref_id=? LIMIT 1");
+    $stmt->execute([$transType, $refTable, $refId]);
+    return (bool)$stmt->fetch();
+  } catch (Throwable $e) {
+    return false;
+  }
+}
+
+function apply_sale_stock_out_by_sale_id(int $saleId, int $actorId = 0, string $note = 'Penjualan'): void {
+  $stmt = db()->prepare("SELECT id, product_id, qty, branch_id, transaction_code FROM sales WHERE id=? LIMIT 1");
+  $stmt->execute([$saleId]);
+  $row = $stmt->fetch();
+  if (!$row) return;
+  $productId = (int)$row['product_id'];
+  $qty = (float)$row['qty'];
+  if ($productId <= 0 || $qty <= 0 || !inventory_product_tracks_stock($productId)) return;
+  if (stock_ledger_ref_exists('pos_sale', 'sales', $saleId)) return;
+  add_stock_ledger([
+    'branch_id' => (int)($row['branch_id'] ?: active_branch_id()),
+    'product_id' => $productId,
+    'trans_type' => 'pos_sale',
+    'ref_table' => 'sales',
+    'ref_id' => $saleId,
+    'qty_in' => 0,
+    'qty_out' => $qty,
+    'unit_cost' => null,
+    'note' => trim($note . ' ' . (string)($row['transaction_code'] ?? '')),
+    'created_by' => $actorId > 0 ? $actorId : null,
+  ]);
+}
+
+function rollback_sale_stock_in_by_sale_id(int $saleId, int $actorId = 0, string $note = 'Rollback penjualan'): void {
+  $stmt = db()->prepare("SELECT id, product_id, qty, branch_id, transaction_code FROM sales WHERE id=? LIMIT 1");
+  $stmt->execute([$saleId]);
+  $row = $stmt->fetch();
+  if (!$row) return;
+  $productId = (int)$row['product_id'];
+  $qty = (float)$row['qty'];
+  if ($productId <= 0 || $qty <= 0 || !inventory_product_tracks_stock($productId)) return;
+  if (stock_ledger_ref_exists('sale_delete_rollback', 'sales', $saleId)) return;
+  add_stock_ledger([
+    'branch_id' => (int)($row['branch_id'] ?: active_branch_id()),
+    'product_id' => $productId,
+    'trans_type' => 'sale_delete_rollback',
+    'ref_table' => 'sales',
+    'ref_id' => $saleId,
+    'qty_in' => $qty,
+    'qty_out' => 0,
+    'unit_cost' => null,
+    'note' => trim($note . ' ' . (string)($row['transaction_code'] ?? '')),
+    'created_by' => $actorId > 0 ? $actorId : null,
+  ]);
+}
+
+function rollback_sale_stock_in_by_transaction_code(string $transactionCode, int $actorId = 0, string $note = 'Rollback hapus transaksi'): void {
+  $transactionCode = trim($transactionCode);
+  if ($transactionCode === '') return;
+  $stmt = db()->prepare("SELECT id FROM sales WHERE transaction_code=?");
+  $stmt->execute([$transactionCode]);
+  foreach ($stmt->fetchAll() as $row) {
+    rollback_sale_stock_in_by_sale_id((int)$row['id'], $actorId, $note);
+  }
+}
+
 function get_active_bom_for_product(int $productId, int $branchId): ?array {
   $stmt = db()->prepare("SELECT * FROM bom_headers
     WHERE finished_product_id=? AND is_active=1 AND (branch_id IS NULL OR branch_id=?)

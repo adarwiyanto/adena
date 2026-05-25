@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_common.php';
+require_once __DIR__ . '/../../core/inventory.php';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
   $token = api_verify_token('sales.view');
@@ -9,6 +10,7 @@ if ($method === 'GET') {
 }
 if ($method === 'POST') {
   $token = api_verify_token('sales.push');
+  ensure_inventory_module_schema();
   $in = api_v1_input(); $items = $in['items'] ?? [$in]; $count=0;
   foreach ($items as $r) {
     if (!is_array($r)) continue;
@@ -19,7 +21,10 @@ if ($method === 'POST') {
     if (api_v1_col_exists('sales','branch_id') && !in_array('branch_id',$use,true)) { $use[]='branch_id'; $vals[]=$branchId ?: null; }
     if (!$use || !in_array('product_id',$use,true)) continue;
     $sql='INSERT INTO sales (`'.implode('`,`',$use).'`) VALUES ('.implode(',',array_fill(0,count($use),'?')).')';
-    db()->prepare($sql)->execute($vals); $count++;
+    db()->prepare($sql)->execute($vals);
+    $saleId = (int)db()->lastInsertId();
+    apply_sale_stock_out_by_sale_id($saleId, (int)($token['id'] ?? 0), 'Penjualan API v1');
+    $count++;
   }
   api_ok(['imported'=>$count]);
 }
