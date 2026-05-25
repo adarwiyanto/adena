@@ -1,7 +1,7 @@
 const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', lastFocusProductId: null, multiPayment: false, paymentLines: [], txDiscountAmount: 0, txDiscountType: 'fixed' };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
-const APP_FOOTER = 'Adena POS Desktop ver 1.5.4';
+const APP_FOOTER = 'Adena POS Desktop ver 1.5.5';
 const $ = (s) => document.querySelector(s);
 let toastTimer;
 const imageCacheQueue = new Set();

@@ -273,7 +273,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          ?, ?,
                          ?, ?,
                          ?, ?, ?, ?, ?, ?,
-                         ?, ?, ?, ?,
+                         ?, ?, ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
                          ?)
