@@ -581,6 +581,42 @@ function stock_products_for_opname(int $branchId, string $search = '', string $c
   return $stmt->fetchAll();
 }
 
+function stock_products_for_stock_view(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
+  $params = [$branchId];
+  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.reorder_level,
+      p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
+      COALESCE(st.current_stock,0) AS current_stock
+    FROM products p
+    LEFT JOIN (
+      SELECT product_id, SUM(qty_in - qty_out) AS current_stock
+      FROM stock_ledger
+      WHERE branch_id=?
+      GROUP BY product_id
+    ) st ON st.product_id=p.id
+    WHERE 1=1";
+
+  if ($search !== '') {
+    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
+    $term = '%' . $search . '%';
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+  }
+  if ($category !== '') {
+    $sql .= " AND COALESCE(p.category,'') = ?";
+    $params[] = $category;
+  }
+  if ($productType !== '' && in_array($productType, ['raw_material', 'finished_good', 'service'], true)) {
+    $sql .= " AND p.product_type = ?";
+    $params[] = $productType;
+  }
+
+  $sql .= " ORDER BY p.name ASC";
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  return $stmt->fetchAll();
+}
+
 function stock_categories(): array {
   $stmt = db()->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category ASC");
   return $stmt->fetchAll();
@@ -605,7 +641,25 @@ function create_stock_opname_draft(PDO $db, array $header, array $products): int
     VALUES (?,?,?,?,?,?,?,?,?)");
   foreach ($products as $p) {
     $systemQty = (float)($p['current_stock'] ?? 0);
-    $itemStmt->execute([$opnameId, (int)$p['id'], $systemQty, $systemQty, 0, 'zero', null, null, 0]);
+    // Stok sistem boleh bernilai negatif karena berasal dari ledger.
+    // Kuantitas fisik tidak boleh negatif, sehingga default fisik dibuat minimal 0.
+    // Contoh: sistem -1, fisik default 0 => variance +1; bila user isi fisik 5 => variance +6 dan saldo akhir menjadi 5 saat approval.
+    $physicalQty = $systemQty < 0 ? 0.0 : $systemQty;
+    $variance = round($physicalQty - $systemQty, 4);
+    $type = 'zero';
+    if ($variance > 0) $type = 'plus';
+    if ($variance < 0) $type = 'minus';
+    $itemStmt->execute([
+      $opnameId,
+      (int)$p['id'],
+      $systemQty,
+      $physicalQty,
+      $variance,
+      $type,
+      null,
+      null,
+      stock_variance_needs_warning($variance) ? 1 : 0,
+    ]);
   }
   return $opnameId;
 }
@@ -700,6 +754,12 @@ function approve_stock_opname(PDO $db, int $opnameId, int $userId, string $note 
     $variance = (float)$it['variance_qty'];
     if (abs($variance) < 0.00001) continue;
     $transType = $variance > 0 ? 'stock_opname_adjustment_plus' : 'stock_opname_adjustment_minus';
+    $reason = trim((string)($it['reason_note'] ?? ''));
+    $lineNote = trim((string)($it['line_note'] ?? ''));
+    $noteParts = ['Adjustment stok opname ' . (string)$header['opname_no']];
+    if ($reason !== '') $noteParts[] = 'Alasan: ' . $reason;
+    if ($lineNote !== '') $noteParts[] = 'Catatan: ' . $lineNote;
+
     add_stock_ledger([
       'branch_id' => (int)$header['branch_id'],
       'product_id' => (int)$it['product_id'],
@@ -709,7 +769,7 @@ function approve_stock_opname(PDO $db, int $opnameId, int $userId, string $note 
       'qty_in' => $variance > 0 ? abs($variance) : 0,
       'qty_out' => $variance < 0 ? abs($variance) : 0,
       'unit_cost' => null,
-      'note' => 'Adjustment stok opname ' . (string)$header['opname_no'],
+      'note' => implode(' | ', $noteParts),
       'created_by' => $userId,
     ]);
   }

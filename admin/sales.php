@@ -8,7 +8,6 @@ require_once __DIR__ . '/../lib/upload_secure.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../core/sales_revision.php';
-require_once __DIR__ . '/../core/ops14.php';
 
 start_secure_session();
 require_admin();
@@ -19,7 +18,6 @@ ensure_sales_payment_bank_column();
 ensure_inventory_module_schema();
 ensure_rbac_schema();
 ensure_sales_revision_schema();
-ensure_adena14_schema();
 
 $err = '';
 $me = require_menu_access('sales', 'view');
@@ -59,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
           }
         }
+        rollback_sale_stock_in_by_transaction_code($transactionCode, (int)($me['id'] ?? 0), 'Rollback hapus transaksi');
         $stmt = db()->prepare("DELETE FROM sales WHERE transaction_code=?");
         $stmt->execute([$transactionCode]);
       } else {
@@ -77,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             upload_secure_delete($sale['payment_proof_path'], 'image');
           }
         }
+        rollback_sale_stock_in_by_sale_id($legacySaleId, (int)($me['id'] ?? 0), 'Rollback hapus transaksi legacy');
         $stmt = db()->prepare("DELETE FROM sales WHERE id=?");
         $stmt->execute([$legacySaleId]);
       }
@@ -120,10 +120,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $reason = trim($_POST['return_reason'] ?? '');
       if ($reason === '') throw new Exception('Alasan retur wajib diisi.');
       if ($transactionCode !== '' && strpos($transactionCode, 'LEGACY-') !== 0) {
+        rollback_sale_stock_in_by_transaction_code($transactionCode, (int)($me['id'] ?? 0), 'Rollback retur transaksi');
         $stmt = db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW() WHERE transaction_code=?");
         $stmt->execute([$reason, $transactionCode]);
       } else {
         if ($legacySaleId <= 0) throw new Exception('Transaksi tidak ditemukan.');
+        rollback_sale_stock_in_by_sale_id($legacySaleId, (int)($me['id'] ?? 0), 'Rollback retur transaksi legacy');
         $stmt = db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW() WHERE id=?");
         $stmt->execute([$reason, $legacySaleId]);
       }
@@ -136,8 +138,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($product_id <= 0) throw new Exception('Produk wajib dipilih.');
     if ($qty <= 0) throw new Exception('Qty minimal 1.');
 
-    $stmt = db()->prepare("SELECT price FROM products WHERE id=?");
-    $stmt->execute([$product_id]);
+    $branchId = active_branch_id();
+    $stmt = db()->prepare("SELECT CASE WHEN bpp.is_active = 1 THEN bpp.price ELSE p.price END AS price FROM products p LEFT JOIN branch_product_prices bpp ON bpp.product_id=p.id AND bpp.branch_id=? WHERE p.id=?");
+    $stmt->execute([$branchId, $product_id]);
     $p = $stmt->fetch();
     if (!$p) throw new Exception('Produk tidak ditemukan.');
 
@@ -145,10 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $total = $price * $qty;
 
     $transactionCode = 'TRX-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(2)));
-    $stmt = db()->prepare("INSERT INTO sales (transaction_code, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, created_by) VALUES (?,?,NULL,0,1,'active',NULL,?,?,?,?,?)");
-    $stmt->execute([$transactionCode, $transactionCode, $product_id, $qty, $price, $total, (int)($me['id'] ?? 0)]);
+    $stmt = db()->prepare("INSERT INTO sales (transaction_code, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, created_by, branch_id) VALUES (?,?,NULL,0,1,'active',NULL,?,?,?,?,?,?)");
+    $stmt->execute([$transactionCode, $transactionCode, $product_id, $qty, $price, $total, (int)($me['id'] ?? 0), $branchId]);
     $saleId = (int)db()->lastInsertId();
     db()->prepare("UPDATE sales SET original_sale_id=? WHERE id=?")->execute([$saleId, $saleId]);
+    apply_sale_stock_out_by_sale_id($saleId, (int)($me['id'] ?? 0), 'Penjualan admin/web');
 
     redirect(base_url('admin/sales.php'));
   } catch (Throwable $e) {
@@ -209,11 +213,7 @@ $stmt = db()->prepare("
   SELECT
     COALESCE(NULLIF(s.transaction_code, ''), CONCAT('LEGACY-', s.id)) AS tx_code,
     MIN(s.sold_at) AS sold_at,
-    SUM(COALESCE(NULLIF(s.line_net_total,0), s.total)) AS total_amount,
-    SUM(COALESCE(NULLIF(s.line_subtotal,0), s.qty*s.price_each)) AS subtotal_amount,
-    SUM(COALESCE(s.discount_amount,0)) AS item_discount_amount,
-    MAX(COALESCE(s.tx_discount_amount,0)) AS tx_discount_amount,
-    MAX(COALESCE(s.tx_discount_type,'fixed')) AS tx_discount_type,
+    SUM(s.total) AS total_amount,
     MAX(s.payment_method) AS payment_method,
     MAX(s.payment_bank) AS payment_bank,
     MAX(s.payment_proof_path) AS payment_proof_path,
@@ -503,7 +503,7 @@ $customCss = setting('custom_css', '');
                     </div>
                     <span><?php echo e($tx['sold_at']); ?></span>
                   </div>
-                  <div><strong>Rp <?php echo e(format_number_id((float)$tx['total_amount'])); ?></strong></div><small>Subtotal Rp <?php echo e(format_number_id((float)($tx['subtotal_amount'] ?? $tx['total_amount']))); ?> · Diskon item Rp <?php echo e(format_number_id((float)($tx['item_discount_amount'] ?? 0))); ?> · Diskon trx <?php echo e((string)($tx['tx_discount_type'] ?? 'fixed')); ?> <?php echo e(format_number_id((float)($tx['tx_discount_amount'] ?? 0))); ?></small>
+                  <div><strong>Rp <?php echo e(format_number_id((float)$tx['total_amount'])); ?></strong></div>
                 </div>
                 <div class="transaction-summary">
                   <span>Kasir: <?php echo e($tx['cashier_name'] ?? '-'); ?></span>
@@ -587,9 +587,9 @@ $customCss = setting('custom_css', '');
               <?php if (!empty($detailSale['payment_bank'])): ?>
                 <p><strong>Bank QRIS:</strong> <?php echo e($detailSale['payment_bank']); ?></p>
               <?php endif; ?>
-              <table class="table"><thead><tr><th>Produk</th><th>Qty</th><th>Satuan</th><th>Harga</th><th>Diskon</th><th>Subtotal/Net</th></tr></thead><tbody>
+              <table class="table"><thead><tr><th>Produk</th><th>Qty</th><th>Satuan</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>
                 <?php $sum=0; foreach ($detailItems as $di): $sum += (float)$di['total']; ?>
-                  <tr><td><?php echo e($di['product_name']); ?></td><td><?php echo e((string)$di['qty']); ?></td><td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td><td>Rp <?php echo e(format_number_id((float)$di['price_each'])); ?></td><td><?php echo e(($di['discount_type'] ?? 'fixed')); ?> <?php echo e(format_number_id((float)($di['discount_amount'] ?? 0))); ?></td><td>Rp <?php echo e(format_number_id((float)($di['line_net_total'] ?: $di['total']))); ?></td></tr>
+                  <tr><td><?php echo e($di['product_name']); ?></td><td><?php echo e((string)$di['qty']); ?></td><td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td><td>Rp <?php echo e(format_number_id((float)$di['price_each'])); ?></td><td>Rp <?php echo e(format_number_id((float)$di['total'])); ?></td></tr>
                 <?php endforeach; ?>
               </tbody></table>
               <p><strong>Subtotal:</strong> Rp <?php echo e(format_number_id($sum)); ?> · <strong>Grand Total:</strong> Rp <?php echo e(format_number_id($sum)); ?></p>

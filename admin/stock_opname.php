@@ -99,6 +99,7 @@ function opname_status_badge(string $status): string {
   <td><span class="badge" style="<?php echo opname_status_badge((string)$r['status']); ?>"><?php echo e((string)$r['status']); ?></span></td>
   <td style="display:flex;gap:6px;flex-wrap:wrap">
     <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_form.php?id=' . (int)$r['id'])); ?>">Detail</a>
+    <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$r['id'])); ?>" target="_blank">Rekap Selisih</a>
     <?php if(($r['status'] ?? '') === 'draft' && has_menu_access($u, 'stok_opname', 'edit')): ?>
       <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn" type="submit">Submit</button></form>
     <?php endif; ?>

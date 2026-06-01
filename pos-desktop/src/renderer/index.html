@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Adena POS Desktop ver 1.4.3</title>
+  <title>Adena POS Desktop</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
@@ -95,13 +95,28 @@
           <h3>Keranjang</h3>
           <div id="cart-items"></div>
           <div id="cart-total" class="cart-total">Total: Rp 0</div>
+          <div class="cart-discount-panel">
+            <div class="discount-title">Diskon Transaksi</div>
+            <div class="discount-row">
+              <input id="tx-disc-amt" type="number" min="0" step="1" value="0" placeholder="0" />
+              <select id="tx-disc-type">
+                <option value="fixed">Rp</option>
+                <option value="percent">%</option>
+              </select>
+              <button id="btn-clear-tx-discount" type="button">Reset</button>
+            </div>
+            <div id="tx-disc-preview" class="discount-preview">Diskon: Rp 0</div>
+          </div>
           <div class="checkout">
             <label>Pelanggan</label>
             <div class="customer-fields">
               <input id="customer-name" type="text" placeholder="Nama pelanggan (opsional)" />
               <input id="customer-phone" type="tel" placeholder="No. telp (opsional)" />
             </div>
-            <label>Guide</label><select id="guide"></select>
+            <label>Guide</label>
+            <input id="guide-search" list="guide-list" placeholder="Cari / ketik nama guide" autocomplete="off" />
+            <datalist id="guide-list"></datalist>
+            <select id="guide" class="guide-select"></select>
             <div class="payment-mode-row">
               <label><input id="multi-payment-toggle" type="checkbox" /> Multi pembayaran</label>
             </div>

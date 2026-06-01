@@ -19,7 +19,33 @@ function formatTransactionCode(deviceCode) {
   return `TRX-${date}-${time}-post${deviceCode}`;
 }
 
-function saveSaleLocally({ user, guide, payment, shift, items }) {
+function numberOrZero(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeDiscountType(value) {
+  return value === 'percent' ? 'percent' : 'fixed';
+}
+
+function itemGross(item) {
+  return numberOrZero(item.qty) * numberOrZero(item.price_each);
+}
+
+function itemDiscountValue(item) {
+  const gross = itemGross(item);
+  const amount = Math.max(0, numberOrZero(item.discount_amount));
+  const type = normalizeDiscountType(item.discount_type);
+  if (!amount || !gross) return 0;
+  if (type === 'percent') return Math.min(gross, Math.round(gross * Math.min(100, amount) / 100));
+  return Math.min(gross, amount);
+}
+
+function itemNet(item) {
+  return Math.max(0, itemGross(item) - itemDiscountValue(item));
+}
+
+function saveSaleLocally({ user, guide, payment, shift, items, txDiscount }) {
   const device = ensureDeviceCode();
   if (!device.ok) {
     return { ok: false, message: device.message };
@@ -34,19 +60,21 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
   const activeShift = shift || db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get();
   if (!activeShift) return { ok: false, message: 'Shift belum aktif. Buka shift terlebih dahulu.' };
 
-  const branchId = Number(activeShift.branch_id || store.get('branchId') || 1);
-  const saleSource = String(store.get('saleSource') || 'branch_pos');
-  const unitType = saleSource === 'kitchen_direct' ? 'kitchen' : 'branch';
+  const txDiscountAmount = Math.max(0, numberOrZero(txDiscount?.amount));
+  const txDiscountType = normalizeDiscountType(txDiscount?.type);
 
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
-     payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, sale_source, unit_type, shift_id, sold_at,
+     discount_amount, discount_type, tx_discount_amount, tx_discount_type,
+     payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, shift_id, sold_at,
      local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     for (const item of items) {
       const itemOfflineUuid = uuidv4();
+      const discountAmount = Math.max(0, numberOrZero(item.discount_amount));
+      const discountType = normalizeDiscountType(item.discount_type);
       insert.run(
         transactionCode,
         transactionGroupUuid,
@@ -54,15 +82,17 @@ function saveSaleLocally({ user, guide, payment, shift, items }) {
         item.product_id,
         item.qty,
         item.price_each,
-        item.qty * item.price_each,
+        itemNet({ ...item, discount_amount: discountAmount, discount_type: discountType }),
+        discountAmount,
+        discountType,
+        txDiscountAmount,
+        txDiscountType,
         payment.method,
         payment.bank_name || null,
         guide?.id || null,
         guide?.name || null,
         user.id,
-        branchId,
-        saleSource,
-        unitType,
+        activeShift.branch_id || 1,
         activeShift.id,
         nowLocal,
         store.get('deviceId'),

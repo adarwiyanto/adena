@@ -62,8 +62,7 @@ function ensure_rbac_schema(): void {
   $defaults = [
     ['owner', 'Owner', 1],
     ['admin', 'Admin', 1],
-    ['manager_cabang', 'Manager Cabang', 1],
-    ['pegawai_cabang', 'Pegawai Cabang', 1],
+    ['manager', 'Manager', 1],
     ['kasir', 'Kasir', 1],
     ['gudang', 'Gudang', 1],
   ];
@@ -77,31 +76,16 @@ function ensure_rbac_schema(): void {
   }
 
   try {
-    $oldManagerId = role_id_by_key('manager');
-    $branchManagerId = role_id_by_key('manager_cabang');
-    if ($oldManagerId > 0 && $branchManagerId > 0 && $oldManagerId !== $branchManagerId) {
-      db()->prepare("UPDATE users SET role_id=?, role='manager_cabang' WHERE role_id=? OR role='manager'")->execute([$branchManagerId, $oldManagerId]);
-      db()->prepare("DELETE FROM roles WHERE id=? AND role_key='manager'")->execute([$oldManagerId]);
-    } elseif ($oldManagerId > 0 && $branchManagerId <= 0) {
-      db()->prepare("UPDATE roles SET role_key='manager_cabang', role_name='Manager Cabang' WHERE id=?")->execute([$oldManagerId]);
-    }
-  } catch (Throwable $e) {}
-
-  try {
     db()->exec("UPDATE users SET role='owner' WHERE role='superadmin'");
-    db()->exec("UPDATE users SET role='manager_cabang' WHERE role='manager'");
   } catch (Throwable $e) {}
 
   $roleMap = [
     'owner' => 'owner',
     'admin' => 'admin',
-    'manager' => 'manager_cabang',
-    'manager_cabang' => 'manager_cabang',
-    'pegawai_cabang' => 'pegawai_cabang',
-    'admin_cabang' => 'manager_cabang',
+    'manager' => 'manager',
     'kasir' => 'kasir',
     'gudang' => 'gudang',
-    'pegawai' => 'pegawai_cabang',
+    'pegawai' => 'kasir',
     'user' => 'kasir',
     '' => 'kasir',
   ];
@@ -112,7 +96,6 @@ function ensure_rbac_schema(): void {
       $role = role_by_id($roleId);
       if ($role) {
         $targetRoleKey = strtolower(trim((string)($role['role_key'] ?? '')));
-        if ($targetRoleKey === 'manager') { $targetRoleKey = 'manager_cabang'; $roleId = role_id_by_key('manager_cabang'); }
       } else {
         $existingRole = strtolower(trim((string)($u['role'] ?? '')));
         $targetRoleKey = $roleMap[$existingRole] ?? $existingRole;
@@ -134,7 +117,6 @@ function ensure_rbac_schema(): void {
   }
 
   seed_default_role_permissions();
-  seed_branch_role_permissions();
 }
 
 function role_id_by_key(string $roleKey): int {
@@ -179,9 +161,7 @@ function resolve_user_role(array $user): array {
   if (!$role) {
     $legacyRole = strtolower(trim((string)($user['role'] ?? '')));
     if ($legacyRole === 'superadmin') $legacyRole = 'owner';
-    if ($legacyRole === 'manager') $legacyRole = 'manager_cabang';
-    if ($legacyRole === 'pegawai') $legacyRole = 'pegawai_cabang';
-    if ($legacyRole === 'user') $legacyRole = 'kasir';
+    if ($legacyRole === 'pegawai' || $legacyRole === 'user') $legacyRole = 'kasir';
     if ($legacyRole !== '') {
       $role = role_by_key($legacyRole);
       if ($role) {
@@ -208,25 +188,22 @@ function role_menu_tree(): array {
     'stok_opname' => ['label' => 'Stok Opname', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'customers' => ['label' => 'Pelanggan', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
     'suppliers' => ['label' => 'Supplier', 'actions' => ['view', 'create', 'edit', 'delete', 'export']],
-    'purchase' => ['label' => 'Pembelian Bahan Baku', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
+    'purchase' => ['label' => 'Pembelian Barang', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'users' => ['label' => 'Manajemen User', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'roles' => ['label' => 'Role & Permission', 'actions' => ['view', 'create', 'edit', 'delete', 'approve']],
     'shift' => ['label' => 'Buka / Tutup Shift', 'actions' => ['create', 'delete']],
     'settings' => ['label' => 'Pengaturan', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
     'rekap_omset' => ['label' => 'Rekap Omset', 'actions' => ['view', 'export']],
-    'branch_page' => ['label' => 'Halaman Cabang', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
-    'kitchen_page' => ['label' => 'Halaman Dapur', 'actions' => ['view', 'create', 'edit', 'delete', 'print', 'export', 'approve']],
   ];
 }
 
 function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
-    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset', 'branch_page', 'kitchen_page'],
-    'manager_cabang' => ['branch_page'],
-    'pegawai_cabang' => ['branch_page'],
+    'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset'],
+    'manager' => ['dashboard', 'pos_history', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
     'kasir' => ['pos', 'pos_history', 'shift'],
-    'gudang' => ['inventori', 'stok_opname', 'purchase', 'kitchen_page'],
+    'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
   foreach ($menuDefaults as $roleKey => $menus) {
     $roleId = role_id_by_key($roleKey);
@@ -256,26 +233,6 @@ function seed_default_role_permissions(): void {
         ]);
       } catch (Throwable $e) {}
     }
-  }
-}
-
-
-function seed_branch_role_permissions(): void {
-  $managerId = role_id_by_key('manager_cabang');
-  $pegawaiId = role_id_by_key('pegawai_cabang');
-  if ($managerId > 0) {
-    try {
-      db()->prepare("INSERT INTO role_permissions (role_id, menu_key, can_view, can_create, can_edit, can_delete, can_print, can_export, can_approve)
-        VALUES (?, 'branch_page', 1, 1, 0, 0, 0, 1, 0)
-        ON DUPLICATE KEY UPDATE can_view=1, can_create=1, can_edit=0, can_delete=0, can_print=0, can_export=1, can_approve=0")->execute([$managerId]);
-    } catch (Throwable $e) {}
-  }
-  if ($pegawaiId > 0) {
-    try {
-      db()->prepare("INSERT INTO role_permissions (role_id, menu_key, can_view, can_create, can_edit, can_delete, can_print, can_export, can_approve)
-        VALUES (?, 'branch_page', 1, 1, 0, 0, 0, 0, 0)
-        ON DUPLICATE KEY UPDATE can_view=1, can_create=1, can_edit=0, can_delete=0, can_print=0, can_export=0, can_approve=0")->execute([$pegawaiId]);
-    } catch (Throwable $e) {}
   }
 }
 
@@ -336,8 +293,6 @@ function has_menu_access(array $user, string $menuKey, string $action = 'view'):
 function get_menu_landing_order(): array {
   return [
     ['menu' => 'dashboard', 'url' => base_url('admin/dashboard.php')],
-    ['menu' => 'branch_page', 'url' => base_url('cabang/dashboard.php')],
-    ['menu' => 'kitchen_page', 'url' => base_url('kitchen/index.php')],
     ['menu' => 'pos', 'url' => base_url('pos/index.php')],
     ['menu' => 'sales', 'url' => base_url('admin/sales.php')],
     ['menu' => 'produk', 'url' => base_url('admin/products.php')],
@@ -350,16 +305,12 @@ function get_menu_landing_order(): array {
 }
 
 function resolve_default_landing_page_for_user(array $user): string {
-  $resolved = resolve_user_role($user);
-  $roleKey = (string)($resolved['role_key'] ?? '');
-  if (in_array($roleKey, ['manager_cabang', 'pegawai_cabang'], true) && has_menu_access($user, 'branch_page')) {
-    return base_url('cabang/dashboard.php');
-  }
-
   if (has_menu_access($user, 'dashboard')) {
     return base_url('admin/dashboard.php');
   }
 
+  $resolved = resolve_user_role($user);
+  $roleKey = (string)($resolved['role_key'] ?? '');
   if ($roleKey === 'kasir' && has_menu_access($user, 'pos')) {
     return base_url('pos/index.php');
   }

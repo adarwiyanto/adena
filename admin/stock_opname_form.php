@@ -42,34 +42,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       redirect(base_url('admin/stock_opname_form.php?id=' . $id));
     }
 
-    if ($action === 'save_items') {
+    if ($action === 'save_items' || $action === 'submit') {
       $id = (int)($_POST['id'] ?? 0);
       $itemIds = $_POST['item_id'] ?? [];
-      $systemQtys = $_POST['system_qty'] ?? [];
-      $physicalQtys = $_POST['physical_qty'] ?? [];
-      $reasonNotes = $_POST['reason_note'] ?? [];
-      $lineNotes = $_POST['line_note'] ?? [];
-      $rows = [];
-      if (!is_array($itemIds)) $itemIds = [];
-      foreach ($itemIds as $idx => $itemId) {
-        $rows[] = [
-          'id' => (int)$itemId,
-          'system_qty' => parse_number_input($systemQtys[$idx] ?? 0),
-          'physical_qty' => parse_number_input($physicalQtys[$idx] ?? 0),
-          'reason_note' => trim((string)($reasonNotes[$idx] ?? '')),
-          'line_note' => trim((string)($lineNotes[$idx] ?? '')),
-        ];
+
+      // Bila action berasal dari halaman detail, simpan dulu input terbaru
+      // agar stok fisik dan alasan selisih tidak tertinggal sebelum submit.
+      if (is_array($itemIds) && !empty($itemIds)) {
+        $systemQtys = $_POST['system_qty'] ?? [];
+        $physicalQtys = $_POST['physical_qty'] ?? [];
+        $reasonNotes = $_POST['reason_note'] ?? [];
+        $lineNotes = $_POST['line_note'] ?? [];
+        $rows = [];
+        foreach ($itemIds as $idx => $itemId) {
+          $rows[] = [
+            'id' => (int)$itemId,
+            'system_qty' => parse_number_input($systemQtys[$idx] ?? 0),
+            'physical_qty' => parse_number_input($physicalQtys[$idx] ?? 0),
+            'reason_note' => trim((string)($reasonNotes[$idx] ?? '')),
+            'line_note' => trim((string)($lineNotes[$idx] ?? '')),
+          ];
+        }
+        save_stock_opname_items($db, $id, $rows);
       }
-      save_stock_opname_items($db, $id, $rows);
+
+      if ($action === 'submit') {
+        submit_stock_opname($db, $id);
+        $db->commit();
+        redirect(base_url('admin/stock_opname.php'));
+      }
+
       $db->commit();
       redirect(base_url('admin/stock_opname_form.php?id=' . $id));
-    }
-
-    if ($action === 'submit') {
-      $id = (int)($_POST['id'] ?? 0);
-      submit_stock_opname($db, $id);
-      $db->commit();
-      redirect(base_url('admin/stock_opname.php'));
     }
   } catch (Throwable $e) {
     if (isset($db) && $db->inTransaction()) $db->rollBack();
@@ -92,9 +96,29 @@ function variance_badge(float $variance): string {
 ?>
 <!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Form Stok Opname</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style>
+<title>Form Stok Opname</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?>
+.opname-page{max-width:1560px;margin:0 auto;padding:18px 22px 34px;}
+.opname-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+.opname-head h3{margin:0 0 4px;font-size:22px;}
+.opname-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 16px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc;position:sticky;top:8px;z-index:5;box-shadow:0 10px 22px rgba(15,23,42,.06);}
+.opname-toolbar .btn{min-width:130px;text-align:center;}
+.opname-table-wrap{overflow:auto;border:1px solid #e5e7eb;border-radius:16px;background:#fff;}
+.opname-table{min-width:1280px;margin:0;}
+.opname-table th{white-space:nowrap;}
+.opname-item-name{min-width:300px;font-weight:700;color:#0f172a;}
+.opname-system{min-width:110px;white-space:nowrap;font-weight:600;}
+.opname-physical{min-width:240px;}
+.opname-physical input{max-width:220px;}
+.opname-variance{min-width:120px;white-space:nowrap;}
+.opname-warning{min-width:150px;}
+.opname-reason{min-width:230px;}
+.opname-note{min-width:230px;}
+.opname-reason input,.opname-note input{min-width:210px;}
+.opname-bottom-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
+@media (max-width:900px){.opname-page{padding:12px}.opname-toolbar{position:static}.opname-toolbar .btn,.opname-bottom-actions .btn{width:100%;}.opname-head{display:block}}
+</style>
 </head><body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
-<div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
+<div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content opname-page">
 <?php if($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
 
 <?php if(!$header): ?>
@@ -111,7 +135,7 @@ function variance_badge(float $variance): string {
 </form>
 </div>
 <?php else: ?>
-<div class="card"><h3>Detail Opname <?php echo e((string)$header['opname_no']); ?></h3>
+<div class="card"><div class="opname-head"><div><h3>Detail Opname <?php echo e((string)$header['opname_no']); ?></h3></div></div>
 <div class="grid cols-4">
 <div class="row"><label>Status</label><div><span class="badge"><?php echo e((string)$header['status']); ?></span></div></div>
 <div class="row"><label>Cabang</label><div><?php echo e((string)$header['branch_name']); ?></div></div>
@@ -123,34 +147,47 @@ function variance_badge(float $variance): string {
 
 <div class="card">
 <form method="post">
-<input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="save_items"><input type="hidden" name="id" value="<?php echo e((string)$id); ?>">
-<table class="table"><thead><tr><th>Barang</th><th>Sistem Qty</th><th>Physical Qty</th><th>Variance</th><th>Warning</th><th>Alasan Selisih</th><th>Catatan</th></tr></thead><tbody>
+<input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$id); ?>">
+<div class="opname-toolbar">
+  <?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?>
+    <button class="btn" type="submit" name="action" value="save_items">Simpan Draft</button>
+    <button class="btn" type="submit" name="action" value="submit">Submit Menunggu Approval</button>
+  <?php endif; ?>
+  <?php if($header): ?><a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$id)); ?>" target="_blank">Rekap Selisih</a><?php endif; ?>
+  <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Kembali</a>
+</div>
+<div class="opname-table-wrap">
+<table class="table opname-table"><thead><tr><th>Barang</th><th>Sistem Qty</th><th>Physical Qty</th><th>Variance</th><th>Warning</th><th>Alasan Selisih</th><th>Catatan</th></tr></thead><tbody>
 <?php foreach($items as $idx => $it):
   $variance = (float)$it['variance_qty'];
   $needsWarning = stock_variance_needs_warning($variance);
   $unitMeta = product_unit_fallback($it);
 ?>
 <tr>
-  <td>
+  <td class="opname-item-name">
     <?php echo e((string)$it['product_name']); ?>
     <input type="hidden" name="item_id[]" value="<?php echo e((string)$it['id']); ?>">
     <input type="hidden" name="system_qty[]" value="<?php echo e((string)$it['system_qty']); ?>">
   </td>
-  <td><?php echo e(format_qty((float)$it['system_qty'], $unitMeta['base_unit'])); ?></td>
-  <td><input type="number" step="0.0001" min="0" name="physical_qty[]" value="<?php echo e((string)$it['physical_qty']); ?>" <?php echo !$isDraft?'readonly':''; ?> required><small><?php echo e('Input dalam ' . $unitMeta['base_unit']); ?></small></td>
-  <td><span class="badge"><?php echo e(format_qty((float)$variance, $unitMeta['base_unit'])); ?></span></td>
-  <td><?php if($needsWarning): ?><span class="badge" style="background:#fff7ed;border-color:#fdba74;color:#9a3412">Selisih > <?php echo e(format_qty(stock_opname_warning_threshold(), $unitMeta['base_unit'])); ?></span><?php else: ?>-<?php endif; ?></td>
-  <td><input type="text" name="reason_note[]" value="<?php echo e((string)($it['reason_note'] ?? '')); ?>" <?php echo !$isDraft?'readonly':''; ?> placeholder="Wajib jika variance != 0"></td>
-  <td><input type="text" name="line_note[]" value="<?php echo e((string)($it['line_note'] ?? '')); ?>" <?php echo !$isDraft?'readonly':''; ?>></td>
+  <td class="opname-system"><?php echo e(format_qty((float)$it['system_qty'], $unitMeta['base_unit'])); ?></td>
+  <td class="opname-physical"><input type="number" step="0.0001" min="0" name="physical_qty[]" value="<?php echo e((string)$it['physical_qty']); ?>" <?php echo !$isDraft?'readonly':''; ?> required><small><?php echo e('Input dalam ' . $unitMeta['base_unit']); ?></small></td>
+  <td class="opname-variance"><span class="badge"><?php echo e(format_qty((float)$variance, $unitMeta['base_unit'])); ?></span></td>
+  <td class="opname-warning"><?php if($needsWarning): ?><span class="badge" style="background:#fff7ed;border-color:#fdba74;color:#9a3412">Selisih > <?php echo e(format_qty(stock_opname_warning_threshold(), $unitMeta['base_unit'])); ?></span><?php else: ?>-<?php endif; ?></td>
+  <td class="opname-reason"><input type="text" name="reason_note[]" value="<?php echo e((string)($it['reason_note'] ?? '')); ?>" <?php echo !$isDraft?'readonly':''; ?>></td>
+  <td class="opname-note"><input type="text" name="line_note[]" value="<?php echo e((string)($it['line_note'] ?? '')); ?>" <?php echo !$isDraft?'readonly':''; ?>></td>
 </tr>
 <?php endforeach; ?>
 </tbody></table>
-<?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?><button class="btn" type="submit">Simpan Draft</button><?php endif; ?>
-<a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Kembali</a>
-</form>
+</div>
+<div class="opname-bottom-actions">
 <?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?>
-<form method="post" style="margin-top:10px"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="id" value="<?php echo e((string)$id); ?>"><button class="btn" type="submit">Submit Menunggu Approval</button></form>
+  <button class="btn" type="submit" name="action" value="save_items">Simpan Draft</button>
+  <button class="btn" type="submit" name="action" value="submit">Submit Menunggu Approval</button>
 <?php endif; ?>
+<a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Kembali</a>
+<?php if($header): ?><a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$id)); ?>" target="_blank">Rekap Selisih</a><?php endif; ?>
+</div>
+</form>
 </div>
 <?php endif; ?>
 

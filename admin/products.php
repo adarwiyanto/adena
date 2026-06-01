@@ -62,7 +62,7 @@ $customCss = setting('custom_css', '');
   <div class="main">
     <div class="topbar">
       <button class="btn" data-toggle-sidebar type="button">Menu</button>
-      <?php if ($canCreateProduct): ?><a class="btn" href="<?php echo e(base_url('admin/product_form.php')); ?>">Tambah Produk</a><?php endif; ?>
+      <?php if ($canCreateProduct): ?><a class="btn" href="<?php echo e(base_url('admin/product_form.php')); ?>">Tambah Produk</a><a class="btn" href="<?php echo e(base_url('admin/product_import.php')); ?>">Impor Produk</a><?php endif; ?>
     </div>
 
     <div class="content">

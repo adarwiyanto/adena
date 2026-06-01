@@ -4,17 +4,17 @@
  * Shift actions for POS Desktop (token based).
  */
 require_once __DIR__ . '/../helpers.php';
+require_once __DIR__ . '/../../core/single_branch.php';
 require_once __DIR__ . '/../../core/pos_shift.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
-$apiUser = api_verify_token();
+api_verify_token();
 $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $action = trim((string)($body['action'] ?? 'status'));
-$branchId = (int)($body['branch_id'] ?? $apiUser['branch_id'] ?? 1);
-if ($branchId <= 0) $branchId = 1;
+$branchId = 1;
 
 try {
     if ($action === 'status') {

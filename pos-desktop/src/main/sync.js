@@ -199,7 +199,7 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
   const db = initDb();
   const tx = db.transaction(() => {
     if (fullSync) {
-      ['products', 'product_categories', 'branches', 'branch_product_prices', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements']
+      ['products', 'product_categories', 'payment_methods', 'qris_banks', 'payment_channels', 'guides', 'users', 'orders', 'order_items', 'pos_cash_movements']
         .forEach((table) => db.prepare(`DELETE FROM ${table}`).run());
     }
 
@@ -226,18 +226,6 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
       track_stock: r.track_stock ?? 0,
       updated_at: r.updated_at || localDateTimeString()
     }));
-
-    const upsertBranch = db.prepare(`INSERT INTO branches (id, branch_code, branch_name, unit_type, is_kitchen, is_active)
-      VALUES (@id,@branch_code,@branch_name,@unit_type,@is_kitchen,@is_active)
-      ON CONFLICT(id) DO UPDATE SET branch_code=excluded.branch_code, branch_name=excluded.branch_name, unit_type=excluded.unit_type, is_kitchen=excluded.is_kitchen, is_active=excluded.is_active`);
-    (data.branches || []).forEach((r) => upsertBranch.run({
-      id: r.id, branch_code: r.branch_code || '', branch_name: r.branch_name || '', unit_type: r.unit_type || 'branch', is_kitchen: r.is_kitchen || 0, is_active: r.is_active ?? 1
-    }));
-
-    const upsertBranchPrice = db.prepare(`INSERT INTO branch_product_prices (branch_id, product_id, price, is_active)
-      VALUES (@branch_id,@product_id,@price,@is_active)
-      ON CONFLICT(branch_id, product_id) DO UPDATE SET price=excluded.price, is_active=excluded.is_active`);
-    (data.branch_product_prices || []).forEach((r) => upsertBranchPrice.run({ branch_id: r.branch_id, product_id: r.product_id, price: r.price || 0, is_active: r.is_active ?? 1 }));
 
     const upsertCategory = db.prepare('INSERT INTO product_categories (id,name,image_path) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=excluded.image_path');
     const rawCategories = Array.isArray(data.categories) && data.categories.length ? data.categories : (data.product_categories || []);
@@ -347,9 +335,6 @@ async function syncMaster(_options = {}) {
     const storeIdentity = await cacheStoreIdentity(payload.settings || {});
 
     if (resp?.token?.device_code) store.set('deviceCode', String(resp.token.device_code).trim().toUpperCase());
-    if (resp?.token?.branch_id) store.set('branchId', Number(resp.token.branch_id) || 1);
-    const selectedBranch = (payload.branches || []).find((b) => Number(b.id) === Number(store.get('branchId') || resp?.token?.branch_id || 1));
-    store.set('saleSource', selectedBranch && Number(selectedBranch.is_kitchen || 0) === 1 ? 'kitchen_direct' : 'branch_pos');
 
     return {
       ...resp,
@@ -360,7 +345,6 @@ async function syncMaster(_options = {}) {
         guides: (payload.guides || []).length,
         banks: getBanks(payload).length,
         payment_methods: (payload.payment_methods || []).length,
-        branches: (payload.branches || []).length,
         shifts: (payload.shifts || []).length,
         sales_history: (payload.sales_history || []).length,
         pending_orders: (payload.pending_orders || []).length,
@@ -438,49 +422,36 @@ function buildPendingPayload() {
         payment_bank: row.payment_bank,
         guide_id: row.guide_id,
         guide_name: row.guide_name,
+        tx_discount_amount: row.tx_discount_amount || 0,
+        tx_discount_type: row.tx_discount_type || 'fixed',
         user_id: row.created_by,
-        branch_id: row.branch_id || 1,
-        sale_source: row.sale_source || 'branch_pos',
         sold_at: row.sold_at,
         source: 'desktop',
         items: []
       });
     }
-    grouped.get(key).items.push({ product_id: row.product_id, qty: row.qty, price_each: row.price_each, total: row.total });
+    grouped.get(key).items.push({
+      product_id: row.product_id,
+      qty: row.qty,
+      price_each: row.price_each,
+      total: row.total,
+      discount_amount: row.discount_amount || 0,
+      discount_type: row.discount_type || 'fixed'
+    });
   }
 
-  const returns = db.prepare("SELECT * FROM sales_returns WHERE sync_status IN ('pending','failed') ORDER BY id ASC").all().map((r) => ({
-    offline_uuid: r.offline_uuid,
-    transaction_group_uuid: r.transaction_group_uuid,
-    local_transaction_id: r.local_transaction_id,
-    transaction_code: r.transaction_code,
-    branch_id: r.branch_id,
-    reason: r.reason,
-    total_return: r.total_return,
-    created_by: r.created_by,
-    created_at: r.created_at,
-    items: db.prepare('SELECT product_id, qty, price_each, subtotal FROM sales_return_items WHERE return_offline_uuid = ?').all(r.offline_uuid)
-  }));
-
-  return { shifts: [], cash_movements: [], transactions: Array.from(grouped.values()), returns };
+  return { shifts: [], cash_movements: [], transactions: Array.from(grouped.values()) };
 }
 
 async function syncPendingTransactions() {
   try {
     const db = initDb();
     const payload = buildPendingPayload();
-    if (!payload.transactions.length && !payload.returns.length) return { ok: true, message: 'No pending' };
+    if (!payload.transactions.length) return { ok: true, message: 'No pending' };
 
     const resp = await pushTransactions(payload);
     if (!resp?.ok) return resp;
     const tx = db.transaction(() => {
-      for (const [uuid, result] of Object.entries(resp.results?.returns || {})) {
-        const isSuccess = result.status === 'inserted' || result.status === 'exists';
-        db.prepare('UPDATE sales_returns SET sync_status = ?, sync_error = ?, synced_at = CURRENT_TIMESTAMP WHERE offline_uuid = ?')
-          .run(isSuccess ? 'synced' : 'failed', isSuccess ? null : (result.message || 'sync failed'), uuid);
-        db.prepare('INSERT INTO pos_sync_queue_log (entity_type, offline_uuid, payload_json, processed_at, status, message) VALUES (?,?,?,?,?,?)')
-          .run('sale_return', uuid, JSON.stringify(result), localDateTimeString(), isSuccess ? 'success' : 'failed', result.message || null);
-      }
       for (const [uuid, result] of Object.entries(resp.results?.transactions || {})) {
         const isSuccess = result.status === 'inserted' || result.status === 'exists';
         const txn = payload.transactions.find((t) => t.local_transaction_id === uuid || t.offline_uuid === uuid);

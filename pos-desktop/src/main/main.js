@@ -7,7 +7,6 @@ const { testConnection, login, shiftAction } = require('./api');
 const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
 const { saveSaleLocally } = require('./transactions');
-const crypto = require('crypto');
 const { printReceipt } = require('./print');
 const { localDateTimeString } = require('./time');
 
@@ -45,6 +44,46 @@ function activeShiftLocal() {
   return db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get() || null;
 }
 
+function numberOrZero(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function txDiscountValue(total, amount, type) {
+  const subtotal = Math.max(0, numberOrZero(total));
+  const discAmount = Math.max(0, numberOrZero(amount));
+  const discType = type === 'percent' ? 'percent' : 'fixed';
+  if (!subtotal || !discAmount) return 0;
+  if (discType === 'percent') return Math.min(subtotal, Math.round(subtotal * Math.min(100, discAmount) / 100));
+  return Math.min(subtotal, discAmount);
+}
+
+function salesTransactionsForWhere(whereSql, params = []) {
+  const db = initDb();
+  const rows = db.prepare(`SELECT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS tx_key,
+      transaction_code, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status,
+      cash_received, cash_change, total, tx_discount_amount, tx_discount_type
+    FROM sales ${whereSql || ''}
+    ORDER BY sold_at DESC, id ASC`).all(...params);
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = row.tx_key || row.transaction_code;
+    if (!grouped.has(key)) {
+      grouped.set(key, { ...row, transaction_group_id: key, subtotal: 0, total: 0, tx_count: 1 });
+    }
+    const tx = grouped.get(key);
+    tx.subtotal += numberOrZero(row.total);
+    tx.tx_discount_amount = row.tx_discount_amount || tx.tx_discount_amount || 0;
+    tx.tx_discount_type = row.tx_discount_type || tx.tx_discount_type || 'fixed';
+    tx.cash_received = row.cash_received ?? tx.cash_received;
+    tx.cash_change = row.cash_change ?? tx.cash_change;
+  }
+  return Array.from(grouped.values()).map((tx) => {
+    const discount = txDiscountValue(tx.subtotal, tx.tx_discount_amount, tx.tx_discount_type);
+    return { ...tx, total: Math.max(0, tx.subtotal - discount), tx_discount_value: discount };
+  });
+}
+
 function calculateShiftSummary(shift = null) {
   const db = initDb();
   const active = shift || activeShiftLocal();
@@ -52,21 +91,12 @@ function calculateShiftSummary(shift = null) {
     return { opening_cash: 0, cash_sales: 0, cash_refund: 0, cash_in: 0, cash_out: 0, non_cash_sales: 0, expected_cash: 0 };
   }
   const openingCash = Number(active.opening_cash_actual ?? active.opening_cash_default ?? 0);
-  let salesRows = [];
-  try {
-    salesRows = db.prepare(`SELECT LOWER(COALESCE(payment_method,'')) AS method, SUM(amount) AS total
-      FROM sale_payments
-      WHERE local_transaction_id IN (SELECT DISTINCT local_transaction_id FROM sales WHERE shift_id = ?)
-      GROUP BY LOWER(COALESCE(payment_method,''))`).all(active.id);
-  } catch (_) { salesRows = []; }
-  if (!salesRows.length) {
-    salesRows = db.prepare(`SELECT LOWER(COALESCE(payment_method,'')) AS method, SUM(total) AS total FROM sales WHERE shift_id = ? GROUP BY LOWER(COALESCE(payment_method,''))`).all(active.id);
-  }
+  const transactions = salesTransactionsForWhere('WHERE shift_id = ?', [active.id]);
   let cashSales = 0;
   let nonCashSales = 0;
-  for (const row of salesRows) {
-    const method = String(row.method || '').toLowerCase();
-    if (method === 'cash' || method === 'tunai' || method.includes('cash') || method.includes('tunai')) cashSales += Number(row.total || 0);
+  for (const row of transactions) {
+    const method = String(row.payment_method || '').toLowerCase();
+    if (method === 'cash' || method === 'tunai') cashSales += Number(row.total || 0);
     else nonCashSales += Number(row.total || 0);
   }
   const cashIn = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'in'").get(active.id)?.total || 0;
@@ -74,6 +104,7 @@ function calculateShiftSummary(shift = null) {
   const expectedCash = openingCash + cashSales + Number(cashIn || 0) - Number(cashOut || 0);
   return { opening_cash: openingCash, cash_sales: cashSales, cash_refund: 0, cash_in: Number(cashIn || 0), cash_out: Number(cashOut || 0), non_cash_sales: nonCashSales, expected_cash: expectedCash };
 }
+
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString('id-ID');
@@ -111,20 +142,20 @@ function getShiftClosePrintData(countedCashTotal = null, user = null) {
   const summary = calculateShiftSummary(shift);
   const storeIdentity = getStoreIdentity();
   const cashier = user?.name || db.prepare('SELECT name FROM users WHERE id = ?').get(shift.opened_by)?.name || '-';
-  const transactionCount = db.prepare(`SELECT COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS c FROM sales WHERE shift_id = ?`).get(shift.id)?.c || 0;
+  const transactions = salesTransactionsForWhere('WHERE shift_id = ?', [shift.id]);
+  const transactionCount = transactions.length;
   const itemQty = db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM sales WHERE shift_id = ?').get(shift.id)?.qty || 0;
-  const totalSales = db.prepare('SELECT COALESCE(SUM(total),0) AS total FROM sales WHERE shift_id = ?').get(shift.id)?.total || 0;
-  let paymentRows = [];
-  try {
-    paymentRows = db.prepare(`SELECT payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') AS label, COALESCE(SUM(amount),0) AS total, COUNT(DISTINCT local_transaction_id) AS tx_count
-      FROM sale_payments
-      WHERE local_transaction_id IN (SELECT DISTINCT local_transaction_id FROM sales WHERE shift_id = ?)
-      GROUP BY payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') ORDER BY payment_method, label`).all(shift.id);
-  } catch (_) { paymentRows = []; }
-  if (!paymentRows.length) {
-    paymentRows = db.prepare(`SELECT payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') AS label, COALESCE(SUM(total),0) AS total, COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS tx_count
-      FROM sales WHERE shift_id = ? GROUP BY payment_method, COALESCE(NULLIF(payment_bank,''), payment_method, '-') ORDER BY payment_method, label`).all(shift.id);
+  const totalSales = transactions.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const paymentMap = new Map();
+  for (const row of transactions) {
+    const label = row.payment_bank || row.payment_method || '-';
+    const key = `${row.payment_method || ''}||${label}`;
+    if (!paymentMap.has(key)) paymentMap.set(key, { payment_method: row.payment_method, label, total: 0, tx_count: 0 });
+    const bucket = paymentMap.get(key);
+    bucket.total += Number(row.total || 0);
+    bucket.tx_count += 1;
   }
+  const paymentRows = Array.from(paymentMap.values()).sort((a, b) => String(a.payment_method || '').localeCompare(String(b.payment_method || '')) || String(a.label || '').localeCompare(String(b.label || '')));
   const counted = countedCashTotal === null || countedCashTotal === undefined ? Number(summary.expected_cash || 0) : Number(countedCashTotal || 0);
   const nonCashTotal = paymentRows.reduce((sum, row) => {
     const method = String(row.payment_method || '').toLowerCase();
@@ -209,40 +240,6 @@ function buildShiftClosePrintHtml(data) {
     <div class="sep"></div>
     <div class="row"><span>Total Selisih</span><span>${formatNumber(data.totalDifference)}</span></div>
   </body></html>`;
-}
-
-function buildShiftCloseRawReceipt(data) {
-  return {
-    type: 'shift_close',
-    storeName: data.store?.name || 'Adena',
-    storeAddress: data.store?.address || '',
-    logo: data.store?.logoUri || '',
-    title: 'PENUTUPAN SHIFT',
-    printedAt: data.printedAt || localDateTimeString(),
-    cashierName: data.cashier || '-',
-    shiftCode: data.shift?.shift_code || String(data.shift?.id || '-'),
-    openedAt: data.shift?.opened_at || '-',
-    closedAt: data.printedAt || '-',
-    transactionCount: Number(data.transactionCount || 0),
-    itemQty: Number(data.itemQty || 0),
-    totalSalesText: `Rp ${formatNumber(data.totalSales)}`,
-    openingCashText: `Rp ${formatNumber(data.summary?.opening_cash || 0)}`,
-    cashSalesText: `Rp ${formatNumber(data.summary?.cash_sales || 0)}`,
-    nonCashSalesText: `Rp ${formatNumber(data.summary?.non_cash_sales || 0)}`,
-    cashInOutText: `Rp ${formatNumber((data.summary?.cash_in || 0) - (data.summary?.cash_out || 0))}`,
-    expectedCashText: `Rp ${formatNumber(data.summary?.expected_cash || 0)}`,
-    countedCashText: `Rp ${formatNumber(data.countedCash || 0)}`,
-    cashDifferenceText: `Rp ${formatNumber(data.cashDifference || 0)}`,
-    payments: (data.paymentRows || []).map((row) => ({
-      label: String(row.label || row.payment_method || '-').toUpperCase(),
-      totalText: `Rp ${formatNumber(row.total || 0)}`,
-      txCount: Number(row.tx_count || 0)
-    })),
-    totalExpectedText: `Rp ${formatNumber(data.totalExpected || 0)}`,
-    totalActualText: `Rp ${formatNumber(data.totalActual || 0)}`,
-    totalDifferenceText: `Rp ${formatNumber(data.totalDifference || 0)}`,
-    appFooter: 'Adena POS Desktop ver 1.4.3'
-  };
 }
 
 async function handleSyncBeforeExit() {
@@ -435,74 +432,65 @@ ipcMain.handle('pos:state', () => {
 
 ipcMain.handle('history:list', (_, filters = {}) => {
   try {
-    const db = initDb();
     const where = [];
     const params = [];
     if (filters.from) { where.push('sold_at >= ?'); params.push(filters.from); }
     if (filters.to) { where.push('sold_at <= ?'); params.push(filters.to); }
     if (filters.guideName) { where.push('guide_name = ?'); params.push(filters.guideName); }
     if (filters.paymentMethod) { where.push('payment_method = ?'); params.push(filters.paymentMethod); }
-    where.push("COALESCE(return_status,'none') <> 'returned'");
     if (filters.syncStatus) { where.push('sync_status = ?'); params.push(filters.syncStatus); }
     const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const rows = db.prepare(`SELECT transaction_code, COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS transaction_group_id, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status, MAX(cash_received) AS cash_received, MAX(cash_change) AS cash_change, SUM(total) AS total
-      FROM sales ${sqlWhere}
-      GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)
-      ORDER BY sold_at DESC LIMIT 300`).all(...params);
-    const omzetRow = db.prepare(`SELECT COALESCE(SUM(total),0) AS omzet FROM (SELECT SUM(total) AS total FROM sales ${sqlWhere} GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code))`).get(...params);
-    return { ok: true, rows, omzet: Number(omzetRow?.omzet || 0) };
+    const rows = salesTransactionsForWhere(sqlWhere, params).slice(0, 300).map((r) => ({
+      transaction_code: r.transaction_code,
+      transaction_group_id: r.transaction_group_id,
+      sold_at: r.sold_at,
+      created_by: r.created_by,
+      guide_name: r.guide_name,
+      payment_method: r.payment_method,
+      payment_bank: r.payment_bank,
+      sync_status: r.sync_status,
+      cash_received: r.cash_received,
+      cash_change: r.cash_change,
+      total: r.total
+    }));
+    return { ok: true, rows, omzet: rows.reduce((sum, r) => sum + Number(r.total || 0), 0) };
   } catch (error) {
     return { ok: false, message: error.message };
   }
 });
 
+
 ipcMain.handle('history:detail', (_, transactionGroupId) => {
   const db = initDb();
-  const items = db.prepare(`SELECT s.id AS local_sale_id, s.web_sale_id, s.transaction_code, s.transaction_group_uuid, s.local_transaction_id, s.branch_id, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, s.product_id, COALESCE(s.return_status,'none') AS return_status, p.name AS product_name
+  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, p.name AS product_name
     FROM sales s LEFT JOIN products p ON p.id = s.product_id
     WHERE COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code) = ?
     ORDER BY s.id`).all(transactionGroupId);
   return { items };
 });
 
-ipcMain.handle('history:return', (_, payload = {}) => {
-  try {
-    const db = initDb();
-    const groupId = String(payload.transactionGroupId || '').trim();
-    const reason = String(payload.reason || '').trim() || 'Retur penjualan';
-    if (!groupId) return { ok: false, message: 'Transaksi tidak valid' };
-    const items = db.prepare(`SELECT id, web_sale_id, transaction_code, transaction_group_uuid, local_transaction_id, branch_id, product_id, qty, price_each, total FROM sales WHERE COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)=? AND COALESCE(return_status,'none') <> 'returned' ORDER BY id`).all(groupId);
-    if (!items.length) return { ok: false, message: 'Transaksi sudah diretur atau tidak ditemukan' };
-    const uuid = 'RET-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex').toUpperCase();
-    const totalReturn = items.reduce((a, r) => a + Number(r.total || 0), 0);
-    const now = new Date().toISOString().slice(0,19).replace('T',' ');
-    const tx = db.transaction(() => {
-      db.prepare(`INSERT INTO sales_returns (offline_uuid, transaction_group_uuid, local_transaction_id, transaction_code, branch_id, reason, total_return, created_by, created_at, sync_status) VALUES (?,?,?,?,?,?,?,?,?,'pending')`).run(uuid, items[0].transaction_group_uuid || groupId, items[0].local_transaction_id || groupId, items[0].transaction_code || groupId, items[0].branch_id || null, reason, totalReturn, payload.user_id || null, now);
-      for (const it of items) {
-        db.prepare(`INSERT INTO sales_return_items (return_offline_uuid, sale_local_id, product_id, qty, price_each, subtotal) VALUES (?,?,?,?,?,?)`).run(uuid, it.id, it.product_id, it.qty, it.price_each, it.total);
-        db.prepare(`UPDATE sales SET return_status='returned', return_reason=?, returned_at=?, returned_by=? WHERE id=?`).run(reason, now, payload.user_id || null, it.id);
-      }
-    });
-    tx();
-    return { ok: true, offline_uuid: uuid, total_return: totalReturn };
-  } catch (error) {
-    return { ok: false, message: error.message };
-  }
-});
-
 ipcMain.handle('history:recap', (_, filters = {}) => {
   try {
-    const db = initDb();
     const where = [];
     const params = [];
     if (filters.from) { where.push('sold_at >= ?'); params.push(filters.from); }
     if (filters.to) { where.push('sold_at <= ?'); params.push(filters.to); }
     const sqlWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const rows = db.prepare("SELECT payment_method, COALESCE(payment_bank,'') AS payment_bank, COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS trx_count, COALESCE(SUM(total),0) AS total FROM sales " + sqlWhere + " GROUP BY payment_method, COALESCE(payment_bank,'') ORDER BY payment_method, payment_bank").all(...params);
-    const total = db.prepare("SELECT COUNT(*) AS trx_count, COALESCE(SUM(total),0) AS omzet FROM (SELECT SUM(total) AS total FROM sales " + sqlWhere + " GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code))").get(...params);
-    return { ok: true, rows, total: { trx_count: Number(total?.trx_count || 0), omzet: Number(total?.omzet || 0) } };
+    const transactions = salesTransactionsForWhere(sqlWhere, params);
+    const paymentMap = new Map();
+    for (const row of transactions) {
+      const key = `${row.payment_method || ''}||${row.payment_bank || ''}`;
+      if (!paymentMap.has(key)) paymentMap.set(key, { payment_method: row.payment_method, payment_bank: row.payment_bank || '', trx_count: 0, total: 0 });
+      const bucket = paymentMap.get(key);
+      bucket.trx_count += 1;
+      bucket.total += Number(row.total || 0);
+    }
+    const rows = Array.from(paymentMap.values()).sort((a, b) => String(a.payment_method || '').localeCompare(String(b.payment_method || '')) || String(a.payment_bank || '').localeCompare(String(b.payment_bank || '')));
+    const total = { trx_count: transactions.length, omzet: transactions.reduce((sum, r) => sum + Number(r.total || 0), 0) };
+    return { ok: true, rows, total };
   } catch (error) { return { ok: false, message: error.message }; }
 });
+
 
 ipcMain.handle('orders:list', () => {
   const db = initDb();
@@ -516,7 +504,7 @@ ipcMain.handle('shift:status', async () => { const shift = activeShiftLocal(); r
 ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
   const data = getShiftClosePrintData(payload.counted_cash_total, payload.user || null);
   if (!data.ok) return data;
-  return { ...data, html: buildShiftClosePrintHtml(data), rawReceipt: buildShiftCloseRawReceipt(data) };
+  return { ...data, html: buildShiftClosePrintHtml(data) };
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));

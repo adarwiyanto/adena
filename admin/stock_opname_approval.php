@@ -72,6 +72,7 @@ $customCss = setting('custom_css', '');
 <td><?php echo e((string)($r['approver_name'] ?? '-')); ?><br><small><?php echo e((string)($r['approved_at'] ?? '')); ?></small></td>
 <td style="display:flex;gap:6px;flex-wrap:wrap">
   <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_form.php?id=' . (int)$r['id'])); ?>">Detail</a>
+    <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$r['id'])); ?>" target="_blank">Rekap Selisih</a>
   <?php if($isOwner && ($r['status'] ?? '') === 'waiting_approval'): ?>
     <form method="post" style="display:flex;gap:6px"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><input type="text" name="approval_note" placeholder="Catatan approval/reject" required><button class="btn" type="submit" name="action" value="approve">Approve</button><button class="btn danger" type="submit" name="action" value="reject">Reject</button></form>
   <?php endif; ?>

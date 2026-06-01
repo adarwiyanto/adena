@@ -5,21 +5,12 @@
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/single_branch.php';
+adena_enforce_single_branch_schema();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     $token = require_api_token();
-    $branches = [];
-    try {
-        $stmt = db()->query("SELECT id, branch_code, branch_name, is_active FROM branches WHERE is_active = 1 ORDER BY id");
-        $branches = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        if (!empty($token['branch_id'])) {
-            $bid = (int)$token['branch_id'];
-            $branches = array_values(array_filter($branches, static fn($b) => (int)($b['id'] ?? 0) === $bid));
-        }
-    } catch (Throwable $e) {
-        $branches = [];
-    }
-    api_ok(['token' => $token, 'branches' => $branches]);
+    api_ok(['token' => $token]);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
@@ -60,6 +51,9 @@ if (!$verified) {
 
 $roleKey = (string)($u['role_key'] ?? $u['role'] ?? '');
 if ($roleKey === '') $roleKey = 'kasir';
+$token['branch_id'] = adena_single_branch_id();
+$token['branch_code'] = adena_single_branch_code();
+$token['branch_name'] = adena_single_branch_name();
 api_ok([
     'user' => [
         'id' => (int)$u['id'],
@@ -71,14 +65,4 @@ api_ok([
         'avatar_url' => !empty($u['avatar_path']) ? upload_url($u['avatar_path'], 'image') : '',
     ],
     'token' => $token,
-    'branches' => (function () use ($token) {
-        try {
-            $rows = db()->query("SELECT id, branch_code, branch_name, is_active FROM branches WHERE is_active = 1 ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) ?: [];
-            if (!empty($token['branch_id'])) {
-                $bid = (int)$token['branch_id'];
-                $rows = array_values(array_filter($rows, static fn($b) => (int)($b['id'] ?? 0) === $bid));
-            }
-            return $rows;
-        } catch (Throwable $e) { return []; }
-    })(),
 ]);
