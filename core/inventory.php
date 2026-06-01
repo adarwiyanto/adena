@@ -617,6 +617,40 @@ function stock_products_for_stock_view(int $branchId, string $search = '', strin
   return $stmt->fetchAll();
 }
 
+
+function store_goods_for_purchase(int $branchId, string $search = '', string $category = ''): array {
+  $params = [$branchId];
+  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.allow_direct_purchase,
+      p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
+      COALESCE(st.current_stock,0) AS current_stock
+    FROM products p
+    LEFT JOIN (
+      SELECT product_id, SUM(qty_in - qty_out) AS current_stock
+      FROM stock_ledger
+      WHERE branch_id=?
+      GROUP BY product_id
+    ) st ON st.product_id=p.id
+    WHERE p.product_type='finished_good'
+      AND COALESCE(p.track_stock,1)=1";
+
+  if ($search !== '') {
+    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
+    $term = '%' . $search . '%';
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+  }
+  if ($category !== '') {
+    $sql .= " AND COALESCE(p.category,'') = ?";
+    $params[] = $category;
+  }
+
+  $sql .= " ORDER BY p.name ASC";
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
 function stock_categories(): array {
   $stmt = db()->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category ASC");
   return $stmt->fetchAll();
