@@ -581,6 +581,42 @@ function stock_products_for_opname(int $branchId, string $search = '', string $c
   return $stmt->fetchAll();
 }
 
+function stock_products_for_stock_view(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
+  $params = [$branchId];
+  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.reorder_level,
+      p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
+      COALESCE(st.current_stock,0) AS current_stock
+    FROM products p
+    LEFT JOIN (
+      SELECT product_id, SUM(qty_in - qty_out) AS current_stock
+      FROM stock_ledger
+      WHERE branch_id=?
+      GROUP BY product_id
+    ) st ON st.product_id=p.id
+    WHERE 1=1";
+
+  if ($search !== '') {
+    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
+    $term = '%' . $search . '%';
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+  }
+  if ($category !== '') {
+    $sql .= " AND COALESCE(p.category,'') = ?";
+    $params[] = $category;
+  }
+  if ($productType !== '' && in_array($productType, ['raw_material', 'finished_good', 'service'], true)) {
+    $sql .= " AND p.product_type = ?";
+    $params[] = $productType;
+  }
+
+  $sql .= " ORDER BY p.name ASC";
+  $stmt = db()->prepare($sql);
+  $stmt->execute($params);
+  return $stmt->fetchAll();
+}
+
 function stock_categories(): array {
   $stmt = db()->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category<>'' ORDER BY category ASC");
   return $stmt->fetchAll();
