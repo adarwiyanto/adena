@@ -174,7 +174,7 @@ async function buildShiftCloseThermalRawBuffer(payload = {}, options) {
   lines.push(lineText('Total Aktual', r.totalActualText || '-', cols));
   lines.push(lineText('Total Selisih', r.totalDifferenceText || '-', cols));
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.4.3', cols));
+  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.5.8', cols));
   chunks.push(textToEscpos(lines.join('\n') + '\n' + feedLines));
   if (options.autoCut) chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
   return Buffer.concat(chunks);
@@ -210,6 +210,8 @@ async function buildThermalRawBuffer(payload = {}, options) {
     if (priceText) lines.push(lineText(`@ ${priceText}`, '', cols));
   }
   lines.push(sep);
+  if (r.subtotalText) lines.push(lineText('Subtotal', r.subtotalText, cols));
+  if (Number(r.txDiscount || 0) > 0 || r.txDiscountText) lines.push(lineText('Diskon transaksi', `-${r.txDiscountText || r.txDiscount}`, cols));
   chunks.push(textToEscpos(lines.join('\n') + '\n'));
   chunks.push(Buffer.from([0x1b, 0x45, 0x01]), textToEscpos(lineText('TOTAL', r.totalText || r.total || '-', cols) + '\n'), Buffer.from([0x1b, 0x45, 0x00]));
 
@@ -233,7 +235,7 @@ async function buildThermalRawBuffer(payload = {}, options) {
   }
 
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS Desktop ver 1.4.3', cols)}\n${feedLines}`));
+  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS Desktop ver 1.5.8', cols)}\n${feedLines}`));
   if (options.autoCut) {
     // GS V B 0 = partial cut. Dipakai hanya pada mode Raw Thermal.
     chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
@@ -310,7 +312,7 @@ public class R{
     });
   });
 }
-function shouldUseRawThermal(payload, options, printerName) { const mode = String(options.printMode || 'auto').toLowerCase(); if (mode === 'html') return false; if (mode === 'thermal_raw') return true; return !!payload.rawReceipt && /pos|zj|thermal|receipt|80|58/i.test(String(printerName || '')); }
+function shouldUseRawThermal(payload, options, printerName) { const mode = String(options.printMode || 'auto').toLowerCase(); if (mode === 'html') return false; if (mode === 'thermal_raw') return true; return !!payload.rawReceipt; }
 async function printHtmlReceipt(payload, options, selectedPrinter) {
   const html = ensurePrintableHtml(await inlineReceiptImages(payload.html), options);
   const win = new BrowserWindow({ show: false, width: mmToPx(options.widthMm), height: mmToPx(297), useContentSize: true, webPreferences: { sandbox: false, webSecurity: false } });

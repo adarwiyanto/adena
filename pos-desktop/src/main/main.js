@@ -8,6 +8,7 @@ const { performShift, retryPendingShiftSync } = require('./shift');
 const { syncMaster, syncPendingTransactions, cacheProductImage } = require('./sync');
 const { saveSaleLocally } = require('./transactions');
 const { printReceipt } = require('./print');
+const { localDateTimeString } = require('./time');
 
 let mainWindow;
 let isQuittingConfirmed = false;
@@ -43,56 +44,44 @@ function activeShiftLocal() {
   return db.prepare("SELECT * FROM pos_shifts WHERE status='open' ORDER BY opened_at DESC, id DESC LIMIT 1").get() || null;
 }
 
-function discountValue(base, amount, type) {
-  const safeBase = Math.max(0, Number(base || 0));
-  const safeAmount = Math.max(0, Number(amount || 0));
-  if (!safeBase || !safeAmount) return 0;
-  if (String(type || 'fixed') === 'percent') return Math.min(safeBase, Math.round((safeBase * Math.min(safeAmount, 100) / 100) * 100) / 100);
-  return Math.min(safeBase, safeAmount);
+function numberOrZero(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function groupSalesRows(rows = []) {
-  const map = new Map();
+function txDiscountValue(total, amount, type) {
+  const subtotal = Math.max(0, numberOrZero(total));
+  const discAmount = Math.max(0, numberOrZero(amount));
+  const discType = type === 'percent' ? 'percent' : 'fixed';
+  if (!subtotal || !discAmount) return 0;
+  if (discType === 'percent') return Math.min(subtotal, Math.round(subtotal * Math.min(100, discAmount) / 100));
+  return Math.min(subtotal, discAmount);
+}
+
+function salesTransactionsForWhere(whereSql, params = []) {
+  const db = initDb();
+  const rows = db.prepare(`SELECT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS tx_key,
+      transaction_code, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status,
+      cash_received, cash_change, total, tx_discount_amount, tx_discount_type
+    FROM sales ${whereSql || ''}
+    ORDER BY sold_at DESC, id ASC`).all(...params);
+  const grouped = new Map();
   for (const row of rows) {
-    const key = row.transaction_group_uuid || row.local_transaction_id || row.transaction_code || `sale-${row.id}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        transaction_code: row.transaction_code,
-        sold_at: row.sold_at,
-        created_by: row.created_by,
-        guide_name: row.guide_name,
-        payment_method: row.payment_method,
-        payment_bank: row.payment_bank,
-        sync_status: row.sync_status,
-        cash_received: row.cash_received,
-        cash_change: row.cash_change,
-        tx_discount_amount: Number(row.tx_discount_amount || 0),
-        tx_discount_type: String(row.tx_discount_type || 'fixed') === 'percent' ? 'percent' : 'fixed',
-        subtotal: 0,
-        final_total: 0,
-        qty: 0,
-        items: []
-      });
+    const key = row.tx_key || row.transaction_code;
+    if (!grouped.has(key)) {
+      grouped.set(key, { ...row, transaction_group_id: key, subtotal: 0, total: 0, tx_count: 1 });
     }
-    const g = map.get(key);
-    const lineTotal = Number(row.total || 0);
-    g.subtotal += lineTotal;
-    g.qty += Number(row.qty || 0);
-    g.items.push(row);
-    if (row.cash_received !== null && row.cash_received !== undefined) g.cash_received = row.cash_received;
-    if (row.cash_change !== null && row.cash_change !== undefined) g.cash_change = row.cash_change;
+    const tx = grouped.get(key);
+    tx.subtotal += numberOrZero(row.total);
+    tx.tx_discount_amount = row.tx_discount_amount || tx.tx_discount_amount || 0;
+    tx.tx_discount_type = row.tx_discount_type || tx.tx_discount_type || 'fixed';
+    tx.cash_received = row.cash_received ?? tx.cash_received;
+    tx.cash_change = row.cash_change ?? tx.cash_change;
   }
-  for (const g of map.values()) {
-    g.tx_discount_value = discountValue(g.subtotal, g.tx_discount_amount, g.tx_discount_type);
-    g.final_total = Math.max(0, g.subtotal - g.tx_discount_value);
-  }
-  return Array.from(map.values());
-}
-
-function getGroupedSales(db, whereClause = '', params = []) {
-  const rows = db.prepare(`SELECT * FROM sales ${whereClause} ORDER BY sold_at DESC, id ASC`).all(...params);
-  return groupSalesRows(rows);
+  return Array.from(grouped.values()).map((tx) => {
+    const discount = txDiscountValue(tx.subtotal, tx.tx_discount_amount, tx.tx_discount_type);
+    return { ...tx, total: Math.max(0, tx.subtotal - discount), tx_discount_value: discount };
+  });
 }
 
 function calculateShiftSummary(shift = null) {
@@ -102,19 +91,20 @@ function calculateShiftSummary(shift = null) {
     return { opening_cash: 0, cash_sales: 0, cash_refund: 0, cash_in: 0, cash_out: 0, non_cash_sales: 0, expected_cash: 0 };
   }
   const openingCash = Number(active.opening_cash_actual ?? active.opening_cash_default ?? 0);
-  const salesRows = getGroupedSales(db, 'WHERE shift_id = ?', [active.id]);
+  const transactions = salesTransactionsForWhere('WHERE shift_id = ?', [active.id]);
   let cashSales = 0;
   let nonCashSales = 0;
-  for (const row of salesRows) {
+  for (const row of transactions) {
     const method = String(row.payment_method || '').toLowerCase();
-    if (method === 'cash' || method === 'tunai') cashSales += Number(row.final_total || 0);
-    else nonCashSales += Number(row.final_total || 0);
+    if (method === 'cash' || method === 'tunai') cashSales += Number(row.total || 0);
+    else nonCashSales += Number(row.total || 0);
   }
   const cashIn = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'in'").get(active.id)?.total || 0;
   const cashOut = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'out'").get(active.id)?.total || 0;
   const expectedCash = openingCash + cashSales + Number(cashIn || 0) - Number(cashOut || 0);
   return { opening_cash: openingCash, cash_sales: cashSales, cash_refund: 0, cash_in: Number(cashIn || 0), cash_out: Number(cashOut || 0), non_cash_sales: nonCashSales, expected_cash: expectedCash };
 }
+
 
 function formatNumber(value) {
   return Number(value || 0).toLocaleString('id-ID');
@@ -152,18 +142,18 @@ function getShiftClosePrintData(countedCashTotal = null, user = null) {
   const summary = calculateShiftSummary(shift);
   const storeIdentity = getStoreIdentity();
   const cashier = user?.name || db.prepare('SELECT name FROM users WHERE id = ?').get(shift.opened_by)?.name || '-';
-  const groupedSales = getGroupedSales(db, 'WHERE shift_id = ?', [shift.id]);
-  const transactionCount = groupedSales.length;
-  const itemQty = groupedSales.reduce((sum, row) => sum + Number(row.qty || 0), 0);
-  const totalSales = groupedSales.reduce((sum, row) => sum + Number(row.final_total || 0), 0);
+  const transactions = salesTransactionsForWhere('WHERE shift_id = ?', [shift.id]);
+  const transactionCount = transactions.length;
+  const itemQty = db.prepare('SELECT COALESCE(SUM(qty),0) AS qty FROM sales WHERE shift_id = ?').get(shift.id)?.qty || 0;
+  const totalSales = transactions.reduce((sum, row) => sum + Number(row.total || 0), 0);
   const paymentMap = new Map();
-  for (const row of groupedSales) {
+  for (const row of transactions) {
     const label = row.payment_bank || row.payment_method || '-';
-    const key = `${row.payment_method || ''}::${label}`;
+    const key = `${row.payment_method || ''}||${label}`;
     if (!paymentMap.has(key)) paymentMap.set(key, { payment_method: row.payment_method, label, total: 0, tx_count: 0 });
-    const rec = paymentMap.get(key);
-    rec.total += Number(row.final_total || 0);
-    rec.tx_count += 1;
+    const bucket = paymentMap.get(key);
+    bucket.total += Number(row.total || 0);
+    bucket.tx_count += 1;
   }
   const paymentRows = Array.from(paymentMap.values()).sort((a, b) => String(a.payment_method || '').localeCompare(String(b.payment_method || '')) || String(a.label || '').localeCompare(String(b.label || '')));
   const counted = countedCashTotal === null || countedCashTotal === undefined ? Number(summary.expected_cash || 0) : Number(countedCashTotal || 0);
@@ -265,9 +255,9 @@ async function handleSyncBeforeExit() {
 function createWindow() {
   const iconPath = path.join(__dirname, '../../assets/icon.ico');
   mainWindow = new BrowserWindow({
-    width: 1600,
+    width: 1440,
     height: 920,
-    minWidth: 1280,
+    minWidth: 1200,
     minHeight: 760,
     autoHideMenuBar: true,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
@@ -442,7 +432,6 @@ ipcMain.handle('pos:state', () => {
 
 ipcMain.handle('history:list', (_, filters = {}) => {
   try {
-    const db = initDb();
     const where = [];
     const params = [];
     if (filters.from) { where.push('sold_at >= ?'); params.push(filters.from); }
@@ -451,18 +440,29 @@ ipcMain.handle('history:list', (_, filters = {}) => {
     if (filters.paymentMethod) { where.push('payment_method = ?'); params.push(filters.paymentMethod); }
     if (filters.syncStatus) { where.push('sync_status = ?'); params.push(filters.syncStatus); }
     const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const grouped = getGroupedSales(db, sqlWhere, params).slice(0, 300);
-    const rows = grouped.map((r) => ({ transaction_code: r.transaction_code, transaction_group_id: r.key, sold_at: r.sold_at, created_by: r.created_by, guide_name: r.guide_name, payment_method: r.payment_method, payment_bank: r.payment_bank, sync_status: r.sync_status, cash_received: r.cash_received, cash_change: r.cash_change, total: r.final_total }));
-    const omzet = grouped.reduce((sum, row) => sum + Number(row.final_total || 0), 0);
-    return { ok: true, rows, omzet };
+    const rows = salesTransactionsForWhere(sqlWhere, params).slice(0, 300).map((r) => ({
+      transaction_code: r.transaction_code,
+      transaction_group_id: r.transaction_group_id,
+      sold_at: r.sold_at,
+      created_by: r.created_by,
+      guide_name: r.guide_name,
+      payment_method: r.payment_method,
+      payment_bank: r.payment_bank,
+      sync_status: r.sync_status,
+      cash_received: r.cash_received,
+      cash_change: r.cash_change,
+      total: r.total
+    }));
+    return { ok: true, rows, omzet: rows.reduce((sum, r) => sum + Number(r.total || 0), 0) };
   } catch (error) {
     return { ok: false, message: error.message };
   }
 });
 
+
 ipcMain.handle('history:detail', (_, transactionGroupId) => {
   const db = initDb();
-  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, s.discount_amount, s.discount_type, s.tx_discount_amount, s.tx_discount_type, p.name AS product_name
+  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, p.name AS product_name
     FROM sales s LEFT JOIN products p ON p.id = s.product_id
     WHERE COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code) = ?
     ORDER BY s.id`).all(transactionGroupId);
@@ -471,26 +471,26 @@ ipcMain.handle('history:detail', (_, transactionGroupId) => {
 
 ipcMain.handle('history:recap', (_, filters = {}) => {
   try {
-    const db = initDb();
     const where = [];
     const params = [];
     if (filters.from) { where.push('sold_at >= ?'); params.push(filters.from); }
     if (filters.to) { where.push('sold_at <= ?'); params.push(filters.to); }
     const sqlWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const grouped = getGroupedSales(db, sqlWhere, params);
-    const recap = new Map();
-    for (const row of grouped) {
-      const bank = row.payment_bank || '';
-      const key = `${row.payment_method || ''}::${bank}`;
-      if (!recap.has(key)) recap.set(key, { payment_method: row.payment_method, payment_bank: bank, trx_count: 0, total: 0 });
-      const rec = recap.get(key);
-      rec.trx_count += 1;
-      rec.total += Number(row.final_total || 0);
+    const transactions = salesTransactionsForWhere(sqlWhere, params);
+    const paymentMap = new Map();
+    for (const row of transactions) {
+      const key = `${row.payment_method || ''}||${row.payment_bank || ''}`;
+      if (!paymentMap.has(key)) paymentMap.set(key, { payment_method: row.payment_method, payment_bank: row.payment_bank || '', trx_count: 0, total: 0 });
+      const bucket = paymentMap.get(key);
+      bucket.trx_count += 1;
+      bucket.total += Number(row.total || 0);
     }
-    const rows = Array.from(recap.values()).sort((a, b) => String(a.payment_method || '').localeCompare(String(b.payment_method || '')) || String(a.payment_bank || '').localeCompare(String(b.payment_bank || '')));
-    return { ok: true, rows, total: { trx_count: grouped.length, omzet: grouped.reduce((sum, row) => sum + Number(row.final_total || 0), 0) } };
+    const rows = Array.from(paymentMap.values()).sort((a, b) => String(a.payment_method || '').localeCompare(String(b.payment_method || '')) || String(a.payment_bank || '').localeCompare(String(b.payment_bank || '')));
+    const total = { trx_count: transactions.length, omzet: transactions.reduce((sum, r) => sum + Number(r.total || 0), 0) };
+    return { ok: true, rows, total };
   } catch (error) { return { ok: false, message: error.message }; }
 });
+
 
 ipcMain.handle('orders:list', () => {
   const db = initDb();

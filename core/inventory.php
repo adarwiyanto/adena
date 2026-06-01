@@ -136,14 +136,6 @@ function ensure_purchase_tables(): void {
     ) ENGINE=InnoDB");
   } catch (Throwable $e) {
   }
-  foreach ([
-    "ALTER TABLE purchase_headers ADD COLUMN purchase_type ENUM('raw_material','general') NOT NULL DEFAULT 'raw_material' AFTER purchase_date",
-    "ALTER TABLE purchase_items ADD COLUMN item_name VARCHAR(190) NULL AFTER product_id",
-    "ALTER TABLE products ADD COLUMN track_stock TINYINT(1) NOT NULL DEFAULT 1 AFTER product_type",
-    "ALTER TABLE products ADD COLUMN allow_direct_purchase TINYINT(1) NOT NULL DEFAULT 0 AFTER track_stock"
-  ] as $sql) {
-    try { db()->exec($sql); } catch (Throwable $e) {}
-  }
 }
 
 function ensure_purchase_revision_audit_table(): void {
@@ -399,84 +391,6 @@ function add_stock_ledger(array $row): void {
   ]);
 }
 
-function inventory_product_tracks_stock(int $productId): bool {
-  try {
-    $stmt = db()->prepare("SELECT COALESCE(track_stock,1) AS track_stock FROM products WHERE id=? LIMIT 1");
-    $stmt->execute([$productId]);
-    $row = $stmt->fetch();
-    if (!$row) return false;
-    return (int)($row['track_stock'] ?? 1) === 1;
-  } catch (Throwable $e) {
-    return true;
-  }
-}
-
-function stock_ledger_ref_exists(string $transType, string $refTable, int $refId): bool {
-  try {
-    $stmt = db()->prepare("SELECT id FROM stock_ledger WHERE trans_type=? AND ref_table=? AND ref_id=? LIMIT 1");
-    $stmt->execute([$transType, $refTable, $refId]);
-    return (bool)$stmt->fetch();
-  } catch (Throwable $e) {
-    return false;
-  }
-}
-
-function apply_sale_stock_out_by_sale_id(int $saleId, int $actorId = 0, string $note = 'Penjualan'): void {
-  $stmt = db()->prepare("SELECT id, product_id, qty, branch_id, transaction_code FROM sales WHERE id=? LIMIT 1");
-  $stmt->execute([$saleId]);
-  $row = $stmt->fetch();
-  if (!$row) return;
-  $productId = (int)$row['product_id'];
-  $qty = (float)$row['qty'];
-  if ($productId <= 0 || $qty <= 0 || !inventory_product_tracks_stock($productId)) return;
-  if (stock_ledger_ref_exists('pos_sale', 'sales', $saleId)) return;
-  add_stock_ledger([
-    'branch_id' => (int)($row['branch_id'] ?: active_branch_id()),
-    'product_id' => $productId,
-    'trans_type' => 'pos_sale',
-    'ref_table' => 'sales',
-    'ref_id' => $saleId,
-    'qty_in' => 0,
-    'qty_out' => $qty,
-    'unit_cost' => null,
-    'note' => trim($note . ' ' . (string)($row['transaction_code'] ?? '')),
-    'created_by' => $actorId > 0 ? $actorId : null,
-  ]);
-}
-
-function rollback_sale_stock_in_by_sale_id(int $saleId, int $actorId = 0, string $note = 'Rollback penjualan'): void {
-  $stmt = db()->prepare("SELECT id, product_id, qty, branch_id, transaction_code FROM sales WHERE id=? LIMIT 1");
-  $stmt->execute([$saleId]);
-  $row = $stmt->fetch();
-  if (!$row) return;
-  $productId = (int)$row['product_id'];
-  $qty = (float)$row['qty'];
-  if ($productId <= 0 || $qty <= 0 || !inventory_product_tracks_stock($productId)) return;
-  if (stock_ledger_ref_exists('sale_delete_rollback', 'sales', $saleId)) return;
-  add_stock_ledger([
-    'branch_id' => (int)($row['branch_id'] ?: active_branch_id()),
-    'product_id' => $productId,
-    'trans_type' => 'sale_delete_rollback',
-    'ref_table' => 'sales',
-    'ref_id' => $saleId,
-    'qty_in' => $qty,
-    'qty_out' => 0,
-    'unit_cost' => null,
-    'note' => trim($note . ' ' . (string)($row['transaction_code'] ?? '')),
-    'created_by' => $actorId > 0 ? $actorId : null,
-  ]);
-}
-
-function rollback_sale_stock_in_by_transaction_code(string $transactionCode, int $actorId = 0, string $note = 'Rollback hapus transaksi'): void {
-  $transactionCode = trim($transactionCode);
-  if ($transactionCode === '') return;
-  $stmt = db()->prepare("SELECT id FROM sales WHERE transaction_code=?");
-  $stmt->execute([$transactionCode]);
-  foreach ($stmt->fetchAll() as $row) {
-    rollback_sale_stock_in_by_sale_id((int)$row['id'], $actorId, $note);
-  }
-}
-
 function get_active_bom_for_product(int $productId, int $branchId): ?array {
   $stmt = db()->prepare("SELECT * FROM bom_headers
     WHERE finished_product_id=? AND is_active=1 AND (branch_id IS NULL OR branch_id=?)
@@ -637,107 +551,13 @@ function generate_stock_opname_no(PDO $db): string {
   return $prefix . '-' . strtoupper(bin2hex(random_bytes(4)));
 }
 
-
-
-function store_goods_for_purchase(int $branchId = 0, string $search = '', string $category = ''): array {
-  $params = [];
-  $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.allow_direct_purchase,
-      p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
-      COALESCE(SUM(sl.qty_in - sl.qty_out),0) AS current_stock
-    FROM products p
-    LEFT JOIN stock_ledger sl ON sl.product_id=p.id";
-  if ($branchId > 0) {
-    $sql .= " AND sl.branch_id=?";
-    $params[] = $branchId;
-  }
-  $sql .= " WHERE p.product_type='finished_good'
-      AND COALESCE(p.name,'')<>''
-      AND (p.allow_direct_purchase=1 OR p.show_on_pos=1 OR p.show_on_landing=1 OR p.track_stock=1)";
-  if ($search !== '') {
-    $term = '%' . $search . '%';
-    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
-    $params[] = $term;
-    $params[] = $term;
-    $params[] = $term;
-  }
-  if ($category !== '') {
-    $sql .= " AND COALESCE(p.category,'') = ?";
-    $params[] = $category;
-  }
-  $sql .= " GROUP BY p.id ORDER BY p.name ASC";
-  $stmt = db()->prepare($sql);
-  $stmt->execute($params);
-  return $stmt->fetchAll();
-}
-
-
-function stock_products_for_stock_view(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
-  $validTypes = ['raw_material', 'finished_good', 'service'];
-  $params = [$branchId];
-  $sql = "SELECT
-      p.id,
-      p.name,
-      p.category,
-      p.product_type,
-      COALESCE(p.track_stock,0) AS track_stock,
-      COALESCE(p.allow_direct_purchase,0) AS allow_direct_purchase,
-      COALESCE(p.show_on_pos,0) AS show_on_pos,
-      COALESCE(p.show_on_landing,0) AS show_on_landing,
-      COALESCE(p.reorder_level,0) AS reorder_level,
-      p.base_unit,
-      p.purchase_unit,
-      p.purchase_to_base_factor,
-      p.sale_unit,
-      p.sale_to_base_factor,
-      COALESCE(st.current_stock,0) AS current_stock
-    FROM products p
-    LEFT JOIN (
-      SELECT product_id, SUM(qty_in - qty_out) AS current_stock
-      FROM stock_ledger
-      WHERE branch_id=?
-      GROUP BY product_id
-    ) st ON st.product_id=p.id
-    WHERE COALESCE(p.name,'')<>''";
-
-  if ($productType !== '' && in_array($productType, $validTypes, true)) {
-    $sql .= " AND p.product_type=?";
-    $params[] = $productType;
-  } else {
-    // Mode toko: default halaman stok menampilkan barang jual/finished good, bukan bahan baku dapur.
-    $sql .= " AND p.product_type='finished_good'";
-  }
-
-  $sql .= " AND (COALESCE(p.track_stock,0)=1
-      OR COALESCE(p.allow_direct_purchase,0)=1
-      OR COALESCE(p.show_on_pos,0)=1
-      OR COALESCE(p.show_on_landing,0)=1)";
-
-  if ($search !== '') {
-    $term = '%' . $search . '%';
-    $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
-    $params[] = $term;
-    $params[] = $term;
-    $params[] = $term;
-  }
-
-  if ($category !== '') {
-    $sql .= " AND COALESCE(p.category,'') = ?";
-    $params[] = $category;
-  }
-
-  $sql .= " ORDER BY p.name ASC, p.id ASC";
-  $stmt = db()->prepare($sql);
-  $stmt->execute($params);
-  return $stmt->fetchAll();
-}
-
 function stock_products_for_opname(int $branchId, string $search = '', string $category = '', string $productType = ''): array {
   $params = [$branchId];
   $sql = "SELECT p.id, p.name, p.category, p.product_type, p.track_stock, p.reorder_level, p.base_unit, p.purchase_unit, p.purchase_to_base_factor, p.sale_unit, p.sale_to_base_factor,
       COALESCE(SUM(sl.qty_in - sl.qty_out),0) AS current_stock
     FROM products p
     LEFT JOIN stock_ledger sl ON sl.product_id=p.id AND sl.branch_id=?
-    WHERE p.track_stock=1 AND p.product_type='finished_good'";
+    WHERE p.track_stock=1 AND p.product_type IN ('raw_material','finished_good')";
 
   if ($search !== '') {
     $sql .= " AND (p.name LIKE ? OR COALESCE(p.category,'') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)";
@@ -785,7 +605,25 @@ function create_stock_opname_draft(PDO $db, array $header, array $products): int
     VALUES (?,?,?,?,?,?,?,?,?)");
   foreach ($products as $p) {
     $systemQty = (float)($p['current_stock'] ?? 0);
-    $itemStmt->execute([$opnameId, (int)$p['id'], $systemQty, $systemQty, 0, 'zero', null, null, 0]);
+    // Stok sistem boleh bernilai negatif karena berasal dari ledger.
+    // Kuantitas fisik tidak boleh negatif, sehingga default fisik dibuat minimal 0.
+    // Contoh: sistem -1, fisik default 0 => variance +1; bila user isi fisik 5 => variance +6 dan saldo akhir menjadi 5 saat approval.
+    $physicalQty = $systemQty < 0 ? 0.0 : $systemQty;
+    $variance = round($physicalQty - $systemQty, 4);
+    $type = 'zero';
+    if ($variance > 0) $type = 'plus';
+    if ($variance < 0) $type = 'minus';
+    $itemStmt->execute([
+      $opnameId,
+      (int)$p['id'],
+      $systemQty,
+      $physicalQty,
+      $variance,
+      $type,
+      null,
+      null,
+      stock_variance_needs_warning($variance) ? 1 : 0,
+    ]);
   }
   return $opnameId;
 }
@@ -880,6 +718,12 @@ function approve_stock_opname(PDO $db, int $opnameId, int $userId, string $note 
     $variance = (float)$it['variance_qty'];
     if (abs($variance) < 0.00001) continue;
     $transType = $variance > 0 ? 'stock_opname_adjustment_plus' : 'stock_opname_adjustment_minus';
+    $reason = trim((string)($it['reason_note'] ?? ''));
+    $lineNote = trim((string)($it['line_note'] ?? ''));
+    $noteParts = ['Adjustment stok opname ' . (string)$header['opname_no']];
+    if ($reason !== '') $noteParts[] = 'Alasan: ' . $reason;
+    if ($lineNote !== '') $noteParts[] = 'Catatan: ' . $lineNote;
+
     add_stock_ledger([
       'branch_id' => (int)$header['branch_id'],
       'product_id' => (int)$it['product_id'],
@@ -889,7 +733,7 @@ function approve_stock_opname(PDO $db, int $opnameId, int $userId, string $note 
       'qty_in' => $variance > 0 ? abs($variance) : 0,
       'qty_out' => $variance < 0 ? abs($variance) : 0,
       'unit_cost' => null,
-      'note' => 'Adjustment stok opname ' . (string)$header['opname_no'],
+      'note' => implode(' | ', $noteParts),
       'created_by' => $userId,
     ]);
   }

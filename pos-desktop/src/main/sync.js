@@ -422,15 +422,11 @@ function buildPendingPayload() {
         payment_bank: row.payment_bank,
         guide_id: row.guide_id,
         guide_name: row.guide_name,
+        tx_discount_amount: row.tx_discount_amount || 0,
+        tx_discount_type: row.tx_discount_type || 'fixed',
         user_id: row.created_by,
-        branch_id: row.branch_id || 1,
-        sale_source: row.sale_source || 'branch_pos',
         sold_at: row.sold_at,
         source: 'desktop',
-        tx_discount_amount: Number(row.tx_discount_amount || 0),
-        tx_discount_type: String(row.tx_discount_type || 'fixed') === 'percent' ? 'percent' : 'fixed',
-        cash_received: row.cash_received ?? null,
-        cash_change: row.cash_change ?? null,
         items: []
       });
     }
@@ -439,8 +435,8 @@ function buildPendingPayload() {
       qty: row.qty,
       price_each: row.price_each,
       total: row.total,
-      discount_amount: Number(row.discount_amount || 0),
-      discount_type: String(row.discount_type || 'fixed') === 'percent' ? 'percent' : 'fixed'
+      discount_amount: row.discount_amount || 0,
+      discount_type: row.discount_type || 'fixed'
     });
   }
 
