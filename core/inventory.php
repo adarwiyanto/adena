@@ -367,6 +367,129 @@ if (!function_exists('active_branch_id')) {
   }
 }
 
+function ensure_branch_product_prices_table(): void {
+  try {
+    db()->exec("CREATE TABLE IF NOT EXISTS branch_product_prices (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      branch_id INT NOT NULL,
+      product_id INT NOT NULL,
+      price DECIMAL(18,2) NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_branch_product_price (branch_id, product_id),
+      KEY idx_bpp_product (product_id),
+      KEY idx_bpp_active (branch_id, is_active)
+    ) ENGINE=InnoDB");
+  } catch (Throwable $e) {
+    // no-op: halaman pemanggil akan menampilkan error bila query utamanya gagal.
+  }
+}
+
+function sale_stock_base_qty(array $sale, array $product = []): float {
+  $qty = (float)($sale['qty'] ?? 0);
+  $factor = (float)($product['sale_to_base_factor'] ?? 1);
+  if ($factor <= 0) $factor = 1.0;
+  return round($qty * $factor, 4);
+}
+
+function sale_stock_row_by_id(int $saleId): ?array {
+  if ($saleId <= 0) return null;
+  $stmt = db()->prepare("SELECT s.*, p.track_stock, p.product_type, p.sale_to_base_factor
+    FROM sales s
+    LEFT JOIN products p ON p.id=s.product_id
+    WHERE s.id=? LIMIT 1");
+  $stmt->execute([$saleId]);
+  $row = $stmt->fetch(PDO::FETCH_ASSOC);
+  return $row ?: null;
+}
+
+function sale_stock_out_already_applied(int $saleId): bool {
+  $stmt = db()->prepare("SELECT id FROM stock_ledger WHERE ref_table='sales' AND ref_id=? AND trans_type='sale_stock_out' LIMIT 1");
+  $stmt->execute([$saleId]);
+  return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function sale_stock_rollback_already_applied(int $saleId): bool {
+  $stmt = db()->prepare("SELECT id FROM stock_ledger WHERE ref_table='sales' AND ref_id=? AND trans_type='sale_stock_rollback' LIMIT 1");
+  $stmt->execute([$saleId]);
+  return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function sale_stock_out_qty_from_ledger(int $saleId): float {
+  $stmt = db()->prepare("SELECT COALESCE(SUM(qty_out),0) AS qty FROM stock_ledger WHERE ref_table='sales' AND ref_id=? AND trans_type='sale_stock_out'");
+  $stmt->execute([$saleId]);
+  $row = $stmt->fetch(PDO::FETCH_ASSOC);
+  return (float)($row['qty'] ?? 0);
+}
+
+function apply_sale_stock_out_by_sale_id(int $saleId, int $userId = 0, string $note = 'Penjualan'): void {
+  $sale = sale_stock_row_by_id($saleId);
+  if (!$sale) return;
+  if (sale_stock_out_already_applied($saleId)) return;
+
+  $branchId = (int)($sale['branch_id'] ?? 0);
+  $productId = (int)($sale['product_id'] ?? 0);
+  if ($branchId <= 0) $branchId = active_branch_id();
+  if ($productId <= 0) return;
+  if ((int)($sale['track_stock'] ?? 1) !== 1) return;
+  if (($sale['product_type'] ?? 'finished_good') === 'service') return;
+
+  $qty = sale_stock_base_qty($sale, $sale);
+  if ($qty <= 0) return;
+
+  add_stock_ledger([
+    'branch_id' => $branchId,
+    'product_id' => $productId,
+    'trans_type' => 'sale_stock_out',
+    'ref_table' => 'sales',
+    'ref_id' => $saleId,
+    'qty_in' => 0,
+    'qty_out' => $qty,
+    'unit_cost' => null,
+    'note' => $note,
+    'created_by' => $userId > 0 ? $userId : null,
+  ]);
+}
+
+function rollback_sale_stock_in_by_sale_id(int $saleId, int $userId = 0, string $note = 'Rollback stok penjualan'): void {
+  $sale = sale_stock_row_by_id($saleId);
+  if (!$sale) return;
+  if (sale_stock_rollback_already_applied($saleId)) return;
+
+  $qtyOut = sale_stock_out_qty_from_ledger($saleId);
+  if ($qtyOut <= 0) return; // Jangan menambah stok bila penjualan lama belum pernah mengurangi stok.
+
+  $branchId = (int)($sale['branch_id'] ?? 0);
+  $productId = (int)($sale['product_id'] ?? 0);
+  if ($branchId <= 0) $branchId = active_branch_id();
+  if ($productId <= 0) return;
+
+  add_stock_ledger([
+    'branch_id' => $branchId,
+    'product_id' => $productId,
+    'trans_type' => 'sale_stock_rollback',
+    'ref_table' => 'sales',
+    'ref_id' => $saleId,
+    'qty_in' => $qtyOut,
+    'qty_out' => 0,
+    'unit_cost' => null,
+    'note' => $note,
+    'created_by' => $userId > 0 ? $userId : null,
+  ]);
+}
+
+function rollback_sale_stock_in_by_transaction_code(string $transactionCode, int $userId = 0, string $note = 'Rollback stok penjualan'): void {
+  $transactionCode = trim($transactionCode);
+  if ($transactionCode === '') return;
+  $stmt = db()->prepare("SELECT id FROM sales WHERE transaction_code=? ORDER BY id ASC");
+  $stmt->execute([$transactionCode]);
+  $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  foreach ($rows as $row) {
+    rollback_sale_stock_in_by_sale_id((int)$row['id'], $userId, $note);
+  }
+}
+
 function branch_stock(int $branchId, int $productId): float {
   $stmt = db()->prepare("SELECT COALESCE(SUM(qty_in - qty_out),0) AS qty FROM stock_ledger WHERE branch_id=? AND product_id=?");
   $stmt->execute([$branchId, $productId]);
