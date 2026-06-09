@@ -21,23 +21,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
   csrf_check();
   $id = (int)($_POST['id'] ?? 0);
 
-  $stmt = db()->prepare("SELECT image_path FROM products WHERE id=?");
+  // Produk yang sudah pernah masuk transaksi/stok tidak dihapus permanen agar riwayat
+  // sales, purchase, ledger, opname, dan laporan lama tetap aman. Tombol Hapus
+  // berfungsi sebagai sembunyikan dari POS dan landing.
+  $stmt = db()->prepare("UPDATE products
+    SET show_on_pos=0,
+        show_on_landing=0,
+        is_best_seller=0,
+        updated_at=NOW()
+    WHERE id=?");
   $stmt->execute([$id]);
-  $p = $stmt->fetch();
 
-  $stmt = db()->prepare("DELETE FROM products WHERE id=?");
-  $stmt->execute([$id]);
-
-  if ($p && !empty($p['image_path'])) {
-    if (upload_is_legacy_path($p['image_path'])) {
-      $full = __DIR__ . '/../' . $p['image_path'];
-      if (file_exists($full)) @unlink($full);
-    } else {
-      upload_secure_delete($p['image_path'], 'image');
-    }
-  }
-
-  redirect(base_url('admin/products.php'));
+  redirect(base_url('admin/products.php?hidden=1'));
 }
 
 $products = db()->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
@@ -68,6 +63,7 @@ $customCss = setting('custom_css', '');
     <div class="content">
       <div class="card">
         <h3 style="margin-top:0">Daftar Produk</h3>
+        <?php if (isset($_GET['hidden'])): ?><div class="card" style="border-color:#86efac;background:#ecfdf5;margin-bottom:12px">Produk berhasil disembunyikan dari POS dan landing. Riwayat transaksi/stok tetap aman.</div><?php endif; ?>
         <table class="table">
           <thead>
             <tr>
@@ -95,11 +91,11 @@ $customCss = setting('custom_css', '');
                 <td><?php echo !empty($p['is_best_seller']) ? '⭐' : '-'; ?></td>
                 <td style="display:flex;gap:8px;align-items:center">
                   <?php if ($canEditProduct): ?><a class="btn" href="<?php echo e(base_url('admin/product_form.php?id=' . (int)$p['id'])); ?>">Edit</a><?php endif; ?>
-                  <?php if ($canDeleteProduct): ?><form method="post" data-confirm="Hapus produk ini?">
+                  <?php if ($canDeleteProduct): ?><form method="post" data-confirm="Sembunyikan produk ini dari POS dan landing?">
                     <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="id" value="<?php echo e((string)$p['id']); ?>">
-                    <button class="btn danger" type="submit">Hapus</button>
+                    <button class="btn danger" type="submit">Hapus/Sembunyikan</button>
                   </form><?php endif; ?>
                 </td>
               </tr>

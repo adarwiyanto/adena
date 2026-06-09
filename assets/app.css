@@ -294,6 +294,38 @@ button{
 
 .grid{display:grid; gap:16px}
 .grid.cols-2{grid-template-columns: repeat(2, minmax(0,1fr))}
+
+/* Desktop friendly admin layout patch: light global spacing only, no feature/flow changes. */
+@media (min-width: 981px){
+  .content{
+    max-width:1480px;
+    padding:24px 28px 36px;
+  }
+  .card{
+    padding:20px;
+    margin-bottom:18px;
+  }
+  .table{
+    min-width:920px;
+  }
+  .card > .table,
+  .card > div > .table{
+    width:100%;
+  }
+  .row{
+    margin:8px 0;
+  }
+  input, select, textarea{
+    min-height:42px;
+  }
+  textarea{
+    min-height:88px;
+  }
+  .btn{
+    white-space:nowrap;
+  }
+}
+
 @media (max-width: 980px){ .grid.cols-2{grid-template-columns:1fr} }
 
 input, select, textarea{
@@ -662,6 +694,7 @@ input:focus, select:focus, textarea:focus{
   cursor:pointer;
   border:1px solid rgba(255,255,255,.25);
 }
+
 
 @media (max-width: 980px){
   .container{
