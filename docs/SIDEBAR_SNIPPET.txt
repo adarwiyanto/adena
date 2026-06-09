@@ -1,0 +1,5 @@
+Tambahkan submenu ini di admin/partials_sidebar.php, di bawah submenu Admin, hanya satu baris:
+
+<?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_dapur.php')); ?>">Setting API Dapur</a><?php endif; ?>
+
+Catatan: patch ini sengaja tidak mengganti file sidebar otomatis agar tidak mengubah fitur lain.
