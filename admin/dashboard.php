@@ -429,17 +429,46 @@ function format_rupiah($amount)
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
   <style>
-    .dashboard-compact .card { padding: 12px 14px; border-radius: 12px; }
+    .content.dashboard-compact {
+      max-width: 1080px;
+      padding: 18px 20px 28px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .dashboard-compact .card { padding: 12px 14px; border-radius: 12px; margin-bottom: 10px; }
+    .dashboard-compact .dash-filter-card,
+    .dashboard-compact .dash-chart-card { max-width: 100%; }
     .dashboard-compact .dash-filter-card h3,
-    .dashboard-compact .dash-chart-card h3 { font-size: 16px; margin-bottom: 8px; }
+    .dashboard-compact .dash-chart-card h3 { font-size: 15px; margin-bottom: 6px; }
     .dashboard-compact .grid { gap: 10px; }
-    .dashboard-compact .dash-kpi-card { min-height: 78px; display: flex; flex-direction: column; justify-content: space-between; }
-    .dashboard-compact .dash-kpi-card h4 { margin: 0; font-size: 13px; line-height: 1.2; }
-    .dashboard-compact .dash-kpi-value { font-size: 18px; font-weight: 700; margin-top: 8px; }
-    .dashboard-compact .dash-filter-card form { margin-bottom: 8px !important; }
-    .dashboard-compact .dash-filter-card .row { margin-bottom: 8px; }
-    .dashboard-compact .dash-chart-card { padding-bottom: 10px; }
-    .dashboard-compact .dash-chart-desc { font-size: 12px; margin: 2px 0 8px !important; }
+    .dashboard-compact .dash-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 170px));
+      gap: 10px;
+      justify-content: start;
+      align-items: stretch;
+      margin-bottom: 12px;
+    }
+    .dashboard-compact .dash-kpi-card {
+      min-height: 66px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .dashboard-compact .dash-kpi-card h4 { margin: 0; font-size: 12px; line-height: 1.2; }
+    .dashboard-compact .dash-kpi-value { font-size: 16px; font-weight: 700; margin-top: 6px; }
+    .dashboard-compact .dash-filter-card form { margin-bottom: 6px !important; }
+    .dashboard-compact .dash-filter-card .row { margin-bottom: 6px; }
+    .dashboard-compact .dash-chart-card { padding-bottom: 8px; }
+    .dashboard-compact .dash-chart-desc { font-size: 12px; margin: 2px 0 6px !important; }
+    @media (min-width: 1280px) {
+      .content.dashboard-compact { max-width: 1040px; }
+    }
+    @media (max-width: 980px) {
+      .content.dashboard-compact { max-width: none; padding: 14px; }
+      .dashboard-compact .dash-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     .kpi-subtitle {
       margin: 4px 0 0;
       font-size: 12px;
@@ -459,29 +488,32 @@ function format_rupiah($amount)
     }
     .hourly-chart {
       display: grid;
-      gap: 6px;
-      grid-template-columns: repeat(24, minmax(30px, 1fr));
+      gap: 4px;
+      grid-template-columns: repeat(24, minmax(20px, 1fr));
       align-items: end;
-      margin-top: 8px;
+      margin-top: 6px;
+      overflow-x: auto;
+      padding-bottom: 2px;
     }
     .hourly-bar {
       display: grid;
-      gap: 3px;
+      gap: 2px;
       justify-items: center;
+      min-width: 20px;
     }
     .hourly-bar-value {
-      font-size: 10px;
+      font-size: 9px;
       color: #334155;
     }
     .hourly-bar-fill {
       width: 100%;
-      max-width: 38px;
-      border-radius: 8px 8px 3px 3px;
+      max-width: 24px;
+      border-radius: 7px 7px 3px 3px;
       background: linear-gradient(180deg, rgba(59,130,246,.9), rgba(59,130,246,.35));
-      min-height: 8px;
+      min-height: 6px;
     }
     .hourly-bar-label {
-      font-size: 9px;
+      font-size: 8px;
       color: #64748b;
     }
     .hourly-filter {
@@ -538,7 +570,7 @@ function format_rupiah($amount)
           <p><small>Periode: <?php echo e($rangeLabel); ?></small></p>
         </div>
 
-        <div class="grid cols-4">
+        <div class="dash-kpi-grid">
           <div class="card dash-kpi-card">
             <h4>Total Produk</h4>
             <div class="dash-kpi-value"><?php echo e((string)$stats['products']); ?></div>
@@ -595,7 +627,7 @@ function format_rupiah($amount)
           <div class="hourly-chart">
             <?php foreach ($hourlyAverages as $hour => $avg): ?>
               <?php
-                $height = $maxHourly > 0 ? ($avg / $maxHourly) * 64 : 0;
+                $height = $maxHourly > 0 ? ($avg / $maxHourly) * 44 : 0;
                 $label = str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
               ?>
               <div class="hourly-bar">
