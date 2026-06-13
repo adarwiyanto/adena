@@ -429,6 +429,17 @@ function format_rupiah($amount)
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
   <style>
+    .dashboard-compact .card { padding: 12px 14px; border-radius: 12px; }
+    .dashboard-compact .dash-filter-card h3,
+    .dashboard-compact .dash-chart-card h3 { font-size: 16px; margin-bottom: 8px; }
+    .dashboard-compact .grid { gap: 10px; }
+    .dashboard-compact .dash-kpi-card { min-height: 78px; display: flex; flex-direction: column; justify-content: space-between; }
+    .dashboard-compact .dash-kpi-card h4 { margin: 0; font-size: 13px; line-height: 1.2; }
+    .dashboard-compact .dash-kpi-value { font-size: 18px; font-weight: 700; margin-top: 8px; }
+    .dashboard-compact .dash-filter-card form { margin-bottom: 8px !important; }
+    .dashboard-compact .dash-filter-card .row { margin-bottom: 8px; }
+    .dashboard-compact .dash-chart-card { padding-bottom: 10px; }
+    .dashboard-compact .dash-chart-desc { font-size: 12px; margin: 2px 0 8px !important; }
     .kpi-subtitle {
       margin: 4px 0 0;
       font-size: 12px;
@@ -448,34 +459,35 @@ function format_rupiah($amount)
     }
     .hourly-chart {
       display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+      gap: 6px;
+      grid-template-columns: repeat(24, minmax(30px, 1fr));
       align-items: end;
-      margin-top: 12px;
+      margin-top: 8px;
     }
     .hourly-bar {
       display: grid;
-      gap: 6px;
+      gap: 3px;
       justify-items: center;
     }
     .hourly-bar-value {
-      font-size: 12px;
+      font-size: 10px;
       color: #334155;
     }
     .hourly-bar-fill {
       width: 100%;
-      border-radius: 10px 10px 4px 4px;
+      max-width: 38px;
+      border-radius: 8px 8px 3px 3px;
       background: linear-gradient(180deg, rgba(59,130,246,.9), rgba(59,130,246,.35));
-      min-height: 12px;
+      min-height: 8px;
     }
     .hourly-bar-label {
-      font-size: 11px;
+      font-size: 9px;
       color: #64748b;
     }
     .hourly-filter {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
       align-items: flex-end;
     }
     .hourly-filter .row {
@@ -500,8 +512,8 @@ function format_rupiah($amount)
         <div class="spacer"></div>
         </div>
 
-      <div class="content">
-        <div class="card" style="margin-bottom:16px">
+      <div class="content dashboard-compact">
+        <div class="card dash-filter-card" style="margin-bottom:12px">
           <h3 style="margin-top:0">Filter Periode</h3>
           <form method="get" style="margin-bottom:12px">
             <div class="row">
@@ -527,31 +539,31 @@ function format_rupiah($amount)
         </div>
 
         <div class="grid cols-4">
-          <div class="card">
-            <h4 style="margin-top:0">Total Produk</h4>
-            <div style="font-size:24px;font-weight:600"><?php echo e((string)$stats['products']); ?></div>
+          <div class="card dash-kpi-card">
+            <h4>Total Produk</h4>
+            <div class="dash-kpi-value"><?php echo e((string)$stats['products']); ?></div>
           </div>
-          <div class="card">
-            <h4 style="margin-top:0">Transaksi</h4>
-            <div style="font-size:24px;font-weight:600"><?php echo e((string)$stats['sales']); ?></div>
+          <div class="card dash-kpi-card">
+            <h4>Transaksi</h4>
+            <div class="dash-kpi-value"><?php echo e((string)$stats['sales']); ?></div>
           </div>
-          <div class="card">
-            <h4 style="margin-top:0">Omzet</h4>
-            <div style="font-size:24px;font-weight:600"><?php echo e(format_rupiah($stats['revenue'])); ?></div>
+          <div class="card dash-kpi-card">
+            <h4>Omzet</h4>
+            <div class="dash-kpi-value"><?php echo e(format_rupiah($stats['revenue'])); ?></div>
           </div>
-          <div class="card">
-            <h4 style="margin-top:0">Retur</h4>
-            <div style="font-size:24px;font-weight:600"><?php echo e((string)$stats['returns']); ?></div>
+          <div class="card dash-kpi-card">
+            <h4>Retur</h4>
+            <div class="dash-kpi-value"><?php echo e((string)$stats['returns']); ?></div>
           </div>
-          <div class="card">
-            <h4 style="margin-top:0">Rata-rata Belanja</h4>
-            <div style="font-size:24px;font-weight:600"><?php echo e(format_rupiah($stats['avg_transaction'])); ?></div>
+          <div class="card dash-kpi-card">
+            <h4>Rata-rata Belanja</h4>
+            <div class="dash-kpi-value"><?php echo e(format_rupiah($stats['avg_transaction'])); ?></div>
           </div>
         </div>
 
-        <div class="card" style="margin-top:16px">
+        <div class="card dash-chart-card" style="margin-top:12px">
           <h3 style="margin-top:0">Grafik Rata-rata Jam Kunjungan</h3>
-          <p style="margin:4px 0 12px;color:var(--muted)">Rata-rata jumlah transaksi per jam berdasarkan periode yang dipilih.</p>
+          <p class="dash-chart-desc" style="color:var(--muted)">Rata-rata jumlah transaksi per jam berdasarkan periode yang dipilih.</p>
           <form method="get" class="hourly-filter">
             <input type="hidden" name="range" value="<?php echo e($range); ?>">
             <?php if (!empty($_GET['start'])): ?>
@@ -583,7 +595,7 @@ function format_rupiah($amount)
           <div class="hourly-chart">
             <?php foreach ($hourlyAverages as $hour => $avg): ?>
               <?php
-                $height = $maxHourly > 0 ? ($avg / $maxHourly) * 120 : 0;
+                $height = $maxHourly > 0 ? ($avg / $maxHourly) * 64 : 0;
                 $label = str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
               ?>
               <div class="hourly-bar">

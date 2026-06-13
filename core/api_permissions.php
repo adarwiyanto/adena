@@ -20,6 +20,8 @@ function api_permission_catalog(): array {
     'transfers.view' => ['group' => 'Transfer Stok', 'label' => 'Lihat transfer stok'],
     'transfers.create' => ['group' => 'Transfer Stok', 'label' => 'Buat transfer stok'],
     'transfers.receive' => ['group' => 'Transfer Stok', 'label' => 'Terima transfer stok'],
+    'stock_transfer' => ['group' => 'API Dapur', 'label' => 'Transfer stok dari dapur ke toko'],
+    'stock_return' => ['group' => 'API Dapur', 'label' => 'Pengembalian stok dari toko ke dapur'],
     'users.view' => ['group' => 'User', 'label' => 'Lihat user'],
     'users.sync' => ['group' => 'User', 'label' => 'Sinkron user'],
     'logs.view' => ['group' => 'Log API', 'label' => 'Lihat log API'],
@@ -37,7 +39,7 @@ function api_permission_groups(): array {
 function api_default_permissions(string $type): array {
   $type = strtolower(trim($type));
   if ($type === 'receiver') {
-    return ['master.view','categories.view','products.view','stocks.view','transfers.view','transfers.receive','sales.view','sales.push'];
+    return ['master.view','categories.view','products.view','stocks.view','transfers.view','transfers.receive','stock_transfer','stock_return','sales.view','sales.push'];
   }
   if ($type === 'sender') {
     return ['master.view','categories.view','products.view','stocks.view','transfers.view','transfers.create','sales.view','purchases.view'];
