@@ -104,6 +104,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
           <?php if (has_menu_access($u, 'stok_opname')): ?><a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname', 'approve')): ?><a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/kitchen_receive_confirm.php')); ?>">Konfirmasi Stok Dapur</a><?php endif; ?>
         </div>
       </div>
     <?php endif; ?>
