@@ -62,7 +62,8 @@ function ensure_api_tokens_table(): void {
     api_add_column_if_missing('api_tokens', 'token_plain', 'token_plain TEXT NULL AFTER branch_id');
     api_add_column_if_missing('api_tokens', 'api_type', 'api_type VARCHAR(50) NULL AFTER token_plain');
     api_add_column_if_missing('api_tokens', 'client_type', 'client_type VARCHAR(30) NULL AFTER api_type');
-    api_add_column_if_missing('api_tokens', 'unit_code', 'unit_code VARCHAR(40) NULL AFTER client_type');
+    api_add_column_if_missing('api_tokens', 'api_mode', "api_mode VARCHAR(20) NOT NULL DEFAULT 'sender' AFTER client_type");
+    api_add_column_if_missing('api_tokens', 'unit_code', 'unit_code VARCHAR(40) NULL AFTER api_mode');
     api_add_column_if_missing('api_tokens', 'remote_base_url', 'remote_base_url VARCHAR(255) NULL AFTER unit_code');
     api_add_column_if_missing('api_tokens', 'remote_token', 'remote_token TEXT NULL AFTER remote_base_url');
     api_add_column_if_missing('api_tokens', 'permissions', 'permissions TEXT NULL AFTER remote_token');
@@ -137,8 +138,8 @@ function api_token_has_permission(int $tokenId, string $permissionKey, ?string $
         $stmt->execute([$tokenId]);
         $hasRows = (int)$stmt->fetchColumn() > 0;
         if ($hasRows) {
-            $stmt = db()->prepare('SELECT is_allowed FROM api_token_permissions WHERE token_id=? AND permission_key=? LIMIT 1');
-            $stmt->execute([$tokenId, $permissionKey]);
+            $stmt = db()->prepare('SELECT is_allowed FROM api_token_permissions WHERE token_id=? AND permission_key IN (?, ?) ORDER BY permission_key = ? DESC LIMIT 1');
+            $stmt->execute([$tokenId, $permissionKey, '*', $permissionKey]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             return $row && (int)$row['is_allowed'] === 1;
         }
@@ -148,8 +149,9 @@ function api_token_has_permission(int $tokenId, string $permissionKey, ?string $
     if ($raw !== '') {
         $decoded = json_decode($raw, true);
         if (!is_array($decoded)) $decoded = array_map('trim', explode(',', $raw));
-        $map = array_flip(array_map('strval', $decoded));
-        return isset($map[$permissionKey]);
+        $decoded = array_map(static fn($v) => strtolower(trim((string)$v)), $decoded);
+        $map = array_flip($decoded);
+        return isset($map['*']) || isset($map[strtolower($permissionKey)]);
     }
 
     // Legacy token lama tanpa permission eksplisit tetap diizinkan agar API/POS existing tidak rusak.
@@ -159,10 +161,10 @@ function require_api_token(?string $permissionKey = null): array {
     ensure_api_tokens_table();
     $input = api_get_bearer_token();
     if (!$input || strlen($input) < 20) { api_log(null, $permissionKey, 401, 'Token kosong/tidak valid'); api_err('API token tidak valid', 401); }
-    $rows = db()->query('SELECT id, name, token_hash, device_code, branch_id, api_type, unit_code, permissions, allowed_ips FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $rows = db()->query('SELECT id, name, token_hash, device_code, branch_id, api_type, client_type, api_mode, unit_code, remote_base_url, permissions, allowed_ips FROM api_tokens WHERE is_active = 1 ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rows as $row) {
         if (password_verify($input, (string)$row['token_hash'])) {
-            $token = ['id'=>(int)$row['id'], 'name'=>(string)$row['name'], 'device_code'=>strtoupper(trim((string)($row['device_code'] ?? ''))), 'branch_id'=>isset($row['branch_id'])?(int)$row['branch_id']:null, 'api_type'=>(string)($row['api_type'] ?? ''), 'unit_code'=>strtoupper(trim((string)($row['unit_code'] ?? '')))];
+            $token = ['id'=>(int)$row['id'], 'name'=>(string)$row['name'], 'device_code'=>strtoupper(trim((string)($row['device_code'] ?? ''))), 'branch_id'=>isset($row['branch_id'])?(int)$row['branch_id']:null, 'api_type'=>(string)($row['api_type'] ?? ''), 'client_type'=>(string)($row['client_type'] ?? ''), 'api_mode'=>(string)($row['api_mode'] ?? ''), 'remote_base_url'=>(string)($row['remote_base_url'] ?? ''), 'unit_code'=>strtoupper(trim((string)($row['unit_code'] ?? '')))];
             if (!api_allowed_ip($row['allowed_ips'] ?? null)) { api_log($token, $permissionKey, 403, 'IP tidak diizinkan'); api_err('IP tidak diizinkan', 403); }
             if ($permissionKey && !api_token_has_permission((int)$row['id'], $permissionKey, $row['permissions'] ?? null)) { api_log($token, $permissionKey, 403, 'Permission ditolak'); api_err('Permission API ditolak', 403); }
             db()->prepare('UPDATE api_tokens SET last_used_at = NOW() WHERE id = ?')->execute([(int)$row['id']]);

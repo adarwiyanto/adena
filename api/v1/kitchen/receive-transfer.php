@@ -2,11 +2,11 @@
 require_once __DIR__.'/../../../core/db.php';
 require_once __DIR__.'/../../../core/functions.php';
 require_once __DIR__.'/../../../core/inventory.php';
+require_once __DIR__.'/_auth.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 function out($d,$c=200){http_response_code($c);echo json_encode($d,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
-function table_exists_local(string $table): bool { $st=db()->prepare("SHOW TABLES LIKE ?"); $st->execute([$table]); return (bool)$st->fetchColumn(); }
 function safe_exec_local(string $sql): void { try{ db()->exec($sql); }catch(Throwable $e){} }
 function ensure_tables(){
  $sql=file_get_contents(__DIR__.'/../../../db/toko_api_dapur_patch.sql');
@@ -21,7 +21,6 @@ function ensure_tables(){
  safe_exec_local("ALTER TABLE kitchen_api_received_items ADD COLUMN unit_cost DECIMAL(18,2) DEFAULT 0 AFTER transfer_price");
  safe_exec_local("ALTER TABLE kitchen_api_received_items ADD COLUMN line_total DECIMAL(18,2) DEFAULT 0 AFTER unit_cost");
 }
-function bearer(){ $h=$_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''; if(preg_match('/Bearer\s+(.+)/i',$h,$m)) return trim($m[1]); return $_GET['token'] ?? ''; }
 function kitchen_active_branch_id(): int { return function_exists('active_branch_id') ? max(1,(int)active_branch_id()) : 1; }
 function kitchen_supplier_id(): int {
   $code = 'DAPUR_ADENA';
@@ -72,16 +71,15 @@ function validate_kitchen_transfer_items(array $items): array {
 
 ensure_tables();
 if (function_exists('ensure_inventory_module_schema')) ensure_inventory_module_schema();
-$token=bearer(); if($token==='') out(['ok'=>false,'message'=>'Token kosong','error'=>'Token kosong'],401);
-$st=db()->prepare('SELECT * FROM kitchen_api_tokens WHERE token_hash=? AND is_active=1 LIMIT 1'); $st->execute([hash('sha256',$token)]); $tok=$st->fetch(PDO::FETCH_ASSOC); if(!$tok) out(['ok'=>false,'message'=>'Token tidak valid','error'=>'Token tidak valid'],401);
+$tok = kitchen_api_find_token(['stock_transfer','transfers.receive','transfers.create']);
 $in=json_decode(file_get_contents('php://input')?:'{}',true); if(!is_array($in)) out(['ok'=>false,'message'=>'Payload JSON tidak valid','error'=>'Payload JSON tidak valid'],400);
 $dryRun=!empty($in['dry_run']);
 $transferNo=(string)($in['transfer_no']??''); $items=$in['items']??[]; if($transferNo===''||!is_array($items)||count($items)===0) out(['ok'=>false,'message'=>'transfer_no/items wajib diisi','error'=>'transfer_no/items wajib diisi'],422);
 try{
  [$validItems,$grandTotal]=validate_kitchen_transfer_items($items);
  if($dryRun){
-  db()->prepare('UPDATE kitchen_api_tokens SET last_used_at=NOW() WHERE id=?')->execute([(int)$tok['id']]);
-  out(['ok'=>true,'status'=>'dry_run_ok','message'=>'Transfer test valid. Dry-run tidak mengubah stok/pembelian toko.','transfer_no'=>$transferNo,'total_items'=>count($validItems),'grand_total'=>$grandTotal]);
+  kitchen_api_touch_token($tok);
+  out(['ok'=>true,'status'=>'dry_run_ok','message'=>'Transfer test valid. Dry-run tidak mengubah stok/pembelian toko.','transfer_no'=>$transferNo,'total_items'=>count($validItems),'grand_total'=>$grandTotal,'token_source'=>$tok['source']]);
  }
 }catch(Throwable $e){
  if($dryRun) out(['ok'=>false,'status'=>'dry_run_failed','message'=>$e->getMessage(),'error'=>$e->getMessage()],422);
@@ -104,9 +102,9 @@ try{
  foreach($validItems as $it){
    $ins->execute([$logId,$it['product_id'],$it['sku'],$it['product_name'],$it['qty'],$it['qty_base'],$it['unit'],$it['transfer_price'],$it['unit_cost'],$it['line_total']]);
  }
- db()->prepare('UPDATE kitchen_api_tokens SET last_used_at=NOW() WHERE id=?')->execute([(int)$tok['id']]);
+ kitchen_api_touch_token($tok);
  db()->commit();
- out(['ok'=>true,'message'=>'Transfer stok diterima sebagai pending. Manager toko perlu konfirmasi sebelum stok masuk.','status'=>'pending_confirmation','transfer_no'=>$transferNo,'log_id'=>$logId,'total_items'=>count($validItems),'grand_total'=>$grandTotal]);
+ out(['ok'=>true,'message'=>'Transfer stok diterima sebagai pending. Manager toko perlu konfirmasi sebelum stok masuk.','status'=>'pending_confirmation','transfer_no'=>$transferNo,'log_id'=>$logId,'total_items'=>count($validItems),'grand_total'=>$grandTotal,'token_source'=>$tok['source']]);
 }catch(Throwable $e){
  if(db()->inTransaction()) db()->rollBack();
  try{db()->prepare('INSERT INTO kitchen_api_receive_logs(token_id,transfer_no,endpoint,status,message,payload_json,remote_ip) VALUES(?,?,?,?,?,?,?)')->execute([(int)$tok['id'],$transferNo,'receive-transfer','failed',$e->getMessage(),json_encode($in,JSON_UNESCAPED_UNICODE),$_SERVER['REMOTE_ADDR']??'']);}catch(Throwable $x){}
