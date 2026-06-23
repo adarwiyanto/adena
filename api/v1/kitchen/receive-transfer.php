@@ -3,6 +3,7 @@ require_once __DIR__.'/../../../core/db.php';
 require_once __DIR__.'/../../../core/functions.php';
 require_once __DIR__.'/../../../core/inventory.php';
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 function out($d,$c=200){http_response_code($c);echo json_encode($d,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function table_exists_local(string $table): bool { $st=db()->prepare("SHOW TABLES LIKE ?"); $st->execute([$table]); return (bool)$st->fetchColumn(); }
@@ -44,14 +45,52 @@ function kitchen_product_base_qty(array $p, float $qty, string $unit): float {
   }
   return $qty;
 }
+function validate_kitchen_transfer_items(array $items): array {
+ $valid=[]; $total=0.0; $idx=0;
+ foreach($items as $it){
+   $idx++;
+   if(!is_array($it)) throw new Exception('Item #'.$idx.' bukan object JSON valid.');
+   $pid=(int)($it['store_product_id']??$it['product_id']??0);
+   $qty=(float)($it['qty']??0);
+   $name=(string)($it['name']??'');
+   if($pid<=0) throw new Exception('Item #'.$idx.($name!==''?' ('.$name.')':'').': store_product_id/product_id wajib diisi.');
+   if($qty<=0) throw new Exception('Item #'.$idx.': qty harus lebih dari 0.');
+   $product=db()->prepare('SELECT * FROM products WHERE id=? LIMIT 1');
+   $product->execute([$pid]);
+   $p=$product->fetch(PDO::FETCH_ASSOC);
+   if(!$p) throw new Exception('Item #'.$idx.($name!==''?' ('.$name.')':'').': produk toko tidak ditemukan, product_id='.$pid.'. Jalankan import/mapping produk dari toko yang benar.');
+   $unit=(string)($it['unit']??($p['base_unit']??''));
+   $unitCost=(float)($it['transfer_price']??0);
+   if($unitCost<0) throw new Exception('Item #'.$idx.': harga transfer tidak boleh negatif untuk produk_id='.$pid.'.');
+   $qtyBase=kitchen_product_base_qty($p,$qty,$unit);
+   $line=$qty*$unitCost; $total += $line;
+   $valid[]=['product_id'=>$pid,'sku'=>(string)($it['sku']??''),'product_name'=>(string)($it['name']??$p['name']),'qty'=>$qty,'qty_base'=>$qtyBase,'unit'=>$unit,'transfer_price'=>$unitCost,'unit_cost'=>$unitCost,'line_total'=>$line];
+ }
+ if(count($valid)<1) throw new Exception('Tidak ada item valid untuk diterima.');
+ return [$valid,$total];
+}
 
 ensure_tables();
 if (function_exists('ensure_inventory_module_schema')) ensure_inventory_module_schema();
-$token=bearer(); if($token==='') out(['ok'=>false,'error'=>'Token kosong'],401);
-$st=db()->prepare('SELECT * FROM kitchen_api_tokens WHERE token_hash=? AND is_active=1 LIMIT 1'); $st->execute([hash('sha256',$token)]); $tok=$st->fetch(PDO::FETCH_ASSOC); if(!$tok) out(['ok'=>false,'error'=>'Token tidak valid'],401);
-$in=json_decode(file_get_contents('php://input')?:'{}',true); if(!is_array($in)) out(['ok'=>false,'error'=>'Payload JSON tidak valid'],400);
-$transferNo=(string)($in['transfer_no']??''); $items=$in['items']??[]; if($transferNo===''||!is_array($items)||count($items)===0) out(['ok'=>false,'error'=>'transfer_no/items wajib diisi'],422);
-$exists=db()->prepare('SELECT id,status,purchase_id,purchase_no FROM kitchen_api_receive_logs WHERE transfer_no=? LIMIT 1'); $exists->execute([$transferNo]); $ex=$exists->fetch(PDO::FETCH_ASSOC);
+$token=bearer(); if($token==='') out(['ok'=>false,'message'=>'Token kosong','error'=>'Token kosong'],401);
+$st=db()->prepare('SELECT * FROM kitchen_api_tokens WHERE token_hash=? AND is_active=1 LIMIT 1'); $st->execute([hash('sha256',$token)]); $tok=$st->fetch(PDO::FETCH_ASSOC); if(!$tok) out(['ok'=>false,'message'=>'Token tidak valid','error'=>'Token tidak valid'],401);
+$in=json_decode(file_get_contents('php://input')?:'{}',true); if(!is_array($in)) out(['ok'=>false,'message'=>'Payload JSON tidak valid','error'=>'Payload JSON tidak valid'],400);
+$dryRun=!empty($in['dry_run']);
+$transferNo=(string)($in['transfer_no']??''); $items=$in['items']??[]; if($transferNo===''||!is_array($items)||count($items)===0) out(['ok'=>false,'message'=>'transfer_no/items wajib diisi','error'=>'transfer_no/items wajib diisi'],422);
+try{
+ [$validItems,$grandTotal]=validate_kitchen_transfer_items($items);
+ if($dryRun){
+  db()->prepare('UPDATE kitchen_api_tokens SET last_used_at=NOW() WHERE id=?')->execute([(int)$tok['id']]);
+  out(['ok'=>true,'status'=>'dry_run_ok','message'=>'Transfer test valid. Dry-run tidak mengubah stok/pembelian toko.','transfer_no'=>$transferNo,'total_items'=>count($validItems),'grand_total'=>$grandTotal]);
+ }
+}catch(Throwable $e){
+ if($dryRun) out(['ok'=>false,'status'=>'dry_run_failed','message'=>$e->getMessage(),'error'=>$e->getMessage()],422);
+ out(['ok'=>false,'message'=>$e->getMessage(),'error'=>$e->getMessage()],422);
+}
+
+$exists=db()->prepare('SELECT id,status,purchase_id,purchase_no FROM kitchen_api_receive_logs WHERE transfer_no=? LIMIT 1');
+$exists->execute([$transferNo]);
+$ex=$exists->fetch(PDO::FETCH_ASSOC);
 if($ex) out(['ok'=>true,'duplicate'=>true,'status'=>$ex['status'],'message'=>'Transfer sudah pernah diterima di toko','log_id'=>(int)$ex['id'],'purchase_id'=>(int)($ex['purchase_id']??0),'purchase_no'=>$ex['purchase_no']??null]);
 try{
  db()->beginTransaction();
@@ -62,18 +101,14 @@ try{
  $log->execute([(int)$tok['id'],$branchId,$supplierId,$transferNo,'receive-transfer','pending_confirmation','Menunggu konfirmasi penerimaan stok oleh manager toko',json_encode($in,JSON_UNESCAPED_UNICODE),$_SERVER['REMOTE_ADDR']??'']);
  $logId=(int)db()->lastInsertId();
  $ins=db()->prepare('INSERT INTO kitchen_api_received_items(log_id,product_id,sku,product_name,qty,qty_base,unit,transfer_price,unit_cost,line_total) VALUES(?,?,?,?,?,?,?,?,?,?)');
- $valid=0; $total=0.0;
- foreach($items as $it){
-   if(!is_array($it)) continue;
-   $pid=(int)($it['store_product_id']??$it['product_id']??0); $qty=(float)($it['qty']??0); if($pid<=0||$qty<=0) continue;
-   $product=db()->prepare('SELECT * FROM products WHERE id=? LIMIT 1'); $product->execute([$pid]); $p=$product->fetch(PDO::FETCH_ASSOC); if(!$p) throw new Exception('Produk toko tidak ditemukan: '.$pid);
-   $unit=(string)($it['unit']??($p['base_unit']??''));
-   $unitCost=(float)($it['transfer_price']??0); if($unitCost<0) throw new Exception('Harga transfer tidak boleh negatif untuk produk: '.$pid);
-   $qtyBase=kitchen_product_base_qty($p,$qty,$unit); $line=$qty*$unitCost; $total += $line;
-   $ins->execute([$logId,$pid,(string)($it['sku']??''),(string)($it['name']??$p['name']),$qty,$qtyBase,$unit,$unitCost,$unitCost,$line]);
-   $valid++;
+ foreach($validItems as $it){
+   $ins->execute([$logId,$it['product_id'],$it['sku'],$it['product_name'],$it['qty'],$it['qty_base'],$it['unit'],$it['transfer_price'],$it['unit_cost'],$it['line_total']]);
  }
- if($valid<1) throw new Exception('Tidak ada item valid untuk diterima.');
  db()->prepare('UPDATE kitchen_api_tokens SET last_used_at=NOW() WHERE id=?')->execute([(int)$tok['id']]);
- db()->commit(); out(['ok'=>true,'message'=>'Transfer stok diterima sebagai pending. Manager toko perlu konfirmasi sebelum stok masuk.','status'=>'pending_confirmation','transfer_no'=>$transferNo,'log_id'=>$logId,'total_items'=>$valid,'grand_total'=>$total]);
-}catch(Throwable $e){ if(db()->inTransaction()) db()->rollBack(); try{db()->prepare('INSERT INTO kitchen_api_receive_logs(token_id,transfer_no,endpoint,status,message,payload_json,remote_ip) VALUES(?,?,?,?,?,?,?)')->execute([(int)$tok['id'],$transferNo,'receive-transfer','failed',$e->getMessage(),json_encode($in,JSON_UNESCAPED_UNICODE),$_SERVER['REMOTE_ADDR']??'']);}catch(Throwable $x){} out(['ok'=>false,'error'=>$e->getMessage()],500); }
+ db()->commit();
+ out(['ok'=>true,'message'=>'Transfer stok diterima sebagai pending. Manager toko perlu konfirmasi sebelum stok masuk.','status'=>'pending_confirmation','transfer_no'=>$transferNo,'log_id'=>$logId,'total_items'=>count($validItems),'grand_total'=>$grandTotal]);
+}catch(Throwable $e){
+ if(db()->inTransaction()) db()->rollBack();
+ try{db()->prepare('INSERT INTO kitchen_api_receive_logs(token_id,transfer_no,endpoint,status,message,payload_json,remote_ip) VALUES(?,?,?,?,?,?,?)')->execute([(int)$tok['id'],$transferNo,'receive-transfer','failed',$e->getMessage(),json_encode($in,JSON_UNESCAPED_UNICODE),$_SERVER['REMOTE_ADDR']??'']);}catch(Throwable $x){}
+ out(['ok'=>false,'message'=>$e->getMessage(),'error'=>$e->getMessage()],500);
+}
