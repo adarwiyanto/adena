@@ -24,14 +24,47 @@ function kitchen_api_permissions_raw_allow(int $tokenId, string $permissionsRaw,
   }
   return false;
 }
+function kitchen_api_permission_aliases(string $perm): array {
+  $perm = strtolower(trim($perm));
+  $map = [
+    'stock_transfer' => ['stock_transfer','transfers.receive','transfers.create','kitchen.transfer','kitchen.receive','kitchen.write','transfer.write','stock_transfer.write'],
+    'transfers.receive' => ['transfers.receive','stock_transfer','kitchen.receive','kitchen.write','transfer.receive','stock_transfer.write'],
+    'transfers.create' => ['transfers.create','stock_transfer','kitchen.transfer','kitchen.write','transfer.write','stock_transfer.write'],
+    'products.view' => ['products.view','products.read','product.read','master.view','stock_transfer'],
+    'master.view' => ['master.view','products.view','products.read'],
+  ];
+  return $map[$perm] ?? [$perm];
+}
 function kitchen_api_legacy_permissions_allow(?string $raw, array $requiredAny): bool {
   if (!$requiredAny) return true;
   $perms = json_decode((string)$raw, true);
   if (!is_array($perms)) $perms = array_map('trim', explode(',', (string)$raw));
   $map = array_flip(array_map(static fn($v) => strtolower(trim((string)$v)), $perms));
   if (isset($map['*'])) return true;
-  foreach ($requiredAny as $perm) if (isset($map[strtolower((string)$perm)])) return true;
+  foreach ($requiredAny as $perm) {
+    foreach (kitchen_api_permission_aliases((string)$perm) as $alias) {
+      if (isset($map[strtolower($alias)])) return true;
+    }
+  }
   return false;
+}
+function kitchen_api_token_is_kitchen(array $row): bool {
+  $client = strtolower(trim((string)($row['client_type'] ?? '')));
+  $type = strtolower(trim((string)($row['api_type'] ?? '')));
+  $mode = strtolower(trim((string)($row['api_mode'] ?? '')));
+  return in_array($client, ['kitchen','dapur','api_dapur'], true)
+    || in_array($type, ['kitchen','dapur','api_dapur'], true)
+    || $mode === 'kitchen';
+}
+function kitchen_api_heal_kitchen_permissions(array $row, array $requiredAny): string {
+  $raw = (string)($row['permissions'] ?? '');
+  if (!kitchen_api_token_is_kitchen($row)) return $raw;
+  if (kitchen_api_legacy_permissions_allow($raw, $requiredAny)) return $raw;
+  $perms = function_exists('api_permissions_decode') ? api_permissions_decode($raw) : [];
+  $merged = array_values(array_unique(array_merge($perms, ['master.view','products.view','stocks.view','transfers.view','transfers.receive','transfers.create','stock_transfer','stock_return','logs.view'])));
+  $encoded = function_exists('api_permissions_encode') ? api_permissions_encode($merged) : json_encode($merged, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+  try { db()->prepare('UPDATE api_tokens SET permissions=? WHERE id=?')->execute([$encoded, (int)$row['id']]); } catch (Throwable $e) {}
+  return $encoded;
 }
 function kitchen_api_find_token(array $requiredAny = []): array {
   if (function_exists('ensure_api_settings_schema')) ensure_api_settings_schema();
@@ -55,15 +88,16 @@ function kitchen_api_find_token(array $requiredAny = []): array {
 
   try {
     ensure_api_tokens_table();
-    $rows = db()->query('SELECT id, name, token_hash, permissions, allowed_ips, client_type, api_type FROM api_tokens WHERE is_active=1 ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
+    $rows = db()->query('SELECT id, name, token_hash, permissions, allowed_ips, client_type, api_type, api_mode FROM api_tokens WHERE is_active=1 ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rows as $row) {
       if (!password_verify($plain, (string)$row['token_hash'])) continue;
       $token = ['id'=>(int)$row['id'],'name'=>(string)$row['name'],'client_type'=>(string)($row['client_type'] ?? ''),'api_type'=>(string)($row['api_type'] ?? '')];
       if (!api_allowed_ip($row['allowed_ips'] ?? null)) {
         kitchen_api_auth_json(['ok'=>false,'message'=>'IP tidak diizinkan','error'=>'IP tidak diizinkan'],403);
       }
-      if (!kitchen_api_permissions_raw_allow((int)$row['id'], (string)($row['permissions'] ?? ''), $requiredAny)) {
-        kitchen_api_auth_json(['ok'=>false,'message'=>'Permission API ditolak untuk endpoint kitchen','error'=>'Permission API ditolak untuk endpoint kitchen'],403);
+      $permissionsRaw = kitchen_api_heal_kitchen_permissions($row, $requiredAny);
+      if (!kitchen_api_permissions_raw_allow((int)$row['id'], $permissionsRaw, $requiredAny) && !kitchen_api_legacy_permissions_allow($permissionsRaw, $requiredAny)) {
+        kitchen_api_auth_json(['ok'=>false,'message'=>'Permission API ditolak untuk endpoint kitchen. Gunakan token kategori API ke Dapur dengan permission stock_transfer/transfers.receive.','error'=>'Permission API ditolak untuk endpoint kitchen'],403);
       }
       return ['source'=>'api_tokens','id'=>(int)$row['id'],'name'=>(string)$row['name'],'raw'=>$row];
     }
