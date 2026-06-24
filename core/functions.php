@@ -6,11 +6,11 @@ function e(string $s): string {
 
 function get_number_setting(string $key, $default = null) {
   $defaults = [
-    'number_decimal_places_qty' => '2',
-    'number_decimal_places_money' => '2',
+    'number_decimal_places_qty' => '0',
+    'number_decimal_places_money' => '0',
     'number_decimal_separator' => '.',
     'number_thousand_separator' => ',',
-    'number_trim_trailing_zero' => '0',
+    'number_trim_trailing_zero' => '1',
     'number_show_unit_after_qty' => '1',
   ];
   $fallback = array_key_exists($key, $defaults) ? $defaults[$key] : $default;
@@ -50,8 +50,9 @@ function format_number_custom($value, $decimals = null, array $options = []): st
 function format_qty($value, $unit = null, array $options = []): string {
   $decimals = array_key_exists('decimals', $options)
     ? (int)$options['decimals']
-    : (int)get_number_setting('number_decimal_places_qty', 2);
-  $formatted = format_number_custom($value, $decimals, $options);
+    : 0;
+  $formatOptions = array_merge(['decimal_separator' => '.', 'thousand_separator' => ',', 'trim_trailing_zero' => true], $options);
+  $formatted = format_number_custom($value, $decimals, $formatOptions);
   $showUnit = array_key_exists('show_unit', $options)
     ? (bool)$options['show_unit']
     : ((string)get_number_setting('number_show_unit_after_qty', '1') === '1');
@@ -61,28 +62,33 @@ function format_qty($value, $unit = null, array $options = []): string {
 function format_money($value, array $options = []): string {
   $decimals = array_key_exists('decimals', $options)
     ? (int)$options['decimals']
-    : (int)get_number_setting('number_decimal_places_money', 2);
-  return format_number_custom($value, $decimals, $options);
+    : 0;
+  $formatOptions = array_merge(['decimal_separator' => '.', 'thousand_separator' => ',', 'trim_trailing_zero' => true], $options);
+  return format_number_custom($value, $decimals, $formatOptions);
 }
 
 function parse_number_input($raw): float {
   if (is_numeric($raw)) return (float)$raw;
   $s = trim((string)$raw);
   if ($s === '') return 0.0;
-  $decimalSeparator = (string)get_number_setting('number_decimal_separator', '.');
-  $thousandSeparator = (string)get_number_setting('number_thousand_separator', ',');
-  if ($thousandSeparator !== '') {
-    $s = str_replace($thousandSeparator, '', $s);
-  }
-  if ($decimalSeparator !== '.') {
-    $s = str_replace($decimalSeparator, '.', $s);
-  }
-  $s = str_replace([' ', ','], ['', '.'], $s);
-  return is_numeric($s) ? (float)$s : 0.0;
+  $s = str_replace(['Rp', 'rp', 'IDR', 'idr', ' '], '', $s);
+  // Current UI format: comma for thousands and dot for decimals.
+  // Example: 1,234,567.89 => 1234567.89
+  $s = str_replace(',', '', $s);
+  $s = preg_replace('/[^0-9.\-]/', '', $s);
+  if ($s === null || $s === '' || $s === '-' || $s === '.') return 0.0;
+  $negative = strpos($s, '-') === 0;
+  $s = str_replace('-', '', $s);
+  $parts = explode('.', $s);
+  $integer = array_shift($parts);
+  $decimal = implode('', $parts);
+  $normalized = ($negative ? '-' : '') . ($integer === '' ? '0' : $integer) . ($decimal !== '' ? '.' . $decimal : '');
+  return is_numeric($normalized) ? (float)$normalized : 0.0;
 }
 
-function format_number_id($number, int $decimals = 1): string {
-  return format_number_custom($number, $decimals, ['decimal_separator' => ',', 'thousand_separator' => '.']);
+
+function format_number_id($number, int $decimals = 0): string {
+  return format_number_custom($number, $decimals, ['decimal_separator' => '.', 'thousand_separator' => ',', 'trim_trailing_zero' => true]);
 }
 
 function product_unit_fallback(array $product): array {

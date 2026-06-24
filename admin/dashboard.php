@@ -4,6 +4,7 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/dashboard_charts.php';
 
 date_default_timezone_set('Asia/Jakarta');
 
@@ -70,6 +71,11 @@ switch ($range) {
 
 $rangeStartStr = $rangeStart->format('Y-m-d H:i:s');
 $rangeEndStr = $rangeEnd->format('Y-m-d H:i:s');
+$chartPayload = dashboard_chart_payload([
+  'range' => $range,
+  'start' => $_GET['start'] ?? '',
+  'end' => $_GET['end'] ?? '',
+]);
 
 $stats = [
   'products' => (int)db()->query("SELECT COUNT(*) c FROM products")->fetch()['c'],
@@ -142,97 +148,6 @@ $todayStart = $today;
 $todayEnd = $today->modify('+1 day');
 $todayStartStr = $todayStart->format('Y-m-d H:i:s');
 $todayEndStr = $todayEnd->format('Y-m-d H:i:s');
-
-$peakRange = $_GET['peak_range'] ?? 'all_time';
-$peakStartInput = $_GET['peak_start'] ?? '';
-$peakEndInput = $_GET['peak_end'] ?? '';
-$peakStart = null;
-$peakEnd = null;
-$peakLabel = '';
-
-switch ($peakRange) {
-  case 'this_week':
-    $peakStart = $today->modify('monday this week');
-    $peakEnd = $peakStart->modify('+1 week');
-    $peakLabel = 'Minggu Ini';
-    break;
-  case 'this_month':
-    $peakStart = $today->modify('first day of this month');
-    $peakEnd = $peakStart->modify('+1 month');
-    $peakLabel = 'Bulan Ini';
-    break;
-  case 'custom':
-    $parsedStart = DateTimeImmutable::createFromFormat('Y-m-d', $peakStartInput);
-    $parsedEnd = DateTimeImmutable::createFromFormat('Y-m-d', $peakEndInput);
-    if ($parsedStart && $parsedEnd) {
-      if ($parsedStart > $parsedEnd) {
-        $tmp = $parsedStart;
-        $parsedStart = $parsedEnd;
-        $parsedEnd = $tmp;
-      }
-      $peakStart = $parsedStart;
-      $peakEnd = $parsedEnd->modify('+1 day');
-      $peakLabel = 'Custom';
-    } else {
-      $peakRange = 'all_time';
-      $peakLabel = 'Semua Waktu';
-    }
-    break;
-  case 'all_time':
-  default:
-    $peakRange = 'all_time';
-    $peakLabel = 'Semua Waktu';
-    break;
-}
-
-$peakDays = 1;
-$peakParams = [];
-$peakWhere = '';
-if ($peakRange === 'all_time') {
-  $row = db()->query("SELECT MIN(sold_at) AS min_date, MAX(sold_at) AS max_date FROM sales WHERE is_active_revision=1 AND return_reason IS NULL AND is_active_revision=1")->fetch();
-  if (!empty($row['min_date']) && !empty($row['max_date'])) {
-    $peakStart = new DateTimeImmutable($row['min_date']);
-    $peakEnd = (new DateTimeImmutable($row['max_date']))->modify('+1 day');
-  }
-}
-if ($peakStart && $peakEnd) {
-  $peakWhere = "AND sold_at >= ? AND sold_at < ?";
-  $peakParams[] = $peakStart->format('Y-m-d H:i:s');
-  $peakParams[] = $peakEnd->format('Y-m-d H:i:s');
-  $peakDays = max(1, (int)$peakEnd->diff($peakStart)->days);
-}
-
-$hourlyCounts = array_fill(0, 24, 0);
-$stmt = db()->prepare("
-  SELECT HOUR(tx_time) h, COUNT(*) c
-  FROM (
-    SELECT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id)) AS tx_code,
-           MIN(sold_at) AS tx_time
-    FROM sales
-    WHERE return_reason IS NULL AND is_active_revision=1
-    {$peakWhere}
-    GROUP BY COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))
-  ) t
-  GROUP BY HOUR(tx_time)
-  ORDER BY h ASC
-");
-$stmt->execute($peakParams);
-foreach ($stmt->fetchAll() as $row) {
-  $hour = (int)($row['h'] ?? 0);
-  if ($hour >= 0 && $hour <= 23) {
-    $hourlyCounts[$hour] = (int)$row['c'];
-  }
-}
-
-$hourlyAverages = [];
-$maxHourly = 0.0;
-foreach ($hourlyCounts as $hour => $count) {
-  $avg = $peakDays > 0 ? $count / $peakDays : 0;
-  $hourlyAverages[$hour] = $avg;
-  if ($avg > $maxHourly) {
-    $maxHourly = $avg;
-  }
-}
 
 if ($role === 'admin') {
   $stmt = db()->prepare("
@@ -430,7 +345,7 @@ function format_rupiah($amount)
   <style><?php echo $customCss; ?></style>
   <style>
     .content.dashboard-compact {
-      max-width: 1080px;
+      max-width: none;
       padding: 18px 20px 28px;
       margin-left: auto;
       margin-right: auto;
@@ -443,7 +358,7 @@ function format_rupiah($amount)
     .dashboard-compact .grid { gap: 10px; }
     .dashboard-compact .dash-kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(145px, 170px));
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
       gap: 10px;
       justify-content: start;
       align-items: stretch;
@@ -462,12 +377,27 @@ function format_rupiah($amount)
     .dashboard-compact .dash-filter-card .row { margin-bottom: 6px; }
     .dashboard-compact .dash-chart-card { padding-bottom: 8px; }
     .dashboard-compact .dash-chart-desc { font-size: 12px; margin: 2px 0 6px !important; }
-    @media (min-width: 1280px) {
-      .content.dashboard-compact { max-width: 1040px; }
+    @media (min-width: 981px) {
+      .content.dashboard-compact { width: 100%; max-width: none; padding: 18px 24px 32px; }
+      .dashboard-compact .dash-filter-card { padding: 10px 12px; }
+      .dashboard-filter-form { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+      .dashboard-filter-form .row { min-width: 150px; margin:0 !important; }
+      .dashboard-filter-form .dashboard-filter-title { min-width:auto; align-self:center; margin-right:4px; }
+      .dashboard-filter-form .dashboard-filter-title h3 { margin:0; white-space:nowrap; }
+      .dashboard-filter-form .dashboard-custom-range { display:flex !important; gap:8px; align-items:flex-end; }
+      .dashboard-filter-form .dashboard-custom-range[hidden] { display:none !important; }
+      .dashboard-filter-form input, .dashboard-filter-form select { min-height:34px; padding:6px 10px; border-radius:9px; }
+      .dashboard-filter-form .btn { min-height:34px; padding:6px 12px; border-radius:9px; }
+      .dashboard-compact .dash-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .dashboard-compact .grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .dashboard-compact .grid.cols-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+      .dashboard-compact .grid.cols-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .dashboard-chart-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:12px; }
     }
     @media (max-width: 980px) {
       .content.dashboard-compact { max-width: none; padding: 14px; }
       .dashboard-compact .dash-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .dashboard-chart-grid { display:block; }
     }
     .kpi-subtitle {
       margin: 4px 0 0;
@@ -486,35 +416,39 @@ function format_rupiah($amount)
         grid-template-columns: 1fr;
       }
     }
-    .hourly-chart {
+    .visit-chart {
       display: grid;
       gap: 4px;
-      grid-template-columns: repeat(24, minmax(20px, 1fr));
       align-items: end;
       margin-top: 6px;
       overflow-x: auto;
       padding-bottom: 2px;
+      min-height: 92px;
     }
-    .hourly-bar {
+    .hourly-chart { grid-template-columns: repeat(24, minmax(20px, 1fr)); }
+    .daily-chart { grid-template-columns: repeat(auto-fit, minmax(28px, 1fr)); }
+    .visit-bar {
       display: grid;
       gap: 2px;
       justify-items: center;
       min-width: 20px;
+      align-content:end;
     }
-    .hourly-bar-value {
+    .visit-bar-value {
       font-size: 9px;
       color: #334155;
     }
-    .hourly-bar-fill {
+    .visit-bar-fill {
       width: 100%;
-      max-width: 24px;
+      max-width: 28px;
       border-radius: 7px 7px 3px 3px;
       background: linear-gradient(180deg, rgba(59,130,246,.9), rgba(59,130,246,.35));
       min-height: 6px;
     }
-    .hourly-bar-label {
+    .visit-bar-label {
       font-size: 8px;
       color: #64748b;
+      white-space:nowrap;
     }
     .hourly-filter {
       display: flex;
@@ -546,11 +480,14 @@ function format_rupiah($amount)
 
       <div class="content dashboard-compact">
         <div class="card dash-filter-card" style="margin-bottom:12px">
-          <h3 style="margin-top:0">Filter Periode</h3>
-          <form method="get" style="margin-bottom:12px">
+          <form method="get" class="dashboard-filter-form" data-dashboard-filter-form style="margin-bottom:0">
+            <div class="dashboard-filter-title">
+              <h3>Filter Periode</h3>
+              <small>Periode: <span data-dashboard-range-label><?php echo e($rangeLabel); ?></span></small>
+            </div>
             <div class="row">
               <label>Periode</label>
-              <select name="range" id="sales-range">
+              <select name="range" id="sales-range" data-dashboard-range>
                 <option value="today" <?php echo $range === 'today' ? 'selected' : ''; ?>>Hari ini</option>
                 <option value="yesterday" <?php echo $range === 'yesterday' ? 'selected' : ''; ?>>Kemarin</option>
                 <option value="last7" <?php echo $range === 'last7' ? 'selected' : ''; ?>>7 hari terakhir</option>
@@ -559,15 +496,18 @@ function format_rupiah($amount)
                 <option value="custom" <?php echo $range === 'custom' ? 'selected' : ''; ?>>Custom</option>
               </select>
             </div>
-            <div class="row" id="custom-range" style="display:<?php echo $range === 'custom' ? 'grid' : 'none'; ?>;gap:8px">
-              <label for="start">Mulai</label>
-              <input type="date" name="start" id="start" value="<?php echo e($_GET['start'] ?? $today->format('Y-m-d')); ?>">
-              <label for="end">Sampai</label>
-              <input type="date" name="end" id="end" value="<?php echo e($_GET['end'] ?? $today->format('Y-m-d')); ?>">
+            <div class="dashboard-custom-range" id="custom-range" <?php echo $range === 'custom' ? '' : 'hidden'; ?>>
+              <div class="row">
+                <label for="start">Mulai</label>
+                <input type="date" name="start" id="start" data-dashboard-start value="<?php echo e($_GET['start'] ?? $today->format('Y-m-d')); ?>">
+              </div>
+              <div class="row">
+                <label for="end">Sampai</label>
+                <input type="date" name="end" id="end" data-dashboard-end value="<?php echo e($_GET['end'] ?? $today->format('Y-m-d')); ?>">
+              </div>
             </div>
-            <button class="btn" type="submit">Terapkan</button>
+            <button class="btn" type="submit">Terapkan KPI</button>
           </form>
-          <p><small>Periode: <?php echo e($rangeLabel); ?></small></p>
         </div>
 
         <div class="dash-kpi-grid">
@@ -593,49 +533,37 @@ function format_rupiah($amount)
           </div>
         </div>
 
-        <div class="card dash-chart-card" style="margin-top:12px">
-          <h3 style="margin-top:0">Grafik Rata-rata Jam Kunjungan</h3>
-          <p class="dash-chart-desc" style="color:var(--muted)">Rata-rata jumlah transaksi per jam berdasarkan periode yang dipilih.</p>
-          <form method="get" class="hourly-filter">
-            <input type="hidden" name="range" value="<?php echo e($range); ?>">
-            <?php if (!empty($_GET['start'])): ?>
-              <input type="hidden" name="start" value="<?php echo e($_GET['start']); ?>">
-            <?php endif; ?>
-            <?php if (!empty($_GET['end'])): ?>
-              <input type="hidden" name="end" value="<?php echo e($_GET['end']); ?>">
-            <?php endif; ?>
-            <div class="row" style="min-width:160px">
-              <label>Periode</label>
-              <select name="peak_range" id="peak-range">
-                <option value="all_time" <?php echo $peakRange === 'all_time' ? 'selected' : ''; ?>>All time</option>
-                <option value="this_week" <?php echo $peakRange === 'this_week' ? 'selected' : ''; ?>>Minggu ini</option>
-                <option value="this_month" <?php echo $peakRange === 'this_month' ? 'selected' : ''; ?>>Bulan ini</option>
-                <option value="custom" <?php echo $peakRange === 'custom' ? 'selected' : ''; ?>>Custom</option>
-              </select>
+        <div class="dashboard-chart-grid" style="margin-top:12px">
+          <div class="card dash-chart-card">
+            <h3 style="margin-top:0">Grafik Rata-rata Jam Kunjungan</h3>
+            <p class="dash-chart-desc" style="color:var(--muted)">Rata-rata jumlah transaksi per jam berdasarkan periode filter.</p>
+            <p style="margin:8px 0 0"><small>Periode grafik: <span data-dashboard-chart-label><?php echo e($chartPayload['label']); ?></span> · <span data-dashboard-chart-days><?php echo e((string)$chartPayload['days']); ?></span> hari</small></p>
+            <div class="visit-chart hourly-chart" data-hourly-chart>
+              <?php foreach ($chartPayload['hourly'] as $row): ?>
+                <?php $height = $chartPayload['max_hourly'] > 0 ? (((float)$row['avg'] / (float)$chartPayload['max_hourly']) * 54) : 0; ?>
+                <div class="visit-bar">
+                  <div class="visit-bar-value"><?php echo e($row['formatted']); ?></div>
+                  <div class="visit-bar-fill" style="height:<?php echo e(number_format($height, 2, '.', '')); ?>px"></div>
+                  <div class="visit-bar-label"><?php echo e($row['label']); ?></div>
+                </div>
+              <?php endforeach; ?>
             </div>
-            <div class="row" id="peak-custom-start" style="min-width:160px;display:<?php echo $peakRange === 'custom' ? 'grid' : 'none'; ?>">
-              <label>Mulai</label>
-              <input type="date" name="peak_start" value="<?php echo e($peakStartInput ?: $today->format('Y-m-d')); ?>">
+          </div>
+
+          <div class="card dash-chart-card">
+            <h3 style="margin-top:0">Grafik Kunjungan per Hari</h3>
+            <p class="dash-chart-desc" style="color:var(--muted)">Jumlah transaksi per hari dalam periode filter.</p>
+            <p style="margin:8px 0 0"><small>Update otomatis tanpa reload halaman.</small></p>
+            <div class="visit-chart daily-chart" data-daily-chart>
+              <?php foreach ($chartPayload['daily'] as $row): ?>
+                <?php $height = $chartPayload['max_daily'] > 0 ? (((int)$row['count'] / (int)$chartPayload['max_daily']) * 54) : 0; ?>
+                <div class="visit-bar">
+                  <div class="visit-bar-value"><?php echo e($row['formatted']); ?></div>
+                  <div class="visit-bar-fill" style="height:<?php echo e(number_format($height, 2, '.', '')); ?>px"></div>
+                  <div class="visit-bar-label"><?php echo e($row['label']); ?></div>
+                </div>
+              <?php endforeach; ?>
             </div>
-            <div class="row" id="peak-custom-end" style="min-width:160px;display:<?php echo $peakRange === 'custom' ? 'grid' : 'none'; ?>">
-              <label>Sampai</label>
-              <input type="date" name="peak_end" value="<?php echo e($peakEndInput ?: $today->format('Y-m-d')); ?>">
-            </div>
-            <button class="btn" type="submit">Terapkan</button>
-          </form>
-          <p style="margin:10px 0 0"><small>Periode grafik: <?php echo e($peakLabel); ?> · <?php echo e((string)$peakDays); ?> hari</small></p>
-          <div class="hourly-chart">
-            <?php foreach ($hourlyAverages as $hour => $avg): ?>
-              <?php
-                $height = $maxHourly > 0 ? ($avg / $maxHourly) * 44 : 0;
-                $label = str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
-              ?>
-              <div class="hourly-bar">
-                <div class="hourly-bar-value"><?php echo e(format_number_id($avg)); ?></div>
-                <div class="hourly-bar-fill" style="height:<?php echo e(number_format($height, 2, '.', '')); ?>px"></div>
-                <div class="hourly-bar-label"><?php echo e($label); ?></div>
-              </div>
-            <?php endforeach; ?>
           </div>
         </div>
 
@@ -961,25 +889,64 @@ function format_rupiah($amount)
   </div>
   <script defer src="<?php echo e(asset_url('assets/app.js')); ?>"></script>
   <script nonce="<?php echo e(csp_nonce()); ?>">
-    const rangeSelect = document.querySelector('#sales-range');
+    const rangeSelect = document.querySelector('[data-dashboard-range]');
     const customRange = document.querySelector('#custom-range');
-    if (rangeSelect && customRange) {
-      rangeSelect.addEventListener('change', () => {
-        customRange.style.display = rangeSelect.value === 'custom' ? 'grid' : 'none';
-      });
-    }
+    const startInput = document.querySelector('[data-dashboard-start]');
+    const endInput = document.querySelector('[data-dashboard-end]');
+    const hourlyChart = document.querySelector('[data-hourly-chart]');
+    const dailyChart = document.querySelector('[data-daily-chart]');
+    const chartLabel = document.querySelector('[data-dashboard-chart-label]');
+    const chartDays = document.querySelector('[data-dashboard-chart-days]');
+    const rangeLabel = document.querySelector('[data-dashboard-range-label]');
 
-    const peakSelect = document.querySelector('#peak-range');
-    const peakStart = document.querySelector('#peak-custom-start');
-    const peakEnd = document.querySelector('#peak-custom-end');
-    if (peakSelect && peakStart && peakEnd) {
-      const togglePeakCustom = () => {
-        const show = peakSelect.value === 'custom';
-        peakStart.style.display = show ? 'grid' : 'none';
-        peakEnd.style.display = show ? 'grid' : 'none';
-      };
-      peakSelect.addEventListener('change', togglePeakCustom);
-      togglePeakCustom();
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[char]));
+    }
+    function barHeight(value, max) {
+      if (!max || max <= 0) return 0;
+      return Math.max(6, (Number(value || 0) / Number(max)) * 54);
+    }
+    function renderVisitChart(el, rows, max, valueKey) {
+      if (!el) return;
+      el.innerHTML = (rows || []).map((row) => {
+        const value = Number(row[valueKey] || 0);
+        const h = barHeight(value, max).toFixed(2);
+        return `<div class="visit-bar"><div class="visit-bar-value">${escapeHtml(row.formatted || '0')}</div><div class="visit-bar-fill" style="height:${h}px"></div><div class="visit-bar-label">${escapeHtml(row.label || '')}</div></div>`;
+      }).join('');
+    }
+    async function updateDashboardCharts() {
+      if (!rangeSelect || !hourlyChart || !dailyChart) return;
+      const range = rangeSelect.value;
+      if (customRange) customRange.hidden = range !== 'custom';
+      if (range === 'custom' && (!startInput?.value || !endInput?.value)) return;
+      const params = new URLSearchParams({ range });
+      if (range === 'custom') {
+        params.set('start', startInput.value);
+        params.set('end', endInput.value);
+      }
+      hourlyChart.setAttribute('aria-busy', 'true');
+      dailyChart.setAttribute('aria-busy', 'true');
+      try {
+        const response = await fetch(`<?php echo e(base_url('admin/dashboard_chart_data.php')); ?>?${params.toString()}`, { headers: { 'Accept': 'application/json' } });
+        if (!response.ok) throw new Error('Gagal mengambil data grafik');
+        const data = await response.json();
+        renderVisitChart(hourlyChart, data.hourly, data.max_hourly, 'avg');
+        renderVisitChart(dailyChart, data.daily, data.max_daily, 'count');
+        if (chartLabel) chartLabel.textContent = data.label || '';
+        if (rangeLabel) rangeLabel.textContent = data.label || '';
+        if (chartDays) chartDays.textContent = data.days || '1';
+      } catch (err) {
+        console.error(err);
+      } finally {
+        hourlyChart.removeAttribute('aria-busy');
+        dailyChart.removeAttribute('aria-busy');
+      }
+    }
+    if (rangeSelect && customRange) {
+      rangeSelect.addEventListener('change', updateDashboardCharts);
+      [startInput, endInput].forEach((input) => {
+        if (input) input.addEventListener('change', updateDashboardCharts);
+      });
     }
   </script>
 </body>
