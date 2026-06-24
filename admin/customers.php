@@ -115,7 +115,7 @@ $categoryLabels = ['high'=>'High','medium'=>'Medium','low'=>'Low','inactive'=>'I
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?> .mini-list{margin:0;padding-left:18px;color:#475569}.demobar{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden}.demobar span{display:block;height:100%;background:#2563eb}</style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="container">
   <?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main">

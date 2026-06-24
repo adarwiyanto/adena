@@ -117,7 +117,7 @@ function variance_badge(float $variance): string {
 .opname-bottom-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
 @media (max-width:900px){.opname-page{padding:12px}.opname-toolbar{position:static}.opname-toolbar .btn,.opname-bottom-actions .btn{width:100%;}.opname-head{display:block}}
 </style>
-</head><body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
+</head><body class="desktop-compact"><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
 <div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content opname-page">
 <?php if($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
 

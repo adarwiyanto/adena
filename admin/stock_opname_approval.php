@@ -55,7 +55,7 @@ $stmt = db()->prepare($sql); $stmt->execute($params); $rows = $stmt->fetchAll();
 $customCss = setting('custom_css', '');
 ?>
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approval Stok Opname</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style></head>
-<body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
+<body class="desktop-compact"><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
 <div class="content"><div class="card"><h3>Approval Stok Opname</h3>
 <?php if($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
 <?php if(!$isOwner): ?><div class="card" style="background:#fff7ed;border-color:#fdba74;color:#9a3412">Mode lihat saja: hanya owner yang dapat approve/reject.</div><?php endif; ?>

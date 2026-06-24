@@ -75,20 +75,20 @@ function opname_status_badge(string $status): string {
 <title>Stok Opname</title>
 <link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style>
 </head>
-<body>
+<body class="stock-opname-page desktop-compact">
 <div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
 <div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
 <div class="content">
-<div class="card"><h3>Stok Opname</h3>
+<div class="card card-compact sticky-filter"><h3>Stok Opname</h3>
 <?php if($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
-<form method="get" class="grid cols-4">
+<form method="get" class="grid cols-4 filter-toolbar">
   <div class="row"><label>Cabang</label><select name="branch_id"><?php foreach($branches as $b): ?><option value="<?php echo e((string)$b['id']); ?>" <?php echo (int)$b['id']===$branchId?'selected':''; ?>><?php echo e($b['branch_name']); ?></option><?php endforeach; ?></select></div>
   <div class="row"><label>Status</label><select name="status"><option value="">Semua</option><option value="draft" <?php echo $status==='draft'?'selected':''; ?>>Draft</option><option value="waiting_approval" <?php echo $status==='waiting_approval'?'selected':''; ?>>Menunggu Approval</option><option value="approved" <?php echo $status==='approved'?'selected':''; ?>>Approved</option><option value="rejected" <?php echo $status==='rejected'?'selected':''; ?>>Rejected</option><option value="cancelled" <?php echo $status==='cancelled'?'selected':''; ?>>Cancelled</option></select></div>
   <div class="row" style="align-self:end"><button class="btn" type="submit">Filter</button></div>
   <?php if (has_menu_access($u, 'stok_opname', 'create')): ?><div class="row" style="align-self:end"><a class="btn" href="<?php echo e(base_url('admin/stock_opname_form.php?branch_id=' . $branchId)); ?>">Buat Draft Opname</a></div><?php endif; ?>
 </form>
 </div>
-<div class="card"><table class="table"><thead><tr><th>No Opname</th><th>Tanggal</th><th>Cabang</th><th>Petugas</th><th>Ringkasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
+<div class="card card-compact"><table class="table table-compact"><thead><tr><th>No Opname</th><th>Tanggal</th><th>Cabang</th><th>Petugas</th><th>Ringkasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
 <?php if(empty($rows)): ?><tr><td colspan="7" style="text-align:center;color:#94a3b8">Belum ada data.</td></tr><?php else: foreach($rows as $r): ?>
 <tr>
   <td><?php echo e((string)$r['opname_no']); ?></td>
@@ -96,17 +96,17 @@ function opname_status_badge(string $status): string {
   <td><?php echo e((string)$r['branch_name']); ?></td>
   <td><?php echo e((string)($r['creator_name'] ?? '-')); ?></td>
   <td><?php echo e((string)((int)($r['total_items'] ?? 0))); ?> item / selisih <?php echo e((string)((int)($r['total_variance_items'] ?? 0))); ?></td>
-  <td><span class="badge" style="<?php echo opname_status_badge((string)$r['status']); ?>"><?php echo e((string)$r['status']); ?></span></td>
-  <td style="display:flex;gap:6px;flex-wrap:wrap">
-    <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_form.php?id=' . (int)$r['id'])); ?>">Detail</a>
-    <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$r['id'])); ?>" target="_blank">Rekap Selisih</a>
+  <td><span class="badge badge-sm" style="<?php echo opname_status_badge((string)$r['status']); ?>"><?php echo e((string)$r['status']); ?></span></td>
+  <td><div class="table-actions-compact">
+    <a class="btn btn-light btn-sm" href="<?php echo e(base_url('admin/stock_opname_form.php?id=' . (int)$r['id'])); ?>">Detail</a>
+    <a class="btn btn-light btn-sm" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$r['id'])); ?>" target="_blank">Rekap Selisih</a>
     <?php if(($r['status'] ?? '') === 'draft' && has_menu_access($u, 'stok_opname', 'edit')): ?>
-      <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn" type="submit">Submit</button></form>
+      <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn btn-sm" type="submit">Submit</button></form>
     <?php endif; ?>
     <?php if(in_array(($r['status'] ?? ''), ['draft','waiting_approval'], true) && has_menu_access($u, 'stok_opname', 'delete')): ?>
-      <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="cancel"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn danger" type="submit">Cancel</button></form>
+      <form method="post"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="cancel"><input type="hidden" name="id" value="<?php echo e((string)$r['id']); ?>"><button class="btn danger btn-sm" type="submit">Cancel</button></form>
     <?php endif; ?>
-  </td>
+    </div></td>
 </tr>
 <?php endforeach; endif; ?>
 </tbody></table></div>

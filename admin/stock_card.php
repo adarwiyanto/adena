@@ -79,7 +79,7 @@ $unitMeta = $product ? product_unit_fallback($product) : ['base_unit' => null];
     @media (max-width:700px){.stock-card-page{padding:12px}.stock-form-grid,.stock-product-summary{grid-template-columns:1fr}.stock-title{display:block}.stock-actions .btn{width:100%;}}
   </style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
     <div class="content stock-card-page">

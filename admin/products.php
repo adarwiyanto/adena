@@ -51,7 +51,7 @@ $customCss = setting('custom_css', '');
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?></style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="container">
   <?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main">

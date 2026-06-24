@@ -72,7 +72,7 @@ function stock_status_badge_class(string $status): string {
     @media (max-width:700px){.stock-page{padding:12px}.stock-filter-grid,.stock-summary{grid-template-columns:1fr}.stock-head{display:block}.stock-actions .btn{width:100%;}}
   </style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div>
     <div class="content stock-page">

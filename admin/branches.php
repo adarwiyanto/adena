@@ -62,7 +62,7 @@ try {
 $customCss = setting('custom_css', '');
 ?>
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Master Cabang</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style></head>
-<body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
+<body class="desktop-compact"><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
 <div class="card"><h3>Master Cabang</h3><p style="color:#64748b">Tambah cabang di sini. Setelah disimpan, dashboard cabang otomatis tersedia di halaman cabang.</p><?php if($err): ?><div class="card" style="border-color:#fecdd3;background:#fff1f2;color:#9f1239"><?php echo e($err); ?></div><?php endif; ?><?php if($msg): ?><div class="card" style="border-color:#bbf7d0;background:#f0fdf4;color:#166534"><?php echo e($msg); ?></div><?php endif; ?>
 <form method="post" class="grid cols-4"><input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>"><input type="hidden" name="action" value="save_branch"><input type="hidden" name="id" value="<?php echo e((string)($edit['id'] ?? 0)); ?>">
 <div class="row"><label>Kode Cabang</label><input name="branch_code" value="<?php echo e((string)($edit['branch_code'] ?? '')); ?>" placeholder="BELITUNG"></div>

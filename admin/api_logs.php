@@ -32,7 +32,7 @@ $customCss = setting('custom_css', '');
 ?>
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Log API</title><link rel="icon" href="<?php echo e(favicon_url()); ?>"><link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>"><style><?php echo $customCss; ?></style></head>
-<body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
+<body class="desktop-compact"><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?><div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content">
 <div class="card"><h3 style="margin-top:0">Log API</h3><p><small>Riwayat request API dipisahkan dari halaman Pengaturan API agar halaman token tetap ringan.</small></p>
 <form method="get" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end">
 <div class="row"><label>Token</label><select name="token_id"><option value="0">Semua token</option><?php foreach($tokens as $t): ?><option value="<?php echo e((string)$t['id']); ?>" <?php echo $tokenId===(int)$t['id']?'selected':''; ?>><?php echo e($t['name'].' '.(($t['device_code']??'') ? '('.$t['device_code'].')' : '')); ?></option><?php endforeach; ?></select></div>

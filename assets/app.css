@@ -696,6 +696,97 @@ input:focus, select:focus, textarea:focus{
 }
 
 
+
+/* Desktop-only compact admin UI patch.
+   Mobile browser layout remains controlled by the existing max-width media rules. */
+@media (min-width: 981px){
+  .grid.cols-3{grid-template-columns: repeat(3, minmax(0,1fr));}
+  .grid.cols-4{grid-template-columns: repeat(4, minmax(0,1fr));}
+  .grid.cols-5{grid-template-columns: repeat(5, minmax(0,1fr));}
+
+  .card.card-compact,
+  .desktop-compact .card{
+    padding:14px 16px;
+    margin-bottom:12px;
+  }
+  .card.card-compact h3,
+  .desktop-compact .card h3{
+    margin:0 0 10px;
+    font-size:17px;
+    line-height:1.25;
+  }
+  .filter-toolbar{
+    align-items:end;
+    gap:10px;
+  }
+  .filter-toolbar .row{
+    margin:0;
+    gap:5px;
+  }
+  .filter-toolbar label{
+    font-size:12px;
+    font-weight:700;
+    color:var(--muted);
+  }
+  .filter-toolbar input,
+  .filter-toolbar select,
+  .filter-toolbar textarea{
+    min-height:34px;
+    padding:7px 10px;
+    border-radius:10px;
+    font-size:13px;
+  }
+  .sticky-filter{
+    position:sticky;
+    top:calc(var(--topbar-h) + 10px);
+    z-index:35;
+  }
+
+  .table-compact,
+  .desktop-compact .table{
+    font-size:13px;
+    min-width:920px;
+  }
+  .table-compact th,
+  .desktop-compact .table th{
+    padding:8px 8px;
+    font-size:12px;
+    line-height:1.2;
+  }
+  .table-compact td,
+  .desktop-compact .table td{
+    padding:7px 8px;
+    line-height:1.25;
+  }
+  .table-compact .badge,
+  .desktop-compact .table .badge,
+  .badge.badge-sm{
+    padding:3px 8px;
+    font-size:11px;
+    line-height:1.1;
+  }
+  .table-compact .btn,
+  .desktop-compact .table .btn,
+  .btn.btn-sm{
+    min-height:30px;
+    padding:5px 9px;
+    border-radius:9px;
+    font-size:12px;
+    gap:5px;
+  }
+  .table-compact form,
+  .desktop-compact .table form{
+    margin:0;
+  }
+  .table-actions-compact{
+    display:flex;
+    gap:5px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .nowrap{white-space:nowrap;}
+}
+
 @media (max-width: 980px){
   .container{
     flex-direction:column;
