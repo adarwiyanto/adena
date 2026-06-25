@@ -880,7 +880,7 @@ function save_stock_opname_items(PDO $db, int $opnameId, array $rows): void {
   }
 }
 
-function submit_stock_opname(PDO $db, int $opnameId): void {
+function submit_stock_opname(PDO $db, int $opnameId, int $userId = 0): void {
   $header = get_stock_opname_header($opnameId);
   if (!$header) throw new Exception('Dokumen opname tidak ditemukan.');
   if (($header['status'] ?? '') !== 'draft') throw new Exception('Hanya draft yang bisa disubmit.');
@@ -896,6 +896,7 @@ function submit_stock_opname(PDO $db, int $opnameId): void {
   }
   $stmt = $db->prepare("UPDATE stock_opname_headers SET status='waiting_approval', updated_at=NOW() WHERE id=?");
   $stmt->execute([$opnameId]);
+  approve_stock_opname($db, $opnameId, $userId, 'Auto approved saat submit stok opname');
 }
 
 function approve_stock_opname(PDO $db, int $opnameId, int $userId, string $note = ''): void {

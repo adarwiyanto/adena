@@ -102,9 +102,9 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <div class="submenu" id="m-stok">
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stocks.php')); ?>">Daftar Stok</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname')): ?><a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'stok_opname', 'approve')): ?><a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/kitchen_receive_confirm.php')); ?>">Konfirmasi Stok Dapur</a><?php endif; ?>
+          <?php $roleInfo = resolve_user_role($u); $roleKey = (string)($roleInfo['role_key'] ?? ''); ?>
+          <?php if (in_array($roleKey, ['owner','admin','manager_cabang'], true) || has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/kitchen_receive_confirm.php')); ?>">Konfirmasi Stok Dapur</a><?php endif; ?>
         </div>
       </div>
     <?php endif; ?>
