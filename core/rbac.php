@@ -70,11 +70,11 @@ function ensure_rbac_schema(): void {
 
   $defaults = [
     ['owner', 'Owner', 1],
-    ['admin', 'Admin', 1],
-    ['manager_cabang', 'Manager Cabang', 1],
-    ['manager', 'Manager', 0],
-    ['kasir', 'Kasir', 1],
-    ['gudang', 'Gudang', 1],
+    ['admin', 'Admin Toko', 1],
+    ['manager_cabang', 'Manajer Toko', 1],
+    ['manager', 'Manajer Toko (lama)', 0],
+    ['kasir', 'Pegawai Toko', 1],
+    ['gudang', 'Pegawai Toko', 1],
   ];
   foreach ($defaults as $row) {
     try {
@@ -202,7 +202,7 @@ function resolve_user_role(array $user): array {
   return [
     'role_id' => $roleId,
     'role_key' => $resolvedRoleKey,
-    'role_name' => $resolvedRoleKey === 'manager_cabang' ? 'Manager Cabang' : (string)($role['role_name'] ?? ''),
+    'role_name' => match($resolvedRoleKey){ 'owner'=>'Owner', 'admin'=>'Admin Toko', 'manager_cabang'=>'Manajer Toko', default=>'Pegawai Toko' },
   ];
 }
 

@@ -60,7 +60,7 @@ function api_ui_categories(): array {
       'label' => 'API ke Back Office',
       'badge' => 'Admin RW',
       'access' => 'Admin operasional',
-      'desc' => 'Untuk Back Office membaca dan menulis data operasional toko. Akses user hanya lihat; bukan owner/superadmin.',
+      'desc' => 'Untuk Back Office membaca dan menulis data operasional toko. Akses user hanya lihat; bukan owner.',
       'default_mode' => 'backoffice',
       'default_label' => 'Admin Read + Write',
       'code_label' => 'Kode back office',
