@@ -1,0 +1,42 @@
+PATCH 2026-07-02 - Rekapitulasi Pelanggan POS Desktop/Web + Optimasi Lag Ringan
+
+Ruang lingkup:
+1. POS desktop menyimpan nama pelanggan dan nomor telepon ke tabel sales lokal.
+2. POS desktop menambah tab/menu Rekap Pelanggan.
+   - default sort nama A-Z
+   - search nama/nomor telepon
+   - sort nama, nomor telepon, jumlah transaksi, total belanja, terakhir transaksi
+3. Sync POS desktop -> web membawa customer_name dan customer_phone.
+4. Pull sync web -> POS desktop membawa customer_name dan customer_phone.
+5. Web menambah menu Admin -> Rekapitulasi Pelanggan, memakai permission customers.view.
+   Manager cabang yang punya akses customers dapat melihat menu ini.
+6. Optimasi lag ringan:
+   - calculateShiftSummary memakai SQL aggregate, tidak lagi membaca semua transaksi shift untuk hitung ringkasan.
+   - setelah bayar, POS hanya refresh status/pending/shift summary; tidak render ulang semua produk/kategori.
+   - tambah index SQLite sales untuk shift/sold_at/group/customer.
+
+File berubah:
+- pos-desktop/src/main/db.js
+- pos-desktop/src/main/transactions.js
+- pos-desktop/src/main/sync.js
+- pos-desktop/src/main/main.js
+- pos-desktop/src/main/preload.js
+- pos-desktop/src/renderer/index.html
+- pos-desktop/src/renderer/renderer.js
+- pos-desktop/src/renderer/styles.css
+- api/sync/push.php
+- api/sync/pull.php
+- admin/partials_sidebar.php
+- admin/customer_recap.php
+- db/update_customer_recap_pos_desktop_20260702.sql
+
+Catatan DB:
+- Web endpoint push/pull dan halaman customer_recap.php sudah melakukan ensure kolom customer_name/customer_phone otomatis.
+- SQL manual disediakan di db/update_customer_recap_pos_desktop_20260702.sql jika ingin dijalankan dari phpMyAdmin.
+
+Tidak diubah:
+- alur pembayaran utama
+- stok/dapur/API dapur
+- produk/harga/BOM
+- shift open/close selain perhitungan summary yang dioptimasi
+- permission lain selain menampilkan menu Admin jika user punya customers.view

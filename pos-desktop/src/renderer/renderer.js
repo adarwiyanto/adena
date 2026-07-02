@@ -1,4 +1,4 @@
-const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', txDiscountAmount: 0, txDiscountType: 'fixed', paymentLines: [], multiPayment: false };
+const state = { user: null, products: [], categories: [], guides: [], paymentMethods: [], banks: [], cart: [], latestReceipt: null, paying: false, activeCategory: null, theme: {}, syncRetry: 0, syncSuccess: false, apiTokenMasked: '(kosong)', debugMode: false, historyRange: 'today', recapRange: 'today', customerSortBy: 'name', customerSortDir: 'asc', customerSearch: '', txDiscountAmount: 0, txDiscountType: 'fixed', paymentLines: [], multiPayment: false };
 const bankRequiredCodes = new Set(['qris', 'transfer', 'edc', 'credit_card']);
 const SYNC_MODULES = ['Koneksi API', 'Produk', 'Kategori', 'Guide', 'Bank/payment', 'Setting/theme/logo', 'Thumbnail produk', 'Shift', 'Riwayat transaksi', 'Order landing page', 'Pending transaksi lokal', 'Pending shift lokal'];
 const $ = (s) => document.querySelector(s);
@@ -555,6 +555,22 @@ async function loadPosState() {
   return pos;
 }
 
+async function refreshPosStatusOnly() {
+  try {
+    const pos = await window.desktopAPI.getPosStatus();
+    $('#sync-count').textContent = `Pending: ${pos.pendingSyncCount || 0} | Shift: ${pos.pendingShiftSync || 0}`;
+    state.activeShift = pos.activeShift || null;
+    state.shiftSummary = pos.shiftSummary || null;
+    const shiftActive = !!state.activeShift;
+    $('#shift-status').textContent = shiftActive ? `Shift aktif: ${state.activeShift.shift_code || state.activeShift.id}` : 'Shift: belum aktif';
+    $('#btn-shift-toggle').textContent = shiftActive ? 'Tutup Shift' : 'Buka Shift';
+    $('#btn-pay').disabled = !shiftActive;
+    renderShiftModals();
+  } catch (error) {
+    console.warn('[pos:status] refresh failed', error);
+  }
+}
+
 function renderShiftModals() {
   const defaultOpening = Number(state.theme.pos_default_opening_cash || state.theme.default_opening_cash || 0);
   const openInput = $('#shift-opening-cash');
@@ -665,6 +681,22 @@ async function loadRecap() {
 }
 
 async function loadOrders() { const data = await window.desktopAPI.getOrders(); const grouped = new Map(); (data.items || []).forEach((i) => { if (!grouped.has(i.order_id)) grouped.set(i.order_id, []); grouped.get(i.order_id).push(i); }); $('#orders-list').innerHTML = (data.orders || []).map((o) => `<div class='row'><strong>${o.order_code}</strong> | ${o.created_at} | ${o.customer_name || '-'} | ${o.customer_contact || '-'} | ${o.status}<br/>${(grouped.get(o.id) || []).map((x) => `${x.product_name} x${x.qty}`).join(', ')}</div>`).join('') || 'Belum ada order masuk.'; }
+
+function customerSortLabel() {
+  const map = { name: 'Nama', phone: 'Nomor telepon', transactions: 'Jumlah transaksi', total: 'Total belanja', last: 'Terakhir transaksi' };
+  return map[state.customerSortBy] || 'Nama';
+}
+
+async function loadCustomerRecap() {
+  state.customerSearch = $('#customer-recap-search')?.value?.trim() || '';
+  state.customerSortBy = $('#customer-recap-sort')?.value || 'name';
+  state.customerSortDir = $('#customer-recap-dir')?.value || 'asc';
+  const data = await window.desktopAPI.getCustomerRecap({ search: state.customerSearch, sortBy: state.customerSortBy, dir: state.customerSortDir });
+  if (!data?.ok) return showToast(data?.message || 'Gagal memuat rekap pelanggan');
+  const rows = data.rows || [];
+  $('#customer-recap-table').innerHTML = '<div class="recap-table customer-recap-table"><div class="recap-row head"><span>Nama Pelanggan</span><span>No. Telepon</span><span>Transaksi</span><span>Total Belanja</span><span>Terakhir</span></div>' +
+    (rows.map((r) => '<div class="recap-row"><span>' + escapeHtml(r.customer_name || '-') + '</span><span>' + escapeHtml(r.customer_phone || '-') + '</span><span>' + Number(r.transaction_count || 0) + '</span><strong>' + rupiah(r.total_spend || 0) + '</strong><span>' + escapeHtml(r.last_transaction_at || '-') + '</span></div>').join('') || '<div class="empty">Belum ada data pelanggan.</div>') + '</div>';
+}
 
 function syncModuleList(statusMap = {}) { $('#sync-module-status').innerHTML = SYNC_MODULES.map((m) => `<li>${m}: <strong>${statusMap[m] || 'menunggu'}</strong></li>`).join(''); }
 function setSyncProgress(percent, text) { $('#sync-progress').value = percent; $('#sync-status-text').textContent = text; }
@@ -823,7 +855,8 @@ async function payNow() {
     if (!localSave?.ok) return alert(localSave?.message || 'Gagal simpan transaksi lokal');
     state.latestReceipt = { transactionCode: localSave.transactionCode, soldAt: localSave.soldAt, paymentMethod, paymentBank: paymentBankName, guideName: guide?.name || '', customer: selectedCustomerPayload(), paymentLines: state.multiPayment ? [...state.paymentLines] : [paymentPayload], items: itemsForSave, subtotal: cartSubtotal(), txDiscount, total, cashReceived, cashChange };
     try { if (navigator.onLine) await window.desktopAPI.syncPending(); } catch (_) {}
-    switchTab('receipt'); renderReceipt(); await loadPosState();
+    switchTab('receipt'); renderReceipt();
+    await refreshPosStatusOnly();
   } finally { state.paying = false; $('#btn-pay').disabled = false; }
 }
 
@@ -1143,7 +1176,7 @@ async function bootstrap() {
     $('#login-form').reset(); showView('login-view');
   };
 
-  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => { switchTab(t.dataset.tab); if (t.dataset.tab === 'history') await loadHistory(); if (t.dataset.tab === 'recap') await loadRecap(); if (t.dataset.tab === 'orders') await loadOrders(); });
+  document.querySelectorAll('.tab').forEach((t) => t.onclick = async () => { switchTab(t.dataset.tab); if (t.dataset.tab === 'history') await loadHistory(); if (t.dataset.tab === 'recap') await loadRecap(); if (t.dataset.tab === 'customers') await loadCustomerRecap(); if (t.dataset.tab === 'orders') await loadOrders(); });
   $('#btn-shift-toggle').onclick = async () => {
     try {
       await loadPosState();
@@ -1186,6 +1219,10 @@ async function bootstrap() {
   };
   $('#btn-load-history').onclick = loadHistory;
   $('#btn-load-recap').onclick = loadRecap;
+  $('#btn-load-customers').onclick = loadCustomerRecap;
+  $('#customer-recap-search').oninput = () => { clearTimeout(state.customerSearchTimer); state.customerSearchTimer = setTimeout(loadCustomerRecap, 180); };
+  $('#customer-recap-sort').onchange = loadCustomerRecap;
+  $('#customer-recap-dir').onchange = loadCustomerRecap;
 }
 
 bootstrap().catch((error) => showToast(error.message || 'Inisialisasi gagal'));

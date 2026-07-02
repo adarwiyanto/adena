@@ -281,14 +281,14 @@ function saveMasterData(data, { fullSync = false, normalizedProducts = [] } = {}
     const hasWebSale = db.prepare('SELECT 1 FROM sales WHERE web_sale_id = ? LIMIT 1');
     const hasGroupItem = db.prepare('SELECT 1 FROM sales WHERE transaction_group_uuid = ? AND product_id = ? AND sold_at = ? LIMIT 1');
     const insertImportedSale = db.prepare(`INSERT INTO sales
-      (web_sale_id, transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total, payment_method, payment_bank, guide_id, guide_name, created_by, sold_at, local_device_id, local_transaction_id, sync_status)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      (web_sale_id, transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total, payment_method, payment_bank, guide_id, guide_name, customer_name, customer_phone, created_by, sold_at, local_device_id, local_transaction_id, sync_status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     (data.sales_history || []).forEach((r, idx) => {
       const groupId = String(r.transaction_group_uuid || r.offline_uuid || r.transaction_code || `web-${r.web_sale_id || idx}`);
       const webSaleId = Number(r.web_sale_id || 0);
       if (webSaleId > 0 && hasWebSale.get(webSaleId)) return;
       if (hasGroupItem.get(groupId, r.product_id, r.sold_at)) return;
-      insertImportedSale.run(webSaleId || null, r.transaction_code || groupId, groupId, null, r.product_id, r.qty || 0, r.price_each || 0, r.total || 0, r.payment_method || '', r.payment_bank || null, r.guide_id || null, r.guide_name || null, r.created_by || null, r.sold_at || localDateTimeString(), 'web', `${groupId}-${idx + 1}`, 'imported_from_web');
+      insertImportedSale.run(webSaleId || null, r.transaction_code || groupId, groupId, null, r.product_id, r.qty || 0, r.price_each || 0, r.total || 0, r.payment_method || '', r.payment_bank || null, r.guide_id || null, r.guide_name || null, r.customer_name || null, r.customer_phone || null, r.created_by || null, r.sold_at || localDateTimeString(), 'web', `${groupId}-${idx + 1}`, 'imported_from_web');
     });
 
     const upsertSetting = db.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
@@ -422,6 +422,8 @@ function buildPendingPayload() {
         payment_bank: row.payment_bank,
         guide_id: row.guide_id,
         guide_name: row.guide_name,
+        customer_name: row.customer_name || '',
+        customer_phone: row.customer_phone || '',
         tx_discount_amount: row.tx_discount_amount || 0,
         tx_discount_type: row.tx_discount_type || 'fixed',
         user_id: row.created_by,

@@ -856,3 +856,19 @@ button { background: var(--desktop-secondary); }
   margin-top: 2px;
   white-space: normal;
 }
+
+
+.customer-recap-card { padding: 10px; }
+.customer-recap-toolbar { display:grid; grid-template-columns: minmax(190px, .9fr) minmax(260px, 1.25fr) minmax(160px, .7fr) minmax(130px, .6fr) 104px; gap:8px; align-items:center; margin-bottom:8px; }
+.customer-recap-toolbar h3 { margin:0; font-size:18px; line-height:1.2; white-space:nowrap; }
+.customer-recap-toolbar label { display:flex; align-items:center; gap:6px; margin:0; font-weight:700; font-size:13px; color:var(--desktop-text); }
+.customer-recap-toolbar input,
+.customer-recap-toolbar select,
+.customer-recap-toolbar button { margin:0; padding:7px 9px; min-height:34px; border-radius:9px; font-size:13px; }
+.customer-recap-toolbar button { width:auto; min-width:96px; }
+.customer-recap-table { border-radius:10px; }
+.customer-recap-table .recap-row { grid-template-columns: 1.4fr 1fr .55fr .85fr .95fr; padding:7px 10px; gap:8px; font-size:13px; }
+.customer-recap-table .recap-row.head { font-size:13px; }
+.customer-recap-table .empty { padding:10px; font-size:13px; }
+@media (max-width: 1100px) { .customer-recap-toolbar { grid-template-columns: 1fr 1fr; } .customer-recap-toolbar h3 { grid-column:1/-1; } }
+@media (max-width: 900px) { .customer-recap-toolbar { grid-template-columns:1fr; } .customer-recap-toolbar button { width:100%; } .customer-recap-table .recap-row { grid-template-columns:1fr; } }

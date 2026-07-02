@@ -69,13 +69,22 @@ async function performShift(action, payload = {}) {
   };
 }
 
-async function retryPendingShiftSync() {
+async function retryPendingShiftSync(options = {}) {
   const db = initDb();
+  const skipClose = Boolean(options.skipClose);
   const pending = db.prepare("SELECT * FROM shift_sync_queue WHERE sync_status = 'pending' ORDER BY id ASC").all();
-  if (!pending.length) return { ok: true, synced: 0 };
+  if (!pending.length) return { ok: true, synced: 0, skipped: 0 };
 
   let synced = 0;
+  let skipped = 0;
   for (const row of pending) {
+    // Saat aplikasi ditutup, jangan otomatis mengirim pending close shift.
+    // Shift hanya boleh tertutup ketika user menekan tombol Tutup Shift secara manual.
+    if (skipClose && row.action === 'close') {
+      skipped += 1;
+      continue;
+    }
+
     let payload;
     try {
       payload = JSON.parse(row.payload_json || '{}');
@@ -93,7 +102,7 @@ async function retryPendingShiftSync() {
         .run(resp?.message || 'Sync shift gagal', row.id);
     }
   }
-  return { ok: true, synced };
+  return { ok: true, synced, skipped };
 }
 
 module.exports = { performShift, retryPendingShiftSync };

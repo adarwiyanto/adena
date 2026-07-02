@@ -58,13 +58,15 @@ function txDiscountValue(total, amount, type) {
   return Math.min(subtotal, discAmount);
 }
 
-function salesTransactionsForWhere(whereSql, params = []) {
+function salesTransactionsForWhere(whereSql, params = [], options = {}) {
   const db = initDb();
+  const limit = Number(options.limit || 0);
+  const limitSql = limit > 0 ? ` LIMIT ${Math.min(2000, Math.floor(limit))}` : '';
   const rows = db.prepare(`SELECT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS tx_key,
       transaction_code, sold_at, created_by, guide_name, payment_method, payment_bank, sync_status,
-      cash_received, cash_change, total, tx_discount_amount, tx_discount_type
+      cash_received, cash_change, customer_name, customer_phone, total, tx_discount_amount, tx_discount_type
     FROM sales ${whereSql || ''}
-    ORDER BY sold_at DESC, id ASC`).all(...params);
+    ORDER BY sold_at DESC, id ASC${limitSql}`).all(...params);
   const grouped = new Map();
   for (const row of rows) {
     const key = row.tx_key || row.transaction_code;
@@ -77,6 +79,8 @@ function salesTransactionsForWhere(whereSql, params = []) {
     tx.tx_discount_type = row.tx_discount_type || tx.tx_discount_type || 'fixed';
     tx.cash_received = row.cash_received ?? tx.cash_received;
     tx.cash_change = row.cash_change ?? tx.cash_change;
+    tx.customer_name = tx.customer_name || row.customer_name || '';
+    tx.customer_phone = tx.customer_phone || row.customer_phone || '';
   }
   return Array.from(grouped.values()).map((tx) => {
     const discount = txDiscountValue(tx.subtotal, tx.tx_discount_amount, tx.tx_discount_type);
@@ -91,13 +95,24 @@ function calculateShiftSummary(shift = null) {
     return { opening_cash: 0, cash_sales: 0, cash_refund: 0, cash_in: 0, cash_out: 0, non_cash_sales: 0, expected_cash: 0 };
   }
   const openingCash = Number(active.opening_cash_actual ?? active.opening_cash_default ?? 0);
-  const transactions = salesTransactionsForWhere('WHERE shift_id = ?', [active.id]);
+  const txRows = db.prepare(`
+    SELECT
+      COALESCE(transaction_group_uuid, local_transaction_id, transaction_code) AS tx_key,
+      LOWER(COALESCE(payment_method,'')) AS payment_method,
+      COALESCE(SUM(total),0) AS subtotal,
+      COALESCE(MAX(tx_discount_amount),0) AS tx_discount_amount,
+      COALESCE(MAX(tx_discount_type),'fixed') AS tx_discount_type
+    FROM sales
+    WHERE shift_id = ?
+    GROUP BY COALESCE(transaction_group_uuid, local_transaction_id, transaction_code), LOWER(COALESCE(payment_method,''))
+  `).all(active.id);
   let cashSales = 0;
   let nonCashSales = 0;
-  for (const row of transactions) {
+  for (const row of txRows) {
+    const total = Math.max(0, numberOrZero(row.subtotal) - txDiscountValue(row.subtotal, row.tx_discount_amount, row.tx_discount_type));
     const method = String(row.payment_method || '').toLowerCase();
-    if (method === 'cash' || method === 'tunai') cashSales += Number(row.total || 0);
-    else nonCashSales += Number(row.total || 0);
+    if (method === 'cash' || method === 'tunai') cashSales += total;
+    else nonCashSales += total;
   }
   const cashIn = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'in'").get(active.id)?.total || 0;
   const cashOut = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM pos_cash_movements WHERE shift_id = ? AND movement_type = 'out'").get(active.id)?.total || 0;
@@ -245,7 +260,7 @@ function buildShiftClosePrintHtml(data) {
 async function handleSyncBeforeExit() {
   try {
     await syncPendingTransactions();
-    await retryPendingShiftSync();
+    await retryPendingShiftSync({ skipClose: true });
   } catch (error) {
     console.warn('[exit:sync] sync before exit failed; exiting anyway', error.message);
   }
@@ -430,6 +445,49 @@ ipcMain.handle('pos:state', () => {
   return { products, categories, guides, paymentMethods, banks, activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync, syncedSettings, lastSyncAt: null };
 });
 
+ipcMain.handle('pos:status', () => {
+  const db = initDb();
+  const activeShift = activeShiftLocal();
+  const pendingSyncCount = db.prepare("SELECT COUNT(DISTINCT local_transaction_id) as c FROM sales WHERE sync_status IN ('pending','failed')").get().c;
+  const pendingShiftSync = db.prepare("SELECT COUNT(*) as c FROM shift_sync_queue WHERE sync_status = 'pending'").get().c;
+  return { activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync };
+});
+
+ipcMain.handle('customers:recap', (_, filters = {}) => {
+  try {
+    const db = initDb();
+    const q = String(filters.search || '').trim().toLowerCase();
+    const sortBy = ['phone', 'last', 'transactions', 'total'].includes(filters.sortBy) ? filters.sortBy : 'name';
+    const dir = String(filters.dir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+    const rows = db.prepare(`
+      SELECT
+        TRIM(COALESCE(NULLIF(customer_name,''), '(Tanpa nama)')) AS customer_name,
+        TRIM(COALESCE(customer_phone,'')) AS customer_phone,
+        COUNT(DISTINCT COALESCE(transaction_group_uuid, local_transaction_id, transaction_code)) AS transaction_count,
+        COALESCE(SUM(total),0) AS total_spend,
+        MAX(sold_at) AS last_transaction_at
+      FROM sales
+      WHERE (COALESCE(customer_name,'') <> '' OR COALESCE(customer_phone,'') <> '')
+      GROUP BY LOWER(TRIM(COALESCE(NULLIF(customer_name,''), '(Tanpa nama)'))), TRIM(COALESCE(customer_phone,''))
+    `).all();
+    let filtered = rows;
+    if (q) {
+      filtered = rows.filter((r) => String(r.customer_name || '').toLowerCase().includes(q) || String(r.customer_phone || '').toLowerCase().includes(q));
+    }
+    const factor = dir === 'desc' ? -1 : 1;
+    filtered.sort((a, b) => {
+      if (sortBy === 'phone') return factor * String(a.customer_phone || '').localeCompare(String(b.customer_phone || ''), 'id', { numeric: true, sensitivity: 'base' });
+      if (sortBy === 'last') return factor * String(a.last_transaction_at || '').localeCompare(String(b.last_transaction_at || ''));
+      if (sortBy === 'transactions') return factor * (Number(a.transaction_count || 0) - Number(b.transaction_count || 0));
+      if (sortBy === 'total') return factor * (Number(a.total_spend || 0) - Number(b.total_spend || 0));
+      return factor * String(a.customer_name || '').localeCompare(String(b.customer_name || ''), 'id', { numeric: true, sensitivity: 'base' });
+    });
+    return { ok: true, rows: filtered.slice(0, 500), total: { customers: filtered.length, transactions: filtered.reduce((sum, r) => sum + Number(r.transaction_count || 0), 0), spend: filtered.reduce((sum, r) => sum + Number(r.total_spend || 0), 0) } };
+  } catch (error) {
+    return { ok: false, message: error.message };
+  }
+});
+
 ipcMain.handle('history:list', (_, filters = {}) => {
   try {
     const where = [];
@@ -440,7 +498,7 @@ ipcMain.handle('history:list', (_, filters = {}) => {
     if (filters.paymentMethod) { where.push('payment_method = ?'); params.push(filters.paymentMethod); }
     if (filters.syncStatus) { where.push('sync_status = ?'); params.push(filters.syncStatus); }
     const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const rows = salesTransactionsForWhere(sqlWhere, params).slice(0, 300).map((r) => ({
+    const rows = salesTransactionsForWhere(sqlWhere, params, { limit: 1500 }).slice(0, 300).map((r) => ({
       transaction_code: r.transaction_code,
       transaction_group_id: r.transaction_group_id,
       sold_at: r.sold_at,
@@ -449,6 +507,8 @@ ipcMain.handle('history:list', (_, filters = {}) => {
       payment_method: r.payment_method,
       payment_bank: r.payment_bank,
       sync_status: r.sync_status,
+      customer_name: r.customer_name || '',
+      customer_phone: r.customer_phone || '',
       cash_received: r.cash_received,
       cash_change: r.cash_change,
       total: r.total
@@ -462,7 +522,7 @@ ipcMain.handle('history:list', (_, filters = {}) => {
 
 ipcMain.handle('history:detail', (_, transactionGroupId) => {
   const db = initDb();
-  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, p.name AS product_name
+  const items = db.prepare(`SELECT s.transaction_code, s.sold_at, s.guide_name, s.payment_method, s.payment_bank, s.sync_status, s.customer_name, s.customer_phone, s.cash_received, s.cash_change, s.qty, s.price_each, s.total, p.name AS product_name
     FROM sales s LEFT JOIN products p ON p.id = s.product_id
     WHERE COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code) = ?
     ORDER BY s.id`).all(transactionGroupId);

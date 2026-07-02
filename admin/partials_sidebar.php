@@ -117,13 +117,14 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
     </div>
     <?php endif; ?>
 
-    <?php if (has_menu_access($u, 'users') || has_menu_access($u, 'settings') || has_menu_access($u, 'roles')): ?>
+    <?php if (has_menu_access($u, 'users') || has_menu_access($u, 'settings') || has_menu_access($u, 'roles') || has_menu_access($u, 'customers')): ?>
       <div class="item">
         <button type="button" data-toggle-submenu="#m-admin">
           <div class="mi">⚙️</div><div class="label">Admin</div>
           <div class="chev">▾</div>
         </button>
         <div class="submenu" id="m-admin">
+          <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customer_recap.php')); ?>">Rekapitulasi Pelanggan</a><?php endif; ?>
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
           <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>

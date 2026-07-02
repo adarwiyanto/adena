@@ -7,6 +7,13 @@ require_once __DIR__ . '/../helpers.php';
 require_once __DIR__ . '/../../core/single_branch.php';
 require_once __DIR__ . '/../../core/inventory.php';
 
+function ensure_pos_customer_sales_columns(PDO $pdo): void {
+    try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_name VARCHAR(150) NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_phone VARCHAR(50) NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE sales ADD KEY idx_sales_customer_name (customer_name)"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE sales ADD KEY idx_sales_customer_phone (customer_phone)"); } catch (Throwable $e) {}
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
 
 $user = api_verify_token();
@@ -14,6 +21,7 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
 $pdo = db();
+ensure_pos_customer_sales_columns($pdo);
 $safeExec = static function (string $sql) use ($pdo): void {
     try { $pdo->exec($sql); } catch (Throwable $_) {}
 };
@@ -244,6 +252,8 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
         $payChannelName = (string)($tx['payment_channel_name'] ?? $payBank);
         $guideName = (string)($tx['guide_name'] ?? '');
         $guideId = !empty($tx['guide_id']) ? (int)$tx['guide_id'] : null;
+        $customerName = trim((string)($tx['customer_name'] ?? ''));
+        $customerPhone = trim((string)($tx['customer_phone'] ?? ''));
         $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
         $txDiscAmt = (float)($tx['tx_discount_amount'] ?? 0);
         $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
@@ -262,6 +272,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          discount_amount, discount_type,
                          tx_discount_amount, tx_discount_type,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
+                         customer_name, customer_phone,
                          local_device_id, local_transaction_id,
                          created_by, branch_id, shift_id, sold_at,
                          sync_status, original_sale_id,
@@ -273,6 +284,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          ?, ?,
                          ?, ?,
                          ?, ?, ?, ?, ?, ?,
+                         ?, ?,
                          ?, ?, ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
@@ -287,6 +299,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     (string)($item['discount_type'] ?? 'fixed'),
                     $txDiscAmt, $txDiscType,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
+                    $customerName !== '' ? $customerName : null, $customerPhone !== '' ? $customerPhone : null,
                     $deviceId ?: null, $localTxId ?: $txUuid,
                     $cashierId, $branchId, $shiftServerId, $soldAt,
                     $firstId,

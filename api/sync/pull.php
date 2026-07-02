@@ -85,6 +85,8 @@ function safe_setting(PDO $pdo, string $key, array &$debugNotes): string {
 try {
     $user = api_verify_token();
     $pdo = db();
+    try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_name VARCHAR(150) NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_phone VARCHAR(50) NULL"); } catch (Throwable $e) {}
 
     $sinceRaw = safe_string($_GET['since'] ?? '');
     $sinceParam = parse_since_param($sinceRaw, $debugNotes);
@@ -174,7 +176,7 @@ try {
 
     $salesSql = "SELECT s.id AS web_sale_id, s.transaction_code, s.transaction_group_uuid, s.offline_uuid,
                         s.product_id, s.qty, s.price_each, s.total, s.payment_method, s.payment_bank,
-                        s.guide_id, s.guide_name, s.created_by, s.sold_at,
+                        s.guide_id, s.guide_name, s.customer_name, s.customer_phone, s.created_by, s.sold_at,
                         u.name AS cashier_name
                  FROM sales s
                  LEFT JOIN users u ON u.id = s.created_by

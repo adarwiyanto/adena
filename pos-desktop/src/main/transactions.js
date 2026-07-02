@@ -45,7 +45,7 @@ function itemNet(item) {
   return Math.max(0, itemGross(item) - itemDiscountValue(item));
 }
 
-function saveSaleLocally({ user, guide, payment, shift, items, txDiscount }) {
+function saveSaleLocally({ user, guide, payment, shift, items, txDiscount, customer }) {
   const device = ensureDeviceCode();
   if (!device.ok) {
     return { ok: false, message: device.message };
@@ -62,13 +62,15 @@ function saveSaleLocally({ user, guide, payment, shift, items, txDiscount }) {
 
   const txDiscountAmount = Math.max(0, numberOrZero(txDiscount?.amount));
   const txDiscountType = normalizeDiscountType(txDiscount?.type);
+  const customerName = String(customer?.name || '').trim();
+  const customerPhone = String(customer?.phone || '').trim();
 
   const insert = db.prepare(`INSERT INTO sales
     (transaction_code, transaction_group_uuid, offline_uuid, product_id, qty, price_each, total,
      discount_amount, discount_type, tx_discount_amount, tx_discount_type,
      payment_method, payment_bank, guide_id, guide_name, created_by, branch_id, shift_id, sold_at,
-     local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+     customer_name, customer_phone, local_device_id, local_transaction_id, sync_status, cash_received, cash_change)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     for (const item of items) {
@@ -95,6 +97,8 @@ function saveSaleLocally({ user, guide, payment, shift, items, txDiscount }) {
         activeShift.branch_id || 1,
         activeShift.id,
         nowLocal,
+        customerName || null,
+        customerPhone || null,
         store.get('deviceId'),
         localTransactionId,
         'pending',

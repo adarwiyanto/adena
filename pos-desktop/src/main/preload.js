@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   listPendingOrders: () => ipcRenderer.invoke('pending:list'),
   deletePendingOrder: (localPendingId) => ipcRenderer.invoke('pending:delete', localPendingId),
   getPosState: () => ipcRenderer.invoke('pos:state'),
+  getPosStatus: () => ipcRenderer.invoke('pos:status'),
+  getCustomerRecap: (filters) => ipcRenderer.invoke('customers:recap', filters),
   getHistory: (filters) => ipcRenderer.invoke('history:list', filters),
   getHistoryDetail: (transactionGroupId) => ipcRenderer.invoke('history:detail', transactionGroupId),
   returnHistoryTransaction: (payload) => ipcRenderer.invoke('history:return', payload),

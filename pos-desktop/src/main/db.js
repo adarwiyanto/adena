@@ -207,6 +207,8 @@ function initDb() {
       discount_type TEXT DEFAULT 'fixed',
       tx_discount_amount REAL DEFAULT 0,
       tx_discount_type TEXT DEFAULT 'fixed',
+      customer_name TEXT,
+      customer_phone TEXT,
       local_device_id TEXT,
       local_transaction_id TEXT,
       sync_status TEXT DEFAULT 'pending',
@@ -301,11 +303,19 @@ function initDb() {
   safeExec('ALTER TABLE sales ADD COLUMN web_sale_id INTEGER');
   safeExec('ALTER TABLE sales ADD COLUMN cash_received REAL');
   safeExec('ALTER TABLE sales ADD COLUMN cash_change REAL');
+  safeExec('ALTER TABLE sales ADD COLUMN customer_name TEXT');
+  safeExec('ALTER TABLE sales ADD COLUMN customer_phone TEXT');
   safeExec("ALTER TABLE sales ADD COLUMN sale_source TEXT DEFAULT 'branch_pos'");
   safeExec("ALTER TABLE sales ADD COLUMN unit_type TEXT DEFAULT 'branch'");
   safeExec('ALTER TABLE products ADD COLUMN product_type TEXT');
   safeExec('ALTER TABLE products ADD COLUMN allow_bom INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_web_sale_id ON sales(web_sale_id)');
+  safeExec('CREATE INDEX IF NOT EXISTS idx_sales_shift_id ON sales(shift_id)');
+  safeExec('CREATE INDEX IF NOT EXISTS idx_sales_sold_at ON sales(sold_at)');
+  safeExec('CREATE INDEX IF NOT EXISTS idx_sales_shift_sold_at ON sales(shift_id, sold_at)');
+  safeExec('CREATE INDEX IF NOT EXISTS idx_sales_group ON sales(transaction_group_uuid, local_transaction_id, transaction_code)');
+  safeExec('CREATE INDEX IF NOT EXISTS idx_sales_customer_name ON sales(customer_name)');
+  safeExec('CREATE INDEX IF NOT EXISTS idx_sales_customer_phone ON sales(customer_phone)');
   safeExec('ALTER TABLE payment_methods ADD COLUMN requires_bank INTEGER DEFAULT 0');
   safeExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_code ON payment_methods(code)');
   // Adena POS v1.5 compatibility: migrate existing local SQLite from v1.4.x.
