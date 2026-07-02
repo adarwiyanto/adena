@@ -56,6 +56,17 @@ function api_ui_categories(): array {
       'code_hint' => 'DAPUR / TJQ',
       'endpoints' => ['/api/v1/kitchen/ping.php','/api/v1/kitchen/products.php','/api/v1/kitchen/receive-transfer.php'],
     ],
+    'backoffice' => [
+      'label' => 'API ke Back Office',
+      'badge' => 'Admin RW',
+      'access' => 'Admin operasional',
+      'desc' => 'Untuk Back Office membaca dan menulis data operasional toko. Akses user hanya lihat; bukan owner/superadmin.',
+      'default_mode' => 'backoffice',
+      'default_label' => 'Admin Read + Write',
+      'code_label' => 'Kode back office',
+      'code_hint' => 'BACKOFFICE',
+      'endpoints' => ['/api/backoffice/health.php','/api/backoffice/dashboard_summary.php','/api/backoffice/products.php','/api/backoffice/employees.php','/api/v1/sales.php','/api/v1/stocks.php'],
+    ],
     'external' => [
       'label' => 'API Situs Lain',
       'badge' => 'Read Only',
@@ -98,8 +109,8 @@ function api_category_from_row(array $row): string {
   $client = strtolower(trim((string)($row['client_type'] ?? '')));
   $type = strtolower(trim((string)($row['api_type'] ?? '')));
   $mode = strtolower(trim((string)($row['api_mode'] ?? '')));
-  if (in_array($client, ['desktop','branch','kitchen','external'], true)) return $client;
-  if (in_array($type, ['desktop','branch','kitchen','external'], true)) return $type;
+  if (in_array($client, ['desktop','branch','kitchen','backoffice','external'], true)) return $client;
+  if (in_array($type, ['desktop','branch','kitchen','backoffice','external'], true)) return $type;
   if ($type === 'dapur' || $client === 'dapur') return 'kitchen';
   if ($mode === 'receiver') return 'branch';
   return 'desktop';
@@ -155,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
       if ($category === 'desktop' && $unitCode !== '') api_deactivate_same_desktop($unitCode);
       $plain = 'adn_' . bin2hex(random_bytes(24));
-      $apiMode = $category === 'branch' ? 'read_write' : ($category === 'external' ? 'read_only' : 'sender');
+      $apiMode = $category === 'branch' ? 'read_write' : ($category === 'backoffice' ? 'admin_rw' : ($category === 'external' ? 'read_only' : 'sender'));
       db()->prepare('INSERT INTO api_tokens (name, token_hash, device_code, api_type, client_type, api_mode, unit_code, remote_base_url, permissions, allowed_ips, notes, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,NOW())')
         ->execute([$name, password_hash($plain, PASSWORD_DEFAULT), $unitCode !== '' ? $unitCode : null, $category, $category, $apiMode, $unitCode !== '' ? $unitCode : null, $remoteBaseUrl !== '' ? $remoteBaseUrl : null, api_permissions_encode($permissions), $allowedIps !== '' ? $allowedIps : null, $notes !== '' ? $notes : null]);
       $generatedToken = $plain;
@@ -180,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($category === 'desktop' && $unitCode !== '') api_deactivate_same_desktop($unitCode, $id);
       db()->prepare('UPDATE api_tokens SET is_active=0, revoked_at=NOW() WHERE id=?')->execute([$id]);
       $plain = 'adn_' . bin2hex(random_bytes(24));
-      $apiMode = (string)($old['api_mode'] ?: ($category === 'branch' ? 'read_write' : ($category === 'external' ? 'read_only' : 'sender')));
+      $apiMode = (string)($old['api_mode'] ?: ($category === 'branch' ? 'read_write' : ($category === 'backoffice' ? 'admin_rw' : ($category === 'external' ? 'read_only' : 'sender'))));
       db()->prepare('INSERT INTO api_tokens (name, token_hash, device_code, branch_id, api_type, client_type, api_mode, unit_code, remote_base_url, remote_token, permissions, allowed_ips, notes, is_active, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,NOW())')
         ->execute([(string)$old['name'], password_hash($plain, PASSWORD_DEFAULT), $unitCode !== '' ? $unitCode : null, $old['branch_id'] ?? null, $category, $category, $apiMode, $unitCode !== '' ? $unitCode : null, $old['remote_base_url'] ?? null, $old['remote_token'] ?? null, $old['permissions'] ?? api_permissions_encode(api_default_permissions($category)), $old['allowed_ips'] ?? null, $old['notes'] ?? null]);
       $generatedToken = $plain;
@@ -192,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $rows = db()->query("SELECT id, name, device_code, branch_id, api_type, client_type, api_mode, unit_code, remote_base_url, permissions, allowed_ips, notes, is_active, last_used_at, created_at, revoked_at FROM api_tokens ORDER BY id DESC")
   ->fetchAll(PDO::FETCH_ASSOC);
-$rowsByCat = ['desktop'=>[], 'branch'=>[], 'kitchen'=>[], 'external'=>[]];
+$rowsByCat = ['desktop'=>[], 'branch'=>[], 'kitchen'=>[], 'backoffice'=>[], 'external'=>[]];
 foreach ($rows as $row) $rowsByCat[api_category_from_row($row)][] = $row;
 $customCss = setting('custom_css', '');
 $activeCategory = (string)($_GET['category'] ?? 'desktop');
@@ -230,7 +241,7 @@ $baseUrl = rtrim(base_url(''), '/');
     <div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><div class="title">API & Integrasi</div></div>
     <div class="content api-page">
       <div class="card api-titlebar">
-        <div><h3>API & Integrasi</h3><p>Kontrol API disatukan: Kasir Desktop, Antar Cabang, Dapur, dan Situs Lain. Jalur Kasir Desktop tetap legacy-safe.</p></div>
+        <div><h3>API & Integrasi</h3><p>Kontrol API disatukan: Kasir Desktop, Antar Cabang, Dapur, Back Office, dan Situs Lain. Jalur Kasir Desktop tetap legacy-safe.</p></div>
         <div class="api-tabs">
           <?php foreach($categories as $key=>$cat): ?>
             <a class="api-tab <?php echo $activeCategory===$key?'active':''; ?>" href="?category=<?php echo e($key); ?>"><?php echo e($cat['label']); ?></a>

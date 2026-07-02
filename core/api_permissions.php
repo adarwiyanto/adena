@@ -51,6 +51,10 @@ function api_default_permissions(string $type): array {
   if (in_array($type, ['kitchen','dapur','api_dapur'], true)) {
     return ['master.view','products.view','stocks.view','transfers.view','transfers.receive','stock_transfer','stock_return','logs.view'];
   }
+  if (in_array($type, ['backoffice','admin_rw','admin'], true)) {
+    // Back Office diperlakukan seperti admin operasional: read/write data operasional, user hanya view; bukan owner/superadmin.
+    return ['master.view','categories.view','categories.import','categories.edit','products.view','products.import','products.edit','sales.view','sales.push','purchases.view','purchases.push','stocks.view','stocks.adjust','stocks.opname','transfers.view','transfers.create','transfers.receive','users.view','logs.view'];
+  }
   if (in_array($type, ['external','situs_lain','readonly','read_only'], true)) {
     // Situs lain hanya lihat. Tidak ada push/edit/transfer/adjustment.
     return ['master.view','categories.view','products.view','stocks.view'];

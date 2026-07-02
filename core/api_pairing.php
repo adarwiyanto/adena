@@ -80,14 +80,15 @@ function pairing_request_code(string $prefix='PAIR'): string { return $prefix.'-
 function pairing_secret(): string { return bin2hex(random_bytes(32)); }
 function pairing_scope_for(string $requesterType,string $targetType=''): string {
   $r=strtolower($requesterType); $t=strtolower($targetType);
-  if($r==='backoffice') return 'superadmin';
+  if($r==='backoffice') return 'admin_rw';
   if($r==='dapur') return 'dapur_stock_sender';
   if($r==='adena_store' || $r==='toko' || $r==='store') return 'store_product_readonly';
   if($r==='web_external' || $r==='external') return 'web_readonly';
   return 'readonly';
 }
 function pairing_scope_allows(string $have,string $need): bool {
-  if($have==='superadmin') return true;
+  if($have==='superadmin') return true; // legacy owner-only scope; kept for old tokens, no longer issued to Back Office.
+  if($have==='admin_rw' && in_array($need,['readonly','products.read','categories.read','images.read','master.view','categories.view','categories.import','categories.edit','products.view','products.import','products.edit','sales.view','sales.push','purchases.view','purchases.push','stocks.view','stocks.adjust','stocks.opname','transfers.view','transfers.create','transfers.receive','users.view','logs.view','admin_rw'],true)) return true;
   if($need==='' || $need==='readonly') return true;
   if($have===$need) return true;
   if($have==='dapur_stock_sender' && in_array($need,['products.read','stock_transfer.write','dapur_stock_sender'],true)) return true;
