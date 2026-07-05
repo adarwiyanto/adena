@@ -453,6 +453,27 @@ ipcMain.handle('pos:status', () => {
   return { activeShift, shiftSummary: calculateShiftSummary(activeShift), pendingSyncCount, pendingShiftSync };
 });
 
+ipcMain.handle('customers:lookupByPhone', (_, phone = '') => {
+  try {
+    const db = initDb();
+    const rawPhone = String(phone || '').trim();
+    const digits = rawPhone.replace(/\D+/g, '');
+    if (digits.length < 5) return { ok: true, customer: null };
+    const rows = db.prepare(`
+      SELECT customer_name, customer_phone, sold_at, id
+      FROM sales
+      WHERE COALESCE(customer_phone,'') <> ''
+      ORDER BY sold_at DESC, id DESC
+      LIMIT 1000
+    `).all();
+    const match = rows.find((r) => String(r.customer_phone || '').replace(/\D+/g, '') === digits && String(r.customer_name || '').trim() !== '');
+    if (!match) return { ok: true, customer: null };
+    return { ok: true, customer: { name: String(match.customer_name || '').trim(), phone: String(match.customer_phone || '').trim() } };
+  } catch (error) {
+    return { ok: false, message: error.message, customer: null };
+  }
+});
+
 ipcMain.handle('customers:recap', (_, filters = {}) => {
   try {
     const db = initDb();

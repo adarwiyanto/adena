@@ -166,6 +166,34 @@ function paymentMethodLabel(code) {
 function selectedCustomerPayload() {
   return { name: $('#customer-name')?.value?.trim() || '', phone: $('#customer-phone')?.value?.trim() || '' };
 }
+
+function normalizePhoneDigits(value) {
+  return String(value || '').replace(/\D+/g, '');
+}
+
+function scheduleCustomerPhoneLookup() {
+  const phoneEl = $('#customer-phone');
+  const nameEl = $('#customer-name');
+  if (!phoneEl || !nameEl || !window.desktopAPI?.lookupCustomerByPhone) return;
+  clearTimeout(state.customerLookupTimer);
+  const phone = phoneEl.value.trim();
+  const digits = normalizePhoneDigits(phone);
+  if (digits.length < 5) return;
+  const requestKey = digits;
+  state.customerLookupKey = requestKey;
+  state.customerLookupTimer = setTimeout(async () => {
+    try {
+      const res = await window.desktopAPI.lookupCustomerByPhone(phone);
+      if (state.customerLookupKey !== requestKey) return;
+      const found = res?.ok && res.customer?.name ? res.customer : null;
+      if (!found) return;
+      if (normalizePhoneDigits(phoneEl.value) !== requestKey) return;
+      nameEl.value = found.name;
+    } catch (error) {
+      console.warn('[customer:lookup] failed', error);
+    }
+  }, 250);
+}
 function updateCreditCardInfo() {
   const info = $('#credit-card-info');
   if (!info) return;
@@ -1205,6 +1233,7 @@ async function bootstrap() {
   $('#tx-disc-amt').oninput = updateTxDiscountFromUI;
   $('#tx-disc-type').onchange = updateTxDiscountFromUI;
   $('#btn-clear-tx-discount').onclick = resetTxDiscount;
+  if ($('#customer-phone')) $('#customer-phone').oninput = scheduleCustomerPhoneLookup;
   document.querySelectorAll('.history-range').forEach((b) => b.onclick = async () => { setHistoryRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadHistory(); });
   document.querySelectorAll('.recap-range').forEach((b) => b.onclick = async () => { setRecapRange(b.dataset.range); if (b.dataset.range !== 'custom') await loadRecap(); });
   setHistoryRange('today'); setRecapRange('today');

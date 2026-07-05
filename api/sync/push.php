@@ -10,8 +10,55 @@ require_once __DIR__ . '/../../core/inventory.php';
 function ensure_pos_customer_sales_columns(PDO $pdo): void {
     try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_name VARCHAR(150) NULL"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_phone VARCHAR(50) NULL"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE sales ADD COLUMN customer_id BIGINT NULL"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE sales ADD KEY idx_sales_customer_name (customer_name)"); } catch (Throwable $e) {}
     try { $pdo->exec("ALTER TABLE sales ADD KEY idx_sales_customer_phone (customer_phone)"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE sales ADD KEY idx_sales_customer_id (customer_id)"); } catch (Throwable $e) {}
+}
+
+function pos_customer_sync_upsert(PDO $pdo, string $name, string $phone): ?int {
+    $name = trim($name);
+    $phone = trim($phone);
+    if ($name === '' && $phone === '') return null;
+
+    $customer = null;
+    if ($phone !== '') {
+        $stmt = $pdo->prepare("SELECT id, name FROM customers WHERE phone = ? LIMIT 1");
+        $stmt->execute([$phone]);
+        $customer = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    if (!$customer && $name !== '' && $phone === '') {
+        $stmt = $pdo->prepare("SELECT id, name FROM customers WHERE name = ? AND (phone IS NULL OR phone = '') LIMIT 1");
+        $stmt->execute([$name]);
+        $customer = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    if ($customer) {
+        $customerId = (int)$customer['id'];
+        if ($name !== '') {
+            $pdo->prepare("UPDATE customers SET name = ? WHERE id = ?")->execute([$name, $customerId]);
+        }
+        if ($phone !== '') {
+            try { $pdo->prepare("UPDATE customers SET phone = ? WHERE id = ?")->execute([$phone, $customerId]); } catch (Throwable $e) {}
+        }
+        return $customerId;
+    }
+
+    $insertName = $name !== '' ? $name : $phone;
+    try {
+        $pdo->prepare("INSERT INTO customers (name, phone) VALUES (?, ?)")->execute([$insertName, $phone !== '' ? $phone : null]);
+        return (int)$pdo->lastInsertId();
+    } catch (Throwable $e) {
+        if ($phone !== '') {
+            $stmt = $pdo->prepare("SELECT id FROM customers WHERE phone = ? LIMIT 1");
+            $stmt->execute([$phone]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row ? (int)$row['id'] : null;
+        }
+    }
+
+    return null;
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') api_err('Method tidak diizinkan.', 405);
@@ -255,6 +302,8 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
         $customerName = trim((string)($tx['customer_name'] ?? ''));
         $customerPhone = trim((string)($tx['customer_phone'] ?? ''));
         $customerId = !empty($tx['customer_id']) ? (int)$tx['customer_id'] : null;
+        $syncedCustomerId = pos_customer_sync_upsert($pdo, $customerName, $customerPhone);
+        if (!$customerId && $syncedCustomerId) $customerId = $syncedCustomerId;
         $txDiscAmt = (float)($tx['tx_discount_amount'] ?? 0);
         $txDiscType = (string)($tx['tx_discount_type'] ?? 'fixed');
 
@@ -272,7 +321,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          discount_amount, discount_type,
                          tx_discount_amount, tx_discount_type,
                          payment_method, payment_bank, payment_channel_id, payment_channel_name, guide_id, guide_name,
-                         customer_name, customer_phone,
+                         customer_id, customer_name, customer_phone,
                          local_device_id, local_transaction_id,
                          created_by, branch_id, shift_id, sold_at,
                          sync_status, original_sale_id,
@@ -284,7 +333,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                          ?, ?,
                          ?, ?,
                          ?, ?, ?, ?, ?, ?,
-                         ?, ?,
+                         ?, ?, ?,
                          ?, ?, ?, ?, ?, ?,
                          'synced', ?,
                          1, 0, 'active',
@@ -299,7 +348,7 @@ $txCode = trim((string)($tx['transaction_code'] ?? ''));
                     (string)($item['discount_type'] ?? 'fixed'),
                     $txDiscAmt, $txDiscType,
                     $payMethod, $payBank, $payChannelId, $payChannelName, $guideId, $guideName,
-                    $customerName !== '' ? $customerName : null, $customerPhone !== '' ? $customerPhone : null,
+                    $customerId ?: null, $customerName !== '' ? $customerName : null, $customerPhone !== '' ? $customerPhone : null,
                     $deviceId ?: null, $localTxId ?: $txUuid,
                     $cashierId, $branchId, $shiftServerId, $soldAt,
                     $firstId,
