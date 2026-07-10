@@ -31,10 +31,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   csrf_check();
   $u = trim($_POST['username'] ?? '');
   $p = (string)($_POST['password'] ?? '');
+  $remember = isset($_POST['remember_me']) && $_POST['remember_me'] === '1';
   $rateId = ($u !== '' ? $u : 'guest') . '|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
   if (!rate_limit_check('admin_login', $rateId)) {
     $err = 'Terlalu banyak percobaan login. Silakan coba lagi nanti.';
-  } elseif (login_attempt($u, $p)) {
+  } elseif (login_attempt($u, $p, $remember)) {
     $me = current_user();
     rate_limit_clear('admin_login', $rateId);
     if ($isAndroidApp) {
@@ -63,6 +64,10 @@ $appName = app_config()['app']['name'];
   <style>
     .login-wrap{max-width:420px;margin:8vh auto}
     .center{text-align:center}
+    .remember-row{display:flex;align-items:flex-start;gap:9px;margin:12px 0 6px}
+    .remember-row input{width:auto;margin-top:3px}
+    .remember-warning{display:none;margin:8px 0 14px;padding:10px 12px;border:1px solid #f59e0b;border-radius:8px;background:rgba(245,158,11,.12);color:#92400e;font-size:.85rem;line-height:1.4}
+    .remember-warning.show{display:block}
   </style>
 </head>
 <body>
@@ -85,6 +90,13 @@ $appName = app_config()['app']['name'];
           <label>Password</label>
           <input type="password" name="password" autocomplete="current-password" required>
         </div>
+        <label class="remember-row">
+          <input id="remember-me" type="checkbox" name="remember_me" value="1">
+          <span>Remember me</span>
+        </label>
+        <div id="remember-warning" class="remember-warning" role="alert">
+          Gunakan fitur ini hanya pada komputer pribadi. Jangan aktifkan pada komputer bersama atau perangkat umum karena akun dapat dibuka tanpa memasukkan username dan password.
+        </div>
         <button class="btn" type="submit" style="width:100%">Masuk</button>
       </form>
       <div class="center" style="margin-top:12px">
@@ -92,5 +104,15 @@ $appName = app_config()['app']['name'];
       </div>
     </div>
   </div>
+  <script nonce="<?php echo e(csp_nonce()); ?>">
+    (function () {
+      var checkbox = document.getElementById('remember-me');
+      var warning = document.getElementById('remember-warning');
+      if (!checkbox || !warning) return;
+      checkbox.addEventListener('change', function () {
+        warning.classList.toggle('show', checkbox.checked);
+      });
+    })();
+  </script>
 </body>
 </html>
