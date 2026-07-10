@@ -8,10 +8,12 @@ if(!$r) pairing_err('Request pairing tidak ditemukan.',404);
 $res=['request_code'=>$code,'status'=>$r['status'],'message'=>$r['last_message'] ?: null,'requested_scope'=>$r['requested_scope']];
 if($r['status']==='approved'){
   if(!empty($r['request_secret_hash']) && $secret!=='' && password_verify($secret,(string)$r['request_secret_hash'])){
-    $res['access_token']=$r['access_token_plain'];
+    $token=pairing_decrypt_secret($r['access_token_encrypted'] ?? '');
+    $res['access_token']=$token;
     $res['remote_system_type']=$r['target_type'];
     $res['access_scope']=$r['requested_scope'];
     $res['connection_name']=$r['requester_name'];
+    if($token!=='') db()->prepare('UPDATE api_pairing_requests SET access_token_encrypted=NULL WHERE id=?')->execute([(int)$r['id']]);
   } else { $res['message']='Approved. Secret belum valid sehingga token tidak dikirim.'; }
 }
 pairing_ok($res);

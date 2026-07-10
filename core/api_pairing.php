@@ -29,7 +29,8 @@ function ensure_api_pairing_schema(): void {
     requested_scope VARCHAR(80) NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'pending',
     callback_url VARCHAR(255) NULL,
-    access_token_plain TEXT NULL,
+    access_token_encrypted LONGTEXT NULL,
+    local_secret_encrypted LONGTEXT NULL,
     token_hash VARCHAR(255) NULL,
     reject_reason TEXT NULL,
     approved_by BIGINT NULL,
@@ -53,7 +54,7 @@ function ensure_api_pairing_schema(): void {
     remote_system_type VARCHAR(50) NOT NULL,
     access_scope VARCHAR(80) NOT NULL,
     token_hash VARCHAR(255) NULL,
-    token_plain TEXT NULL,
+    token_encrypted LONGTEXT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'active',
     paired_from_request_code VARCHAR(90) NULL,
     paired_by BIGINT NULL,
@@ -69,6 +70,15 @@ function ensure_api_pairing_schema(): void {
     KEY idx_api_conn_scope (access_scope),
     KEY idx_api_conn_type (connection_type)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+  if (!pairing_column_exists('api_pairing_requests','access_token_encrypted')) {
+    try { $pdo->exec("ALTER TABLE api_pairing_requests ADD COLUMN access_token_encrypted LONGTEXT NULL AFTER callback_url"); } catch(Throwable $e) {}
+  }
+  if (!pairing_column_exists('api_pairing_requests','local_secret_encrypted')) {
+    try { $pdo->exec("ALTER TABLE api_pairing_requests ADD COLUMN local_secret_encrypted LONGTEXT NULL AFTER access_token_encrypted"); } catch(Throwable $e) {}
+  }
+  if (!pairing_column_exists('api_connections','token_encrypted')) {
+    try { $pdo->exec("ALTER TABLE api_connections ADD COLUMN token_encrypted LONGTEXT NULL AFTER token_hash"); } catch(Throwable $e) {}
+  }
 }
 function pairing_json(array $data,int $code=200): void { http_response_code($code); header('Content-Type: application/json; charset=utf-8'); header('X-Content-Type-Options: nosniff'); echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES); exit; }
 function pairing_ok(array $data=[]): void { pairing_json(array_merge(['ok'=>true],$data)); }
@@ -78,17 +88,38 @@ function pairing_bearer_token(): string { $h=$_SERVER['HTTP_AUTHORIZATION'] ?? $
 function pairing_normalize_url(string $url): string { $url=trim($url); $url=preg_replace('~\s+~','',$url) ?: $url; if($url!=='' && !preg_match('~^https?://~i',$url)) $url='https://'.$url; return rtrim($url,'/'); }
 function pairing_request_code(string $prefix='PAIR'): string { return $prefix.'-'.date('Ymd-His').'-'.strtoupper(bin2hex(random_bytes(3))); }
 function pairing_secret(): string { return bin2hex(random_bytes(32)); }
+function pairing_secret_key(): string {
+  $cfg=app_config();
+  $db=$cfg['db'] ?? [];
+  $seed=($cfg['app']['base_url'] ?? '').'|'.($db['name'] ?? '').'|'.($db['pass'] ?? '');
+  return hash('sha256',$seed,true);
+}
+function pairing_encrypt_secret(string $plain): string {
+  if($plain==='') return '';
+  if(!function_exists('openssl_encrypt')) pairing_err('OpenSSL dibutuhkan untuk menyimpan token API terenkripsi.',500);
+  $iv=random_bytes(16);
+  $cipher=openssl_encrypt($plain,'AES-256-CBC',pairing_secret_key(),OPENSSL_RAW_DATA,$iv);
+  if($cipher===false) pairing_err('Gagal mengenkripsi token API.',500);
+  return 'v1:'.base64_encode($iv.$cipher);
+}
+function pairing_decrypt_secret(?string $stored): string {
+  $stored=(string)$stored;
+  if($stored==='' || !str_starts_with($stored,'v1:') || !function_exists('openssl_decrypt')) return '';
+  $raw=base64_decode(substr($stored,3),true);
+  if(!is_string($raw) || strlen($raw)<=16) return '';
+  $plain=openssl_decrypt(substr($raw,16),'AES-256-CBC',pairing_secret_key(),OPENSSL_RAW_DATA,substr($raw,0,16));
+  return is_string($plain)?$plain:'';
+}
 function pairing_scope_for(string $requesterType,string $targetType=''): string {
   $r=strtolower($requesterType); $t=strtolower($targetType);
-  if($r==='backoffice') return 'admin_rw';
+  if($r==='backoffice') return 'backoffice_backup';
   if($r==='dapur') return 'dapur_stock_sender';
   if($r==='adena_store' || $r==='toko' || $r==='store') return 'store_product_readonly';
   if($r==='web_external' || $r==='external') return 'web_readonly';
   return 'readonly';
 }
 function pairing_scope_allows(string $have,string $need): bool {
-  if($have==='superadmin') return true; // legacy owner-only scope; kept for old tokens, no longer issued to Back Office.
-  if($have==='admin_rw' && in_array($need,['readonly','products.read','categories.read','images.read','master.view','categories.view','categories.import','categories.edit','products.view','products.import','products.edit','sales.view','sales.push','purchases.view','purchases.push','stocks.view','stocks.adjust','stocks.opname','transfers.view','transfers.create','transfers.receive','users.view','logs.view','admin_rw'],true)) return true;
+  if($have==='backoffice_backup' && in_array($need,['readonly','employees.read','backup.read','api.test','products.read','products.view','stocks.view','sales.view'],true)) return true;
   if($need==='' || $need==='readonly') return true;
   if($have===$need) return true;
   if($have==='dapur_stock_sender' && in_array($need,['products.read','stock_transfer.write','dapur_stock_sender'],true)) return true;
