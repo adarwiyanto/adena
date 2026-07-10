@@ -8,7 +8,7 @@ require_once __DIR__ . '/../core/api_pairing.php';
 start_secure_session(); require_login(); ensure_api_pairing_schema();
 if(function_exists('csrf_check')) csrf_check();
 $me=current_user(); $uid=(int)($me['id']??0); $act=$_POST['act']??'';
-function go_pair($m=''){ header('Location: '.base_url('admin/api_pairing.php').($m?'?msg='.urlencode($m):'')); exit; }
+function go_pair($m='',$modal=''){ $q=$m?'?msg='.urlencode($m):''; if($modal!=='') $q.=($q?'&':'?').'reopen='.urlencode($modal); header('Location: '.base_url('admin/api_pairing.php').$q); exit; }
 if(!current_user_is_owner() && !has_menu_access($me,'settings','edit')) go_pair('Akses ditolak. Hanya owner/admin berizin yang boleh mengelola pairing API.');
 try{
  if($act==='create_request'){
@@ -26,8 +26,10 @@ try{
    $id=(int)($_POST['id']??0); $r=db()->prepare("SELECT * FROM api_pairing_requests WHERE id=? AND direction='incoming' AND status='pending'"); $r->execute([$id]); $req=$r->fetch(PDO::FETCH_ASSOC); if(!$req) throw new RuntimeException('Request tidak ditemukan.');
    $token=bin2hex(random_bytes(32)); $hash=hash('sha256',$token);
    $safeScope=pairing_scope_for((string)$req['requester_type'],(string)$req['target_type']);
+   $remoteUrl=pairing_normalize_url((string)$req['requester_base_url']);
+   db()->prepare("UPDATE api_connections SET status='revoked',revoked_by=?,revoked_at=NOW(),notes=CONCAT(COALESCE(notes,''),'\nDinonaktifkan otomatis: digantikan pairing baru.') WHERE connection_type='backoffice' AND LOWER(TRIM(TRAILING '/' FROM remote_base_url))=LOWER(TRIM(TRAILING '/' FROM ?)) AND status='active'")->execute([$uid,$remoteUrl]);
    db()->prepare("INSERT INTO api_connections(connection_name,connection_type,remote_base_url,remote_system_type,access_scope,token_hash,status,paired_from_request_code,paired_by,paired_at) VALUES(?,?,?,?,?,?,'active',?,?,NOW())")
-     ->execute([$req['requester_name'],$req['requester_type'],$req['requester_base_url'],$req['requester_type'],$safeScope,$hash,$req['request_code'],$uid]);
+     ->execute([$req['requester_name'],'backoffice',$remoteUrl,'backoffice',$safeScope,$hash,$req['request_code'],$uid]);
    db()->prepare("UPDATE api_pairing_requests SET requested_scope=?,status='approved',access_token_encrypted=?,token_hash=?,approved_by=?,approved_at=NOW(),last_message='Approved' WHERE id=?")->execute([$safeScope,pairing_encrypt_secret($token),$hash,$uid,$id]);
    go_pair('Pairing disetujui. Token otomatis siap dipakai oleh peminta.');
  }
@@ -48,6 +50,13 @@ try{
    }
    go_pair('Status pairing: '.$status);
  }
+
+ if($act==='deactivate_connection'){
+   $id=(int)($_POST['id']??0);
+   db()->prepare("UPDATE api_connections SET status='revoked',revoked_by=?,revoked_at=NOW() WHERE id=? AND connection_type='backoffice'")->execute([$uid,$id]);
+   go_pair('Koneksi Back Office dinonaktifkan.');
+ }
+
  if($act==='test_connection'){
    $id=(int)($_POST['id']??0); $st=db()->prepare('SELECT * FROM api_connections WHERE id=?'); $st->execute([$id]); $c=$st->fetch(PDO::FETCH_ASSOC); if(!$c) throw new RuntimeException('Koneksi tidak ditemukan.');
    $token=pairing_decrypt_secret($c['token_encrypted']??''); if($token==='') throw new RuntimeException('Koneksi ini adalah koneksi masuk; tidak punya token keluar untuk test remote.');

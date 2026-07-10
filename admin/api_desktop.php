@@ -27,51 +27,18 @@ function api_ui_categories(): array {
       'label' => 'Kasir Desktop',
       'badge' => 'Legacy-safe',
       'access' => 'POS desktop',
-      'desc' => 'Token untuk aplikasi kasir desktop. Jalur ini dipertahankan agar tidak mengganggu POS yang sudah berjalan.',
+      'desc' => 'Token untuk aplikasi kasir desktop. Jalur ini dipertahankan agar POS yang sudah berjalan tidak terganggu.',
       'default_mode' => 'desktop',
       'default_label' => 'Default kasir desktop',
       'code_label' => 'Kode device/kasir',
       'code_hint' => 'KASIR01',
       'endpoints' => ['/api/v1/master.php','/api/v1/products.php','/api/v1/sales.php','/api/v1/stocks.php'],
     ],
-    'branch' => [
-      'label' => 'API Antar Cabang',
-      'badge' => 'Read + Write',
-      'access' => 'Bisa melihat dan menulis',
-      'desc' => 'Untuk sinkronisasi antar toko/cabang. Default bisa baca dan tulis sesuai instruksi.',
-      'default_mode' => 'branch',
-      'default_label' => 'Read + Write',
-      'code_label' => 'Kode cabang/unit',
-      'code_hint' => 'CABANG01',
-      'endpoints' => ['/api/v1/master.php','/api/v1/products.php','/api/v1/sales.php','/api/v1/purchases.php','/api/v1/transfers.php'],
-    ],
-    'kitchen' => [
-      'label' => 'API ke Dapur',
-      'badge' => 'Dapur Adena',
-      'access' => 'Produk, stok, transfer dapur',
-      'desc' => 'Untuk Dapur Adena membaca produk toko dan mengirim transfer stok ke toko.',
-      'default_mode' => 'kitchen',
-      'default_label' => 'Dapur default',
-      'code_label' => 'Kode dapur/toko',
-      'code_hint' => 'DAPUR / TJQ',
-      'endpoints' => ['/api/v1/kitchen/ping.php','/api/v1/kitchen/products.php','/api/v1/kitchen/receive-transfer.php'],
-    ],
-    'backoffice' => [
-      'label' => 'API ke Back Office',
-      'badge' => 'Admin RW',
-      'access' => 'Admin operasional',
-      'desc' => 'Untuk Back Office membaca dan menulis data operasional toko. Akses user hanya lihat; bukan owner.',
-      'default_mode' => 'backoffice',
-      'default_label' => 'Admin Read + Write',
-      'code_label' => 'Kode back office',
-      'code_hint' => 'BACKOFFICE',
-      'endpoints' => ['/api/backoffice/health.php','/api/backoffice/dashboard_summary.php','/api/backoffice/products.php','/api/backoffice/employees.php','/api/v1/sales.php','/api/v1/stocks.php'],
-    ],
     'external' => [
       'label' => 'API Situs Lain',
       'badge' => 'Read Only',
       'access' => 'Hanya melihat',
-      'desc' => 'Untuk website/situs lain membaca data produk dan stok. Tidak boleh menulis transaksi atau stok.',
+      'desc' => 'Untuk website eksternal membaca data produk dan stok. Tidak boleh menulis transaksi atau stok.',
       'default_mode' => 'external',
       'default_label' => 'Read Only',
       'code_label' => 'Kode situs',
@@ -241,7 +208,7 @@ $baseUrl = rtrim(base_url(''), '/');
     <div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button><div class="title">API & Integrasi</div></div>
     <div class="content api-page">
       <div class="card api-titlebar">
-        <div><h3>API & Integrasi</h3><p>Kontrol API disatukan: Kasir Desktop, Antar Cabang, Dapur, Back Office, dan Situs Lain. Jalur Kasir Desktop tetap legacy-safe.</p></div>
+        <div><h3>API & Integrasi</h3><p>Kelola token Kasir Desktop dan API Situs Lain. Pairing Back Office dikelola pada menu Pairing Back Office.</p></div>
         <div class="api-tabs">
           <?php foreach($categories as $key=>$cat): ?>
             <a class="api-tab <?php echo $activeCategory===$key?'active':''; ?>" href="?category=<?php echo e($key); ?>"><?php echo e($cat['label']); ?></a>
