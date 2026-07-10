@@ -416,7 +416,7 @@ $customCss = setting('custom_css', '');
     }
   </style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="container">
   <?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main">

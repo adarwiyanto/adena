@@ -16,7 +16,42 @@ if (!empty($u['avatar_path'])) {
   $avatarUrl = upload_url($u['avatar_path'], 'image');
 }
 $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
+$apiPairingNotifyCount = 0;
+$apiPairingNotifyItems = [];
+$apiPairingCanSee = in_array((string)($resolvedRole['role_key'] ?? ''), ['owner','admin'], true) || has_menu_access($u, 'settings');
+if ($apiPairingCanSee) {
+  $pairingFile = __DIR__ . '/../core/api_pairing.php';
+  if (is_file($pairingFile)) {
+    require_once $pairingFile;
+    try {
+      $apiPairingNotifyCount = pairing_pending_count();
+      $apiPairingNotifyItems = pairing_latest_notifications(5);
+    } catch (Throwable $e) {
+      $apiPairingNotifyCount = 0;
+      $apiPairingNotifyItems = [];
+    }
+  }
+}
 ?>
+<?php if ($apiPairingCanSee): ?>
+<div class="api-global-notif" aria-label="Notifikasi request API">
+  <button class="api-global-notif-btn" type="button">🔔<?php if ($apiPairingNotifyCount > 0): ?><span><?php echo (int)$apiPairingNotifyCount; ?></span><?php endif; ?></button>
+  <div class="api-global-notif-menu">
+    <div class="api-global-notif-head">Request API<?php if ($apiPairingNotifyCount > 0): ?> <b><?php echo (int)$apiPairingNotifyCount; ?> pending</b><?php endif; ?></div>
+    <?php foreach ($apiPairingNotifyItems as $n): ?>
+      <a class="api-global-notif-item" href="<?php echo e(base_url('admin/api_pairing.php')); ?>">
+        <strong><?php echo e((string)$n['requester_name']); ?></strong>
+        <small><?php echo e((string)$n['requester_type'] . ' · ' . (string)$n['status'] . ' · ' . (string)$n['created_at']); ?></small>
+      </a>
+    <?php endforeach; ?>
+    <?php if (!$apiPairingNotifyItems): ?><div class="api-global-notif-empty">Belum ada request API.</div><?php endif; ?>
+    <a class="api-global-notif-open" href="<?php echo e(base_url('admin/api_pairing.php')); ?>">Buka Request Pairing</a>
+  </div>
+</div>
+<style>
+.api-global-notif{position:fixed;top:14px;right:18px;z-index:9999;font-family:inherit}.api-global-notif-btn{border:1px solid #dbeafe;background:#fff;color:#111827;border-radius:999px;min-width:42px;min-height:38px;padding:7px 10px;box-shadow:0 8px 22px rgba(15,23,42,.12);cursor:pointer}.api-global-notif-btn span{display:inline-block;margin-left:4px;background:#ef4444;color:#fff;border-radius:999px;font-size:11px;line-height:1;padding:3px 6px;font-weight:700}.api-global-notif-menu{display:none;position:absolute;right:0;top:44px;width:340px;max-width:88vw;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 20px 45px rgba(15,23,42,.18);overflow:hidden}.api-global-notif:hover .api-global-notif-menu,.api-global-notif:focus-within .api-global-notif-menu{display:block}.api-global-notif-head{padding:10px 12px;border-bottom:1px solid #eef2f7;font-weight:700}.api-global-notif-head b{color:#dc2626}.api-global-notif-item{display:block;padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#111827;text-decoration:none}.api-global-notif-item:hover{background:#f8fafc}.api-global-notif-item small{display:block;color:#64748b;margin-top:2px}.api-global-notif-empty{padding:12px;color:#64748b}.api-global-notif-open{display:block;padding:10px 12px;background:#6f4e37;color:#fff;text-align:center;text-decoration:none;font-weight:700}@media(max-width:760px){.api-global-notif{top:10px;right:10px}.api-global-notif-menu{width:310px}}
+</style>
+<?php endif; ?>
 <div class="sidebar">
   <div class="sb-top">
     <div class="profile-card">
@@ -71,6 +106,8 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
       <div class="submenu" id="m-produk">
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/products.php')); ?>">Produk</a><?php endif; ?>
         <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/product_categories.php')); ?>">Kategori Produk</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'produk')): ?><a href="<?php echo e(base_url('admin/bom.php')); ?>">BOM Produk</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/production.php')); ?>">Produksi</a><?php endif; ?>
         <?php if (has_menu_access($u, 'inventori', 'export')): ?><a href="<?php echo e(base_url('admin/inventory_reports.php')); ?>">Laporan Inventory</a><?php endif; ?>
       </div>
     </div>
@@ -85,7 +122,7 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <?php if (has_menu_access($u, 'sales')): ?><a href="<?php echo e(base_url('admin/pos_shifts.php')); ?>">Laporan Shift POS</a><?php endif; ?>
         <?php if (has_menu_access($u, 'rekap_omset')): ?><a href="<?php echo e(base_url('admin/rekap_omset.php')); ?>">Rekap Omset</a><?php endif; ?>
         <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customers.php')); ?>">Pelanggan</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_goods.php')); ?>">Pembelian Barang</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><?php endif; ?>
         <?php if (has_menu_access($u, 'suppliers')): ?><a href="<?php echo e(base_url('admin/suppliers.php')); ?>">Master Supplier</a><?php endif; ?>
       </div>
     </div>
@@ -100,8 +137,9 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
         <div class="submenu" id="m-stok">
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stocks.php')); ?>">Daftar Stok</a><?php endif; ?>
           <?php if (has_menu_access($u, 'stok_opname')): ?><a href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Stok Opname</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'stok_opname', 'approve')): ?><a href="<?php echo e(base_url('admin/stock_opname_approval.php')); ?>">Approval Opname</a><?php endif; ?>
           <?php if (has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/stock_card.php')); ?>">Kartu Stok</a><?php endif; ?>
+          <?php $roleInfo = resolve_user_role($u); $roleKey = (string)($roleInfo['role_key'] ?? ''); ?>
+          <?php if (in_array($roleKey, ['owner','admin','manager_cabang'], true) || has_menu_access($u, 'inventori')): ?><a href="<?php echo e(base_url('admin/kitchen_receive_confirm.php')); ?>">Konfirmasi Stok Dapur</a><?php endif; ?>
         </div>
       </div>
     <?php endif; ?>
@@ -114,13 +152,14 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
     </div>
     <?php endif; ?>
 
-    <?php if (has_menu_access($u, 'users') || has_menu_access($u, 'settings') || has_menu_access($u, 'roles')): ?>
+    <?php if (has_menu_access($u, 'users') || has_menu_access($u, 'settings') || has_menu_access($u, 'roles') || has_menu_access($u, 'customers')): ?>
       <div class="item">
         <button type="button" data-toggle-submenu="#m-admin">
           <div class="mi">⚙️</div><div class="label">Admin</div>
           <div class="chev">▾</div>
         </button>
         <div class="submenu" id="m-admin">
+          <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customer_recap.php')); ?>">Rekapitulasi Pelanggan</a><?php endif; ?>
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
           <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
@@ -130,7 +169,9 @@ $initial = strtoupper(substr((string)($u['name'] ?? 'U'), 0, 1));
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/payment_methods.php')); ?>">Metode Pembayaran</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/guides.php')); ?>">Daftar Guide</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">Kasir Desktop</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">API &amp; Integrasi</a><?php endif; ?>
+          <?php if ($apiPairingCanSee): ?><a href="<?php echo e(base_url('admin/api_pairing.php')); ?>">Request API / Pairing</a><?php endif; ?>
+          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
           <?php if (current_user_is_owner()): ?>
             <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
           <?php endif; ?>

@@ -58,7 +58,7 @@ $customCss = setting('custom_css', '');
 @media(max-width:800px){.report-head{display:block}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="report-wrap">
   <div class="card report-head">
     <div class="report-title">

@@ -61,23 +61,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $customers = db()->query(" 
   SELECT c.id, c.name, c.email, c.phone, c.gender, c.birth_date, c.domicile, c.instagram, c.loyalty_points, c.created_at,
-         MAX(o.created_at) AS last_order_at,
-         COUNT(DISTINCT o.id) AS order_count,
-         COALESCE(SUM(oi.subtotal),0) AS total_spend,
-         (
-           SELECT p2.name
-           FROM orders o2
-           JOIN order_items oi2 ON oi2.order_id=o2.id
-           JOIN products p2 ON p2.id=oi2.product_id
-           WHERE o2.customer_id=c.id
-           GROUP BY p2.id, p2.name
-           ORDER BY SUM(oi2.qty) DESC, SUM(oi2.subtotal) DESC
-           LIMIT 1
+         NULLIF(GREATEST(
+           COALESCE(os.last_order_at, '1000-01-01 00:00:00'),
+           COALESCE(ss.last_order_at, '1000-01-01 00:00:00'),
+           COALESCE(sp.last_order_at, '1000-01-01 00:00:00')
+         ), '1000-01-01 00:00:00') AS last_order_at,
+         (COALESCE(os.order_count,0) + COALESCE(ss.order_count,0) + COALESCE(sp.order_count,0)) AS order_count,
+         (COALESCE(os.total_spend,0) + COALESCE(ss.total_spend,0) + COALESCE(sp.total_spend,0)) AS total_spend,
+         COALESCE(
+           (
+             SELECT p2.name
+             FROM orders o2
+             JOIN order_items oi2 ON oi2.order_id=o2.id
+             JOIN products p2 ON p2.id=oi2.product_id
+             WHERE o2.customer_id=c.id
+             GROUP BY p2.id, p2.name
+             ORDER BY SUM(oi2.qty) DESC, SUM(oi2.subtotal) DESC
+             LIMIT 1
+           ),
+           (
+             SELECT p3.name
+             FROM sales s3
+             JOIN products p3 ON p3.id=s3.product_id
+             WHERE (s3.customer_id=c.id OR (s3.customer_id IS NULL AND COALESCE(c.phone,'') <> '' AND TRIM(s3.customer_phone)=TRIM(c.phone)))
+               AND COALESCE(s3.return_status,'none') <> 'returned'
+               AND COALESCE(s3.is_active_revision,1) = 1
+             GROUP BY p3.id, p3.name
+             ORDER BY SUM(s3.qty) DESC, SUM(s3.total) DESC
+             LIMIT 1
+           )
          ) AS top_product
   FROM customers c
-  LEFT JOIN orders o ON o.customer_id = c.id
-  LEFT JOIN order_items oi ON oi.order_id = o.id
-  GROUP BY c.id
+  LEFT JOIN (
+    SELECT o.customer_id, MAX(o.created_at) AS last_order_at, COUNT(DISTINCT o.id) AS order_count, COALESCE(SUM(oi.subtotal),0) AS total_spend
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id = o.id
+    GROUP BY o.customer_id
+  ) os ON os.customer_id = c.id
+  LEFT JOIN (
+    SELECT s.customer_id,
+           MAX(s.sold_at) AS last_order_at,
+           COUNT(DISTINCT COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code, CAST(s.id AS CHAR))) AS order_count,
+           COALESCE(SUM(s.total),0) AS total_spend
+    FROM sales s
+    WHERE s.customer_id IS NOT NULL
+      AND COALESCE(s.return_status,'none') <> 'returned'
+      AND COALESCE(s.is_active_revision,1) = 1
+    GROUP BY s.customer_id
+  ) ss ON ss.customer_id = c.id
+  LEFT JOIN (
+    SELECT TRIM(s.customer_phone) AS customer_phone,
+           MAX(s.sold_at) AS last_order_at,
+           COUNT(DISTINCT COALESCE(s.transaction_group_uuid, s.local_transaction_id, s.transaction_code, CAST(s.id AS CHAR))) AS order_count,
+           COALESCE(SUM(s.total),0) AS total_spend
+    FROM sales s
+    WHERE s.customer_id IS NULL
+      AND COALESCE(s.customer_phone,'') <> ''
+      AND COALESCE(s.return_status,'none') <> 'returned'
+      AND COALESCE(s.is_active_revision,1) = 1
+    GROUP BY TRIM(s.customer_phone)
+  ) sp ON sp.customer_phone = TRIM(c.phone)
   ORDER BY last_order_at DESC, c.created_at DESC
   LIMIT 500
 ")->fetchAll();
@@ -115,7 +158,7 @@ $categoryLabels = ['high'=>'High','medium'=>'Medium','low'=>'Low','inactive'=>'I
   <link rel="stylesheet" href="<?php echo e(asset_url('assets/app.css')); ?>">
   <style><?php echo $customCss; ?> .mini-list{margin:0;padding-left:18px;color:#475569}.demobar{height:8px;border-radius:999px;background:#e2e8f0;overflow:hidden}.demobar span{display:block;height:100%;background:#2563eb}</style>
 </head>
-<body>
+<body class="desktop-compact">
 <div class="container">
   <?php include __DIR__ . '/partials_sidebar.php'; ?>
   <div class="main">

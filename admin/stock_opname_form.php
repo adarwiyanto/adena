@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
 
       if ($action === 'submit') {
-        submit_stock_opname($db, $id);
+        submit_stock_opname($db, $id, (int)($u['id'] ?? 0));
         $db->commit();
         redirect(base_url('admin/stock_opname.php'));
       }
@@ -117,7 +117,7 @@ function variance_badge(float $variance): string {
 .opname-bottom-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
 @media (max-width:900px){.opname-page{padding:12px}.opname-toolbar{position:static}.opname-toolbar .btn,.opname-bottom-actions .btn{width:100%;}.opname-head{display:block}}
 </style>
-</head><body><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
+</head><body class="desktop-compact"><div class="container"><?php include __DIR__ . '/partials_sidebar.php'; ?>
 <div class="main"><div class="topbar"><button class="btn" data-toggle-sidebar type="button">Menu</button></div><div class="content opname-page">
 <?php if($err): ?><div class="card" style="border-color:rgba(251,113,133,.35);background:rgba(251,113,133,.10)"><?php echo e($err); ?></div><?php endif; ?>
 
@@ -142,7 +142,7 @@ function variance_badge(float $variance): string {
 <div class="row"><label>Tanggal</label><div><?php echo e((string)$header['opname_date']); ?></div></div>
 <div class="row"><label>Petugas</label><div><?php echo e((string)($header['creator_name'] ?? '-')); ?></div></div>
 </div>
-<?php if(!empty($header['approval_note'])): ?><p style="margin-top:8px"><strong>Catatan Approval:</strong> <?php echo e((string)$header['approval_note']); ?></p><?php endif; ?>
+<?php if(!empty($header['approval_note'])): ?><p style="margin-top:8px"><strong>Catatan Finalisasi:</strong> <?php echo e((string)$header['approval_note']); ?></p><?php endif; ?>
 </div>
 
 <div class="card">
@@ -151,7 +151,7 @@ function variance_badge(float $variance): string {
 <div class="opname-toolbar">
   <?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?>
     <button class="btn" type="submit" name="action" value="save_items">Simpan Draft</button>
-    <button class="btn" type="submit" name="action" value="submit">Submit Menunggu Approval</button>
+    <button class="btn" type="submit" name="action" value="submit">Submit Final</button>
   <?php endif; ?>
   <?php if($header): ?><a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$id)); ?>" target="_blank">Rekap Selisih</a><?php endif; ?>
   <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Kembali</a>
@@ -182,7 +182,7 @@ function variance_badge(float $variance): string {
 <div class="opname-bottom-actions">
 <?php if($isDraft && has_menu_access($u, 'stok_opname', 'edit')): ?>
   <button class="btn" type="submit" name="action" value="save_items">Simpan Draft</button>
-  <button class="btn" type="submit" name="action" value="submit">Submit Menunggu Approval</button>
+  <button class="btn" type="submit" name="action" value="submit">Submit Final</button>
 <?php endif; ?>
 <a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname.php')); ?>">Kembali</a>
 <?php if($header): ?><a class="btn btn-light" href="<?php echo e(base_url('admin/stock_opname_variance_report.php?id=' . (int)$id)); ?>" target="_blank">Rekap Selisih</a><?php endif; ?>

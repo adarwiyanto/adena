@@ -48,6 +48,15 @@ function ensure_rbac_schema(): void {
   }
 
   try {
+    $roleCol = db()->query("SHOW COLUMNS FROM users LIKE 'role'")->fetch();
+    $roleType = (string)($roleCol['Type'] ?? '');
+    if ($roleType !== '' && strpos($roleType, "'manager_cabang'") === false) {
+      db()->exec("ALTER TABLE users MODIFY role ENUM('owner','admin','manager_cabang','manager','pegawai_cabang','kasir','gudang','user','pegawai') NOT NULL DEFAULT 'admin'");
+    }
+  } catch (Throwable $e) {
+  }
+
+  try {
     $hasRoleId = (bool)db()->query("SHOW COLUMNS FROM users LIKE 'role_id'")->fetch();
     if (!$hasRoleId) {
       db()->exec("ALTER TABLE users ADD COLUMN role_id INT NULL AFTER role");
@@ -61,10 +70,11 @@ function ensure_rbac_schema(): void {
 
   $defaults = [
     ['owner', 'Owner', 1],
-    ['admin', 'Admin', 1],
-    ['manager', 'Manager', 1],
-    ['kasir', 'Kasir', 1],
-    ['gudang', 'Gudang', 1],
+    ['admin', 'Admin Toko', 1],
+    ['manager_cabang', 'Manajer Toko', 1],
+    ['manager', 'Manajer Toko (lama)', 0],
+    ['kasir', 'Pegawai Toko', 1],
+    ['gudang', 'Pegawai Toko', 1],
   ];
   foreach ($defaults as $row) {
     try {
@@ -77,12 +87,14 @@ function ensure_rbac_schema(): void {
 
   try {
     db()->exec("UPDATE users SET role='owner' WHERE role='superadmin'");
+    db()->exec("UPDATE users SET role='manager_cabang' WHERE role='manager'");
   } catch (Throwable $e) {}
 
   $roleMap = [
     'owner' => 'owner',
     'admin' => 'admin',
-    'manager' => 'manager',
+    'manager' => 'manager_cabang',
+    'manager_cabang' => 'manager_cabang',
     'kasir' => 'kasir',
     'gudang' => 'gudang',
     'pegawai' => 'kasir',
@@ -107,6 +119,21 @@ function ensure_rbac_schema(): void {
       if ($roleId <= 0) continue;
       $stmt = db()->prepare("UPDATE users SET role_id=?, role=? WHERE id=?");
       $stmt->execute([$roleId, $targetRoleKey, (int)$u['id']]);
+    }
+  } catch (Throwable $e) {
+  }
+
+  try {
+    $managerCabangId = role_id_by_key('manager_cabang');
+    if ($managerCabangId > 0) {
+      $oldManagerId = role_id_by_key('manager');
+      if ($oldManagerId > 0) {
+        $stmt = db()->prepare("UPDATE users SET role_id=?, role='manager_cabang' WHERE role_id=? OR role='manager'");
+        $stmt->execute([$managerCabangId, $oldManagerId]);
+        db()->prepare("UPDATE roles SET is_active=0, role_name='Manager (nonaktif)' WHERE role_key='manager'")->execute();
+      } else {
+        db()->prepare("UPDATE users SET role_id=?, role='manager_cabang' WHERE role='manager'")->execute([$managerCabangId]);
+      }
     }
   } catch (Throwable $e) {
   }
@@ -170,10 +197,12 @@ function resolve_user_role(array $user): array {
     }
   }
 
+  $resolvedRoleKey = strtolower(trim((string)($role['role_key'] ?? '')));
+  if ($resolvedRoleKey === 'manager') $resolvedRoleKey = 'manager_cabang';
   return [
     'role_id' => $roleId,
-    'role_key' => strtolower(trim((string)($role['role_key'] ?? ''))),
-    'role_name' => (string)($role['role_name'] ?? ''),
+    'role_key' => $resolvedRoleKey,
+    'role_name' => match($resolvedRoleKey){ 'owner'=>'Owner', 'admin'=>'Admin Toko', 'manager_cabang'=>'Manajer Toko', default=>'Pegawai Toko' },
   ];
 }
 
@@ -201,7 +230,7 @@ function seed_default_role_permissions(): void {
   $menuDefaults = [
     'owner' => array_keys(role_menu_tree()),
     'admin' => ['dashboard', 'pos', 'pos_history', 'sales', 'produk', 'inventori', 'stok_opname', 'customers', 'suppliers', 'purchase', 'users', 'settings', 'shift', 'rekap_omset'],
-    'manager' => ['dashboard', 'pos_history', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
+    'manager_cabang' => ['dashboard', 'pos_history', 'sales', 'inventori', 'stok_opname', 'customers', 'purchase', 'rekap_omset'],
     'kasir' => ['pos', 'pos_history', 'shift'],
     'gudang' => ['inventori', 'stok_opname', 'purchase'],
   ];
