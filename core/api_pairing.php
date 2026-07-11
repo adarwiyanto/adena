@@ -119,7 +119,7 @@ function pairing_scope_for(string $requesterType,string $targetType=''): string 
   return 'readonly';
 }
 function pairing_scope_allows(string $have,string $need): bool {
-  if($have==='backoffice_backup' && in_array($need,['readonly','employees.read','users.view','backup.read','api.test','products.read','products.view','stocks.view','sales.view'],true)) return true;
+  if($have==='backoffice_backup' && in_array($need,['readonly','employees.read','users.view','backup.read','api.test','products.read','products.view','stocks.view','sales.view','kpi.read','purchases.read','expenses.read','payment_requests.read','financial.read'],true)) return true;
   if($need==='' || $need==='readonly') return true;
   if($have===$need) return true;
   if($have==='dapur_stock_sender' && in_array($need,['products.read','stock_transfer.write','dapur_stock_sender'],true)) return true;

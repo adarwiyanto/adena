@@ -8,6 +8,7 @@ $u = current_user();
 ensure_rbac_schema();
 $resolvedRole = resolve_user_role(is_array($u) ? $u : []);
 $displayRole = (string)($resolvedRole['role_name'] ?? '');
+$financeKpiAllowed = in_array(strtolower((string)($resolvedRole['role_key'] ?? '')), ['owner','admin'], true);
 if ($displayRole === '') {
   $displayRole = (string)($resolvedRole['role_key'] ?? 'unknown');
 }
@@ -122,7 +123,7 @@ if ($apiPairingCanSee) {
         <?php if (has_menu_access($u, 'sales')): ?><a href="<?php echo e(base_url('admin/pos_shifts.php')); ?>">Laporan Shift POS</a><?php endif; ?>
         <?php if (has_menu_access($u, 'rekap_omset')): ?><a href="<?php echo e(base_url('admin/rekap_omset.php')); ?>">Rekap Omset</a><?php endif; ?>
         <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customers.php')); ?>">Pelanggan</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><a href="<?php echo e(base_url('admin/purchase_general.php')); ?>">Pembelian Umum</a><?php endif; ?>
         <?php if (has_menu_access($u, 'suppliers')): ?><a href="<?php echo e(base_url('admin/suppliers.php')); ?>">Master Supplier</a><?php endif; ?>
       </div>
     </div>
@@ -144,6 +145,23 @@ if ($apiPairingCanSee) {
       </div>
     <?php endif; ?>
 
+
+    <?php if ($financeKpiAllowed): ?>
+      <div class="item">
+        <button type="button" data-toggle-submenu="#m-keuangan">
+          <div class="mi">💰</div><div class="label">Keuangan</div>
+          <div class="chev">▾</div>
+        </button>
+        <div class="submenu" id="m-keuangan">
+          <a href="<?php echo e(base_url('admin/finance.php?tab=summary')); ?>">Ringkasan Keuangan</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=purchases')); ?>">Pembelian</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=expenses')); ?>">Pengeluaran</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=payments')); ?>">Permintaan Pembayaran</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=settings')); ?>">Setting Jenis Pengeluaran</a>
+        </div>
+      </div>
+    <?php endif; ?>
+
     <?php if (has_menu_access($u, 'pos')): ?>
     <div class="item">
       <a href="<?php echo e(base_url('pos/index.php')); ?>" target="_blank" rel="noopener">
@@ -160,6 +178,12 @@ if ($apiPairingCanSee) {
         </button>
         <div class="submenu" id="m-admin">
           <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customer_recap.php')); ?>">Rekapitulasi Pelanggan</a><?php endif; ?>
+          <?php if ($financeKpiAllowed): ?>
+            <div style="padding:8px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase">KPI</div>
+            <a href="<?php echo e(base_url('admin/kpi.php?tab=input')); ?>">↳ Pengisian KPI</a>
+            <a href="<?php echo e(base_url('admin/kpi.php?tab=settings')); ?>">↳ Setting KPI</a>
+          <?php endif; ?>
+
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
           <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
