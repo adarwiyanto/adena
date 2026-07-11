@@ -64,9 +64,21 @@ try {
   }
 } catch (Throwable $e) {}
 
+$pendingDistributions = 0;
+try {
+  $tableExists = (int)db()->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='kitchen_api_receive_logs'")->fetchColumn() > 0;
+  if ($tableExists) {
+    $pendingDistributions = (int)db()->query("SELECT COUNT(*) FROM kitchen_api_receive_logs WHERE status='pending_confirmation'")->fetchColumn();
+  }
+} catch (Throwable $e) {}
+
 $data = [
   'store_name' => $storeName,
   'connection_label' => $storeName,
+
+  // Source of truth for Dapur -> Toko pending is the receiving store.
+  'pending_distributions' => $pendingDistributions,
+  'distribution_pending' => $pendingDistributions,
 
   // Explicit fields used by Back Office dashboard.
   'transactions_today' => (int)$todaySales['transactions'],
