@@ -13,6 +13,58 @@ function adena_bo_column_exists(string $table, string $column): bool {
   }
 }
 
+
+function adena_bo_table_exists(string $table): bool {
+  try {
+    $st = db()->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?');
+    $st->execute([$table]);
+    return (int)$st->fetchColumn() > 0;
+  } catch (Throwable $e) {
+    return false;
+  }
+}
+
+function adena_bo_employee_count(): int {
+  if (!adena_bo_table_exists('users')) return 0;
+
+  try {
+    $joins = [];
+    $roleExpressions = [];
+
+    if (adena_bo_column_exists('users', 'role')) {
+      $roleExpressions[] = "NULLIF(TRIM(u.role),'')";
+    }
+
+    if (adena_bo_column_exists('users', 'role_id') && adena_bo_table_exists('roles') && adena_bo_column_exists('roles', 'id')) {
+      $joins[] = 'LEFT JOIN roles r ON r.id=u.role_id';
+      if (adena_bo_column_exists('roles', 'role_key')) {
+        array_unshift($roleExpressions, "NULLIF(TRIM(r.role_key),'')");
+      } elseif (adena_bo_column_exists('roles', 'name')) {
+        array_unshift($roleExpressions, "NULLIF(TRIM(r.name),'')");
+      }
+    }
+
+    $roleExpr = $roleExpressions
+      ? ('LOWER(COALESCE(' . implode(',', $roleExpressions) . ",'pegawai_toko'))")
+      : "'pegawai_toko'";
+
+    $where = [];
+    if (adena_bo_column_exists('users', 'is_active')) {
+      $where[] = 'COALESCE(u.is_active,1)=1';
+    }
+    $where[] = "{$roleExpr} NOT IN ('owner','superadmin')";
+
+    $sql = 'SELECT COUNT(*) FROM users u '
+      . implode(' ', $joins)
+      . ' WHERE ' . implode(' AND ', $where);
+
+    return (int)db()->query($sql)->fetchColumn();
+  } catch (Throwable $e) {
+    error_log('[Adena Backoffice Dashboard] employee count: ' . $e->getMessage());
+    return 0;
+  }
+}
+
 function adena_bo_sales_filter_sql(): string {
   $where = [];
   if (adena_bo_column_exists('sales', 'return_reason')) {
@@ -64,6 +116,8 @@ try {
   }
 } catch (Throwable $e) {}
 
+$employeesCount = adena_bo_employee_count();
+
 $pendingDistributions = 0;
 try {
   $tableExists = (int)db()->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='kitchen_api_receive_logs'")->fetchColumn() > 0;
@@ -75,6 +129,11 @@ try {
 $data = [
   'store_name' => $storeName,
   'connection_label' => $storeName,
+
+  // Employee metric consumed by the Back Office dashboard.
+  'employees_count' => $employeesCount,
+  'employee_count' => $employeesCount,
+  'active_employees' => $employeesCount,
 
   // Source of truth for Dapur -> Toko pending is the receiving store.
   'pending_distributions' => $pendingDistributions,
