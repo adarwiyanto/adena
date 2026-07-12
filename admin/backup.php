@@ -20,6 +20,10 @@ try {
 
 $relativeCallback = base_url('admin/backup_google_callback.php');
 $callback = preg_match('~^https?://~i', $relativeCallback) ? $relativeCallback : (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http').'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').'/'.ltrim($relativeCallback, '/'));
+$connectToken = bin2hex(random_bytes(24));
+$_SESSION['backup_connect_token'] = $connectToken;
+$relativeConnect = base_url('admin/backup_google_connect.php?token='.rawurlencode($connectToken));
+$connectUrl = preg_match('~^https?://~i', $relativeConnect) ? $relativeConnect : (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http').'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').'/'.ltrim($relativeConnect, '/'));
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $svc) {
     try {
         if (!csrf_verify((string)($_POST['_csrf'] ?? ''))) throw new RuntimeException('CSRF token tidak valid.');
@@ -48,7 +52,7 @@ if ($svc) {
     $cronCommand = backup_build_cron_command($svc, $cronFile);
     $relativeCron = base_url('cron_backup.php?key='.rawurlencode($cronSecret));
     $cronUrl = preg_match('~^https?://~i', $relativeCron) ? $relativeCron : (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http').'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').'/'.ltrim($relativeCron, '/'));
-    backup_render_settings($svc, $callback, $cronCommand, $cronUrl, '<input type="hidden" name="_csrf" value="'.e(csrf_token()).'">');
+    backup_render_settings($svc, $callback, $cronCommand, $cronUrl, '<input type="hidden" name="_csrf" value="'.e(csrf_token()).'">', '', $connectUrl);
 } else { backup_safe_render_error($loadError, $backupRoot); }
 backup_safe_finish();
 ?></div></div></div><script defer src="<?=e(asset_url('assets/app.js'))?>"></script></body></html>

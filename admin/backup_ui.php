@@ -14,7 +14,7 @@ function backup_build_cron_command($svc,string $cronFile): string {
  if($phpCli==='') $phpCli=backup_default_php_cli_path();
  return backup_shell_quote($phpCli).' -q '.backup_shell_quote($cronFile).' >/dev/null 2>&1';
 }
-function backup_render_settings($svc,string $callbackUri,string $cronCommand,string $cronUrl,string $csrfHtml,string $postAction=''): void {
+function backup_render_settings($svc,string $callbackUri,string $cronCommand,string $cronUrl,string $csrfHtml,string $postAction='',string $connectUrl=''): void {
  $connected=$svc->isConnected(); $jobs=$svc->recentJobs(30); $secretSaved=(string)$svc->get('oauth_client_secret','')!==''; $bootstrapError=$svc->bootstrapError(); $diagnostics=$svc->diagnostics();
  ?>
  <style>
@@ -71,7 +71,7 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
    <p><?=$connected?'<span class="backup-status ok">Terhubung</span>':'<span class="backup-status bad">Belum terhubung</span>'?></p>
    <p><b>Akun aktif:</b> <?=backup_h($svc->connectedEmail()?:'-')?></p>
    <div class="backup-actions">
-    <?php if(!$connected): ?><form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="connect"><button class="btn" type="submit">Hubungkan Google Drive</button></form><?php endif; ?>
+    <?php if(!$connected): ?><?php if($connectUrl!==''): ?><a class="btn" href="<?=backup_h($connectUrl)?>" id="backup-google-connect-link">Hubungkan Google Drive</a><?php else: ?><form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="connect"><button class="btn" type="submit">Hubungkan Google Drive</button></form><?php endif; ?><?php endif; ?>
     <?php if($connected): ?><form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="test"><button class="btn light" type="submit">Tes Koneksi</button></form><form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="download_key"><button class="btn light" type="submit">Unduh Kunci Pemulihan</button></form><form method="post" action="<?=backup_h($postAction)?>" onsubmit="return confirm('Putuskan koneksi Google Drive?')"><?=$csrfHtml?><input type="hidden" name="backup_action" value="disconnect"><button class="btn danger" type="submit">Putuskan</button></form><?php endif; ?>
    </div>
    <p class="backup-muted">Client Secret dan refresh token disimpan terenkripsi. Password akun Google tidak pernah disimpan. <b>Unduh Kunci Pemulihan dan simpan di luar server</b>; tanpa kunci tersebut file .enc tidak dapat dipulihkan bila hosting hilang.</p>
