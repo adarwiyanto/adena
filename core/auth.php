@@ -147,6 +147,15 @@ function require_login(): void {
   if (empty($_SESSION['user'])) {
     redirect(base_url('adm.php'));
   }
+  $maintenance = dirname(__DIR__) . '/storage/maintenance.backup_restore';
+  $role = strtolower((string)($_SESSION['user']['role_key'] ?? $_SESSION['user']['role'] ?? ''));
+  $script = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+  $allowed = in_array($script, ['backup.php','backup_google_callback.php','backup_google_connect.php','cron_backup.php'], true);
+  if (is_file($maintenance) && $role !== 'owner' && !$allowed) {
+    http_response_code(503);
+    header('Retry-After: 300');
+    exit('Sistem sedang dalam proses pemulihan backup. Silakan coba kembali beberapa saat lagi.');
+  }
 }
 
 function require_admin(): void {

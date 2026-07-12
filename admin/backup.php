@@ -35,6 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $svc) {
         elseif ($action === 'disconnect') { $svc->disconnect(); $msg = 'Koneksi Google Drive diputus.'; }
         elseif ($action === 'download_key') { $site = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string)$svc->get('site_code', $svc->appKey())); while (ob_get_level() > 0) @ob_end_clean(); header('Content-Type: text/plain; charset=utf-8'); header('Content-Disposition: attachment; filename="backup-recovery-key-'.$site.'.txt"'); echo $svc->recoveryKeyText(); backup_safe_finish(); exit; }
         elseif ($action === 'run') { $result = $svc->runBackup((string)($_POST['backup_type'] ?? 'daily'), 'owner'); $msg = 'Backup berhasil: '.$result['filename']; }
+        elseif ($action === 'test_restore') { $result = $svc->testRestore((int)($_POST['backup_job_id'] ?? 0)); $msg = 'Tes Restore lulus: database valid, file aplikasi '.(int)($result['application_files']??0).', private uploads '.(int)($result['private_uploads']??0).'.'; }
+        elseif ($action === 'restore') { $result = $svc->restoreBackup((int)($_POST['backup_job_id'] ?? 0),(string)($_POST['restore_confirm'] ?? '')); $msg = 'Restore berhasil. Pre-restore backup: '.($result['pre_restore']??'-'); }
     } catch (Throwable $e) {
         $err = backup_safe_capture($backupRoot, 'ADENA backup action', $e);
     }

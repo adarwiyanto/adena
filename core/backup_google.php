@@ -8,6 +8,7 @@ final class GoogleDriveBackupService {
   private string $appName;
   private string $rootPath;
   private string $privatePath;
+  private array $externalPaths=[];
   private string $jobsTable;
   private string $timezone;
   private $getSetting;
@@ -21,6 +22,7 @@ final class GoogleDriveBackupService {
     $this->appName=(string)$cfg['app_name'];
     $this->rootPath=rtrim((string)$cfg['root_path'],'/\\');
     $this->privatePath=rtrim((string)$cfg['private_path'],'/\\');
+    $this->externalPaths=is_array($cfg['external_paths']??null)?$cfg['external_paths']:[];
     $this->jobsTable=(string)$cfg['jobs_table'];
     $this->timezone=(string)($cfg['timezone']??'Asia/Jakarta');
     if($this->timezone==='') $this->timezone='Asia/Jakarta';
@@ -65,6 +67,7 @@ final class GoogleDriveBackupService {
     $out[]=['label'=>'PHP CLI cron','ok'=>true,'detail'=>$cliPath.($cliDetected?' (terdeteksi)':' (belum dapat diverifikasi dari PHP web; dapat diubah di setting atau gunakan URL cron)')];
     $parent=is_dir($this->privatePath)?$this->privatePath:dirname($this->privatePath);
     $out[]=['label'=>'Folder backup','ok'=>is_dir($this->privatePath)?is_writable($this->privatePath):is_writable($parent),'detail'=>$this->privatePath];
+    foreach($this->externalPaths as $label=>$path){ $p=rtrim((string)$path,'/\\'); $out[]=['label'=>'Private upload: '.(string)$label,'ok'=>is_dir($p) && is_readable($p),'detail'=>$p!==''?$p:'belum dikonfigurasi']; }
     try { $t=$this->safeIdentifier($this->jobsTable); $this->pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $ok=true; $detail=$t.' tersedia'; }
     catch(Throwable $e) { $ok=false; $detail=$e->getMessage(); }
     $out[]=['label'=>'Tabel log backup','ok'=>$ok,'detail'=>$detail];
@@ -365,7 +368,9 @@ final class GoogleDriveBackupService {
   private function insertSql(string $table,array $cols,array $batch): string { return 'INSERT INTO '.$this->quoteIdentifier($table).' ('.implode(',',array_map([$this,'quoteIdentifier'],$cols)).") VALUES\n".implode(",\n",$batch).";\n"; }
 
   private function createFullArchive(string $baseTarget,string $dump): string {
-    $manifest=['app'=>$this->appName,'app_key'=>$this->appKey,'site_code'=>$this->get('site_code',$this->appKey),'created_at'=>date('c'),'database'=>(string)$this->dbConfig['name']];
+    $manifest=['format_version'=>2,'app'=>$this->appName,'app_key'=>$this->appKey,'site_code'=>$this->get('site_code',$this->appKey),'created_at'=>date('c'),'database'=>(string)$this->dbConfig['name'],'root_path'=>$this->rootPath,'external_paths'=>[],'components'=>['database','application']];
+    foreach($this->externalPaths as $label=>$path){ $p=rtrim((string)$path,'/\\'); if($p!=='' && is_dir($p)){ $manifest['external_paths'][(string)$label]=$p; $manifest['components'][]='private_uploads/'.(string)$label; } }
+    $checks=['_database/database.sql'=>hash_file('sha256',$dump)?:''];
     $manifestJson=json_encode($manifest,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
     $rootLen=strlen($this->rootPath)+1;
     if(class_exists('ZipArchive')){
@@ -373,21 +378,19 @@ final class GoogleDriveBackupService {
       if($zip->open($target,ZipArchive::CREATE|ZipArchive::OVERWRITE)!==true) throw new RuntimeException('Arsip ZIP tidak dapat dibuat.');
       $zip->addFile($dump,'_database/database.sql');
       $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->rootPath,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::LEAVES_ONLY);
-      foreach($it as $file){ if(!$file->isFile()) continue; $path=$file->getPathname(); $rel=str_replace('\\','/',substr($path,$rootLen)); if($this->excludeFromArchive($rel,$path)) continue; $zip->addFile($path,'application/'.$rel); }
-      $zip->addFromString('_manifest.json',(string)$manifestJson);
-      if(!$zip->close()) throw new RuntimeException('Arsip ZIP gagal ditutup.');
-      return $target;
+      foreach($it as $file){ if(!$file->isFile()) continue; $path=$file->getPathname(); $rel=str_replace('\\','/',substr($path,$rootLen)); if($this->excludeFromArchive($rel,$path)) continue; $arc='application/'.$rel; $zip->addFile($path,$arc); $checks[$arc]=hash_file('sha256',$path)?:''; }
+      foreach($manifest['external_paths'] as $label=>$base){ $baseLen=strlen($base)+1; $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::LEAVES_ONLY); foreach($it as $file){ if(!$file->isFile()) continue; $path=$file->getPathname(); $rel=str_replace('\\','/',substr($path,$baseLen)); $arc='private_uploads/'.$this->cleanName((string)$label).'/'.$rel; $zip->addFile($path,$arc); $checks[$arc]=hash_file('sha256',$path)?:''; } }
+      $zip->addFromString('_manifest.json',(string)$manifestJson); $zip->addFromString('_checksums.json',(string)json_encode($checks,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES));
+      if(!$zip->close()) throw new RuntimeException('Arsip ZIP gagal ditutup.'); return $target;
     }
     if(class_exists('PharData')){
       $tarPath=$baseTarget.'.tar'; $gzPath=$tarPath.'.gz'; @unlink($tarPath); @unlink($gzPath);
-      try{
-        $tar=new PharData($tarPath); $tar->addFile($dump,'_database/database.sql');
+      try{ $tar=new PharData($tarPath); $tar->addFile($dump,'_database/database.sql');
         $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->rootPath,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::LEAVES_ONLY);
-        foreach($it as $file){ if(!$file->isFile()) continue; $path=$file->getPathname(); $rel=str_replace('\\','/',substr($path,$rootLen)); if($this->excludeFromArchive($rel,$path)) continue; $tar->addFile($path,'application/'.$rel); }
-        $tar->addFromString('_manifest.json',(string)$manifestJson); $tar->compress(Phar::GZ); unset($tar); @unlink($tarPath);
-        if(!is_file($gzPath)) throw new RuntimeException('Arsip TAR.GZ tidak terbentuk.');
-        return $gzPath;
-      }catch(Throwable $e){ @unlink($tarPath); @unlink($gzPath); throw new RuntimeException('Snapshot file membutuhkan ZipArchive atau PharData yang dapat menulis arsip: '.$e->getMessage()); }
+        foreach($it as $file){ if(!$file->isFile()) continue; $path=$file->getPathname(); $rel=str_replace('\\','/',substr($path,$rootLen)); if($this->excludeFromArchive($rel,$path)) continue; $arc='application/'.$rel; $tar->addFile($path,$arc); $checks[$arc]=hash_file('sha256',$path)?:''; }
+        foreach($manifest['external_paths'] as $label=>$base){ $baseLen=strlen($base)+1; $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::LEAVES_ONLY); foreach($it as $file){ if(!$file->isFile()) continue; $path=$file->getPathname(); $rel=str_replace('\\','/',substr($path,$baseLen)); $arc='private_uploads/'.$this->cleanName((string)$label).'/'.$rel; $tar->addFile($path,$arc); $checks[$arc]=hash_file('sha256',$path)?:''; } }
+        $tar->addFromString('_manifest.json',(string)$manifestJson); $tar->addFromString('_checksums.json',(string)json_encode($checks,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)); $tar->compress(Phar::GZ); unset($tar); @unlink($tarPath); if(!is_file($gzPath)) throw new RuntimeException('Arsip TAR.GZ tidak terbentuk.'); return $gzPath;
+      }catch(Throwable $e){ @unlink($tarPath); @unlink($gzPath); throw new RuntimeException('Snapshot file gagal dibuat: '.$e->getMessage()); }
     }
     throw new RuntimeException('Snapshot file membutuhkan ekstensi ZipArchive atau PharData.');
   }
@@ -453,6 +456,43 @@ final class GoogleDriveBackupService {
     $res=$this->driveJson('GET',$url,$token); foreach(($res['files']??[]) as $f){ try{$created=new DateTimeImmutable((string)$f['createdTime']); if($created<$cut) $this->driveJson('DELETE','https://www.googleapis.com/drive/v3/files/'.rawurlencode((string)$f['id']),$token);}catch(Throwable $e){} }
   }
 
+
+  public function successfulBackups(string $type,int $limit=100): array {
+    if(!in_array($type,['6hourly','daily','weekly','monthly'],true)) return [];
+    $t=$this->safeIdentifier($this->jobsTable); $limit=max(1,min(200,$limit));
+    $st=$this->pdo->prepare("SELECT * FROM `$t` WHERE backup_type=? AND status='success' AND drive_file_id IS NOT NULL ORDER BY id DESC LIMIT $limit"); $st->execute([$type]); return $st->fetchAll(PDO::FETCH_ASSOC);
+  }
+  public function backupById(int $id): array { $t=$this->safeIdentifier($this->jobsTable); $st=$this->pdo->prepare("SELECT * FROM `$t` WHERE id=? AND status='success' LIMIT 1"); $st->execute([$id]); $r=$st->fetch(PDO::FETCH_ASSOC); if(!$r) throw new RuntimeException('Backup tidak ditemukan.'); return $r; }
+  public function testRestore(int $jobId): array {
+    $this->assertReady(); @set_time_limit(0); $job=$this->backupById($jobId); $work=$this->privatePath.'/restore-test-'.$jobId.'-'.bin2hex(random_bytes(3)); if(!@mkdir($work,0700,true)&&!is_dir($work)) throw new RuntimeException('Folder tes restore tidak dapat dibuat.');
+    try{ $enc=$work.'/'.basename((string)$job['filename']); $this->downloadDriveFile((string)$job['drive_file_id'],$enc,$this->accessToken()); if(($job['sha256']??'')!=='' && !hash_equals((string)$job['sha256'],hash_file('sha256',$enc)?:'')) throw new RuntimeException('Checksum file Google Drive tidak sesuai.');
+      $plain=$work.'/plain'; $this->decryptFile($enc,$plain); $type=(string)$job['backup_type']; $result=['job_id'=>$jobId,'type'=>$type,'filename'=>$job['filename'],'checked_at'=>date('c'),'database_ok'=>false,'archive_ok'=>false,'private_uploads'=>0,'application_files'=>0];
+      if(in_array($type,['6hourly','daily'],true)){ $sql=$work.'/database.sql'; $this->gunzipFile($plain,$sql); $this->validateSqlDump($sql); $result['database_ok']=true; $result['archive_ok']=true; }
+      else { $extract=$work.'/extract'; @mkdir($extract,0700,true); $this->extractArchive($plain,$extract,(string)$job['filename']); $sql=$extract.'/_database/database.sql'; $this->validateSqlDump($sql); $this->validateExtractedChecksums($extract); $result['database_ok']=true; $result['archive_ok']=true; $result['private_uploads']=$this->countFiles($extract.'/private_uploads'); $result['application_files']=$this->countFiles($extract.'/application'); }
+      $this->set('restore_test_'.$jobId,json_encode($result,JSON_UNESCAPED_SLASHES)); return $result;
+    } finally { $this->deleteTree($work); }
+  }
+  public function restoreBackup(int $jobId,string $confirm): array {
+    $this->assertReady(); $job=$this->backupById($jobId); $site=(string)$this->get('site_code',$this->appKey); if($confirm!=='RESTORE '.$site) throw new RuntimeException('Konfirmasi restore tidak sesuai. Ketik: RESTORE '.$site);
+    $tested=json_decode((string)$this->get('restore_test_'.$jobId,''),true); if(!is_array($tested)||empty($tested['database_ok'])||empty($tested['archive_ok'])) throw new RuntimeException('Backup harus lulus Tes Restore terlebih dahulu.');
+    @set_time_limit(0); @ignore_user_abort(true); $lock=fopen($this->privatePath.'/restore.lock','c+'); if(!$lock||!flock($lock,LOCK_EX|LOCK_NB)) throw new RuntimeException('Proses restore lain masih berjalan.');
+    $work=$this->privatePath.'/restore-'.$jobId.'-'.bin2hex(random_bytes(3)); @mkdir($work,0700,true); $maintenance=$this->rootPath.'/storage/maintenance.backup_restore';
+    try{ @file_put_contents($maintenance,'Restore berjalan '.date('c'),LOCK_EX); $pre=$this->runBackup('daily','pre-restore');
+      $enc=$work.'/'.basename((string)$job['filename']); $this->downloadDriveFile((string)$job['drive_file_id'],$enc,$this->accessToken()); if(($job['sha256']??'')!==''&&!hash_equals((string)$job['sha256'],hash_file('sha256',$enc)?:'')) throw new RuntimeException('Checksum berubah sebelum restore.'); $plain=$work.'/plain'; $this->decryptFile($enc,$plain); $type=(string)$job['backup_type'];
+      if(in_array($type,['6hourly','daily'],true)){ $sql=$work.'/database.sql'; $this->gunzipFile($plain,$sql); $this->importSql($sql); }
+      else { $extract=$work.'/extract'; @mkdir($extract,0700,true); $this->extractArchive($plain,$extract,(string)$job['filename']); $this->validateExtractedChecksums($extract); $this->importSql($extract.'/_database/database.sql'); $this->restoreTree($extract.'/application',$this->rootPath,true); foreach($this->externalPaths as $label=>$target){ $src=$extract.'/private_uploads/'.$this->cleanName((string)$label); if(is_dir($src)) $this->restoreTree($src,rtrim((string)$target,'/\\'),false); } }
+      return ['status'=>'success','pre_restore'=>$pre['filename']??'','restored'=>$job['filename']];
+    } finally { @unlink($maintenance); $this->deleteTree($work); if($lock){flock($lock,LOCK_UN);fclose($lock);} }
+  }
+  private function downloadDriveFile(string $id,string $target,string $token): void { if(!function_exists('curl_init')) throw new RuntimeException('cURL tidak aktif.'); $fh=fopen($target,'wb'); if(!$fh) throw new RuntimeException('File download tidak dapat dibuat.'); $ch=curl_init('https://www.googleapis.com/drive/v3/files/'.rawurlencode($id).'?alt=media'); curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>false,CURLOPT_FILE=>$fh,CURLOPT_FOLLOWLOCATION=>true,CURLOPT_HTTPHEADER=>['Authorization: Bearer '.$token],CURLOPT_TIMEOUT=>0]); $ok=curl_exec($ch);$code=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);$err=curl_error($ch);curl_close($ch);fclose($fh); if(!$ok||$code<200||$code>=300){@unlink($target);throw new RuntimeException('Download backup dari Drive gagal ('.$code.'): '.$err);} }
+  private function decryptFile(string $source,string $target): void { $in=fopen($source,'rb');$out=fopen($target,'wb');if(!$in||!$out) throw new RuntimeException('File restore tidak dapat dibuka.');$head=fread($in,16);if(strlen($head)!==16||substr($head,0,4)!=='ABK2') throw new RuntimeException('Format enkripsi backup tidak dikenal.');$baseIv=substr($head,4,12);$ctx=hash_init('sha256',HASH_HMAC,$this->keyBytes());while(true){$lenRaw=fread($in,4);if($lenRaw==='') throw new RuntimeException('Penutup file enkripsi tidak ditemukan.');if($lenRaw==='END!'){ $expected=fread($in,32);$actual=hash_final($ctx,true);if(!hash_equals($expected,$actual)) throw new RuntimeException('Integritas file enkripsi gagal.');break;}if(strlen($lenRaw)!==4) throw new RuntimeException('Record enkripsi rusak.');$len=unpack('N',$lenRaw)[1];$nonce=fread($in,12);$tag=fread($in,16);$cipher=fread($in,$len);if(strlen($nonce)!==12||strlen($tag)!==16||strlen($cipher)!==$len) throw new RuntimeException('Record enkripsi terpotong.');$record=$lenRaw.$nonce.$tag.$cipher;hash_update($ctx,$record);$plain=openssl_decrypt($cipher,'aes-256-gcm',$this->keyBytes(),OPENSSL_RAW_DATA,$nonce,$tag,'ABK2');if($plain===false) throw new RuntimeException('Dekripsi backup gagal.');fwrite($out,$plain);}fclose($in);fclose($out); }
+  private function gunzipFile(string $source,string $target): void { $in=gzopen($source,'rb');$out=fopen($target,'wb');if(!$in||!$out) throw new RuntimeException('File GZIP backup tidak valid.');while(!gzeof($in)){ $b=gzread($in,1048576);if($b===false) throw new RuntimeException('GZIP rusak.');fwrite($out,$b);}gzclose($in);fclose($out); }
+  private function extractArchive(string $plain,string $target,string $filename): void { if(str_contains(strtolower($filename),'.zip.enc')){ if(!class_exists('ZipArchive')) throw new RuntimeException('ZipArchive diperlukan untuk restore.');$z=new ZipArchive();if($z->open($plain)!==true) throw new RuntimeException('ZIP backup rusak.');for($i=0;$i<$z->numFiles;$i++){ $n=$z->getNameIndex($i);if($n===false||str_contains($n,'../')||str_starts_with($n,'/')) throw new RuntimeException('Path arsip tidak aman.');}$z->extractTo($target);$z->close();return;} if(class_exists('PharData')){ $tmp=$plain.'.tar.gz';rename($plain,$tmp);$p=new PharData($tmp);$p->extractTo($target,null,true);return;}throw new RuntimeException('Format arsip tidak didukung server.'); }
+  private function validateSqlDump(string $sql): void { if(!is_file($sql)||filesize($sql)<100) throw new RuntimeException('SQL backup kosong.');$head=(string)file_get_contents($sql,false,null,0,8192);if(!str_contains($head,'SET FOREIGN_KEY_CHECKS')&&!str_contains($head,'Automated backup')) throw new RuntimeException('SQL backup tidak dikenali.');if(!preg_match('/CREATE TABLE|CREATE VIEW/i',(string)file_get_contents($sql))) throw new RuntimeException('SQL tidak berisi struktur database.'); }
+  private function validateExtractedChecksums(string $root): void { $f=$root.'/_checksums.json';if(!is_file($f)) throw new RuntimeException('Manifest checksum tidak ditemukan.');$map=json_decode((string)file_get_contents($f),true);if(!is_array($map)) throw new RuntimeException('Manifest checksum rusak.');foreach($map as $rel=>$sha){$p=$root.'/'.ltrim((string)$rel,'/');if(!is_file($p)||!hash_equals((string)$sha,hash_file('sha256',$p)?:'')) throw new RuntimeException('Checksum komponen gagal: '.$rel);} }
+  private function countFiles(string $dir): int { if(!is_dir($dir)) return 0;$n=0;$it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir,FilesystemIterator::SKIP_DOTS));foreach($it as $f)if($f->isFile())$n++;return $n; }
+  private function importSql(string $file): void { $this->validateSqlDump($file);$sql=(string)file_get_contents($file);$sql=preg_replace('/^DELIMITER\s+\S+\s*$/mi','',$sql);$stmts=preg_split('/;\s*(?:\r?\n|$)/',$sql);$this->pdo->exec('SET FOREIGN_KEY_CHECKS=0');try{foreach($stmts as $stmt){$stmt=trim($stmt);if($stmt===''||str_starts_with($stmt,'--'))continue;if(str_contains($stmt,'$$'))continue;$this->pdo->exec($stmt);}}finally{$this->pdo->exec('SET FOREIGN_KEY_CHECKS=1');} }
+  private function restoreTree(string $source,string $target,bool $application): void { if(!is_dir($source)) return;if(!is_dir($target)&&!@mkdir($target,0750,true)&&!is_dir($target)) throw new RuntimeException('Folder tujuan restore tidak dapat dibuat.');$protected=['config.php','config.local.php','.env','storage/private_backup/'];$baseLen=strlen($source)+1;$it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($source,FilesystemIterator::SKIP_DOTS),RecursiveIteratorIterator::SELF_FIRST);foreach($it as $f){$rel=str_replace('\\','/',substr($f->getPathname(),$baseLen));if($application){foreach($protected as $p)if($rel===$p||str_starts_with($rel,$p))continue;}$dest=$target.DIRECTORY_SEPARATOR.str_replace('/',DIRECTORY_SEPARATOR,$rel);if($f->isDir()){if(!is_dir($dest))@mkdir($dest,0750,true);}else{if(!is_dir(dirname($dest)))@mkdir(dirname($dest),0750,true);if(!@copy($f->getPathname(),$dest))throw new RuntimeException('Gagal memulihkan file: '.$rel);}} }
   private function driveJson(string $method,string $url,string $token,?array $body=null): array { return $this->httpJson($url,$method,$body,['Authorization: Bearer '.$token]); }
   private function httpForm(string $url,array $fields): array { if(!function_exists('curl_init')) throw new RuntimeException('Ekstensi PHP cURL belum aktif. Aktifkan cURL di hosting.'); $ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>['Content-Type: application/x-www-form-urlencoded'],CURLOPT_POSTFIELDS=>http_build_query($fields),CURLOPT_TIMEOUT=>60]);return $this->finishCurlJson($ch); }
   private function httpJson(string $url,string $method='GET',?array $body=null,array $headers=[]): array { if(!function_exists('curl_init')) throw new RuntimeException('Ekstensi PHP cURL belum aktif. Aktifkan cURL di hosting.'); $ch=curl_init($url);$headers[]='Accept: application/json';if($body!==null){$headers[]='Content-Type: application/json';curl_setopt($ch,CURLOPT_POSTFIELDS,json_encode($body));}curl_setopt_array($ch,[CURLOPT_CUSTOMREQUEST=>$method,CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>$headers,CURLOPT_TIMEOUT=>60]);return $this->finishCurlJson($ch,$method==='DELETE'); }

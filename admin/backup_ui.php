@@ -42,6 +42,9 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
  .backup-settings .backup-retention input[type=number]{width:76px!important;height:36px!important;margin:0!important;padding:7px 9px!important;border-radius:8px!important}
  .backup-settings .backup-alert{padding:12px 14px;border-radius:10px;margin-bottom:14px;background:#eff6ff;color:#1e40af;line-height:1.45}.backup-settings .backup-alert.err{background:#fee2e2;color:#991b1b}
  .backup-settings p{max-width:none}.backup-settings button.btn{min-height:38px}
+
+ .backup-settings .backup-compact-actions{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}.backup-settings .backup-inline-field{display:flex;align-items:center;gap:9px;font-weight:800;margin:0}.backup-settings .backup-inline-field select{width:190px!important;height:40px!important;margin:0!important}.backup-dialog{width:min(620px,calc(100% - 28px));border:0;border-radius:16px;padding:22px;box-shadow:0 24px 70px rgba(15,23,42,.3)}.backup-dialog::backdrop{background:rgba(15,23,42,.55)}.backup-dialog-close{float:right;border:0;background:transparent;font-size:28px;cursor:pointer}.backup-dialog select{width:100%;min-height:42px}.backup-dialog input{width:100%;min-height:42px}
+ @media(max-width:680px){.backup-settings .backup-compact-actions{align-items:stretch}.backup-settings .backup-inline-field{width:100%;justify-content:space-between}.backup-settings .backup-inline-field select{flex:1;width:auto!important}.backup-settings .backup-compact-actions .btn{flex:1}}
  @media(max-width:900px){.backup-settings .backup-grid,.backup-settings .backup-form-grid,.backup-settings .backup-checks{grid-template-columns:1fr}.backup-settings .backup-toggle{grid-column:auto}}
  @media(max-width:560px){.backup-settings .backup-card{padding:14px}.backup-settings .backup-grid{gap:12px}.backup-settings .backup-schedule-head{align-items:flex-start}}
  </style>
@@ -101,14 +104,28 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
    <p class="backup-muted">Tombol ini membuat ulang folder privat, tabel log, dan setting awal. Tidak menghapus backup atau data aplikasi.</p>
   </div>
   <div class="backup-card" style="grid-column:1/-1">
-   <h3>Backup Sekarang</h3><div class="backup-actions">
-   <?php foreach(['6hourly'=>'Database 6 Jam','daily'=>'Database Harian','weekly'=>'Snapshot Mingguan','monthly'=>'Snapshot Bulanan'] as $k=>$label): ?><form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="run"><input type="hidden" name="backup_type" value="<?=$k?>"><button class="btn light" type="submit" <?=$connected?'':'disabled'?>><?=$label?></button></form><?php endforeach; ?>
-   </div><p class="backup-muted">Snapshot mingguan/bulanan mencakup database dan file aplikasi, tetapi mengecualikan .git, cache, build Android, node_modules, dan folder sementara.</p>
+   <h3>Backup & Restore</h3>
+   <form method="post" action="<?=backup_h($postAction)?>" id="backup-restore-form"><?=$csrfHtml?>
+    <div class="backup-compact-actions">
+     <label class="backup-inline-field"><span>Timeframe</span><select name="backup_type" id="backup-timeframe"><option value="6hourly">Setiap 6 Jam</option><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option></select></label>
+     <input type="hidden" name="backup_job_id" id="backup-job-id" value="">
+     <button class="btn" type="submit" name="backup_action" value="run" <?=$connected?'':'disabled'?>>Backup Sekarang</button>
+     <button class="btn light" type="button" id="backup-test-open" <?=$connected?'':'disabled'?>>Tes Restore</button>
+     <button class="btn danger" type="button" id="backup-restore-open" <?=$connected?'':'disabled'?>>Restore</button>
+    </div>
+   </form>
+   <p class="backup-muted">Backup 6 jam/harian berisi database. Mingguan/bulanan mencakup database, file aplikasi, gambar dan dokumen pada <code>private_uploads</code>. Restore hanya dapat dijalankan setelah backup lulus Tes Restore.</p>
   </div>
+  <dialog class="backup-dialog" id="backup-select-dialog"><form method="dialog"><button class="backup-dialog-close" value="cancel" aria-label="Tutup">×</button></form><h3 id="backup-dialog-title">Pilih Backup</h3><form method="post" action="<?=backup_h($postAction)?>" id="backup-dialog-form"><?=$csrfHtml?><input type="hidden" name="backup_action" id="backup-dialog-action"><label class="backup-field">File backup<select name="backup_job_id" id="backup-file-select" required></select></label><div id="backup-confirm-wrap" hidden><label class="backup-field">Konfirmasi restore<input type="text" name="restore_confirm" placeholder="RESTORE <?=backup_h($svc->get('site_code',$svc->appKey()))?>"></label><small class="backup-muted">Ketik persis: <b>RESTORE <?=backup_h($svc->get('site_code',$svc->appKey()))?></b></small></div><p><button class="btn" type="submit" id="backup-dialog-submit">Lanjutkan</button></p></form></dialog>
+  <script type="application/json" id="backup-list-json"><?php $all=[]; foreach(['6hourly','daily','weekly','monthly'] as $t){$all[$t]=$svc->successfulBackups($t,100);} echo json_encode($all,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?></script>
   <div class="backup-card" style="grid-column:1/-1"><h3>Riwayat Backup</h3><div style="overflow:auto"><table class="backup-table"><thead><tr><th>Waktu</th><th>Jenis</th><th>Status</th><th>File</th><th>Ukuran</th><th>Metode</th><th>Pesan</th></tr></thead><tbody>
   <?php foreach($jobs as $j): $cls=$j['status']==='success'?'ok':($j['status']==='failed'?'bad':'run'); ?><tr><td><?=backup_h($j['started_at']?:$j['created_at'])?></td><td><?=backup_h($j['backup_type'])?></td><td><span class="backup-status <?=$cls?>"><?=backup_h($j['status'])?></span></td><td><?=backup_h($j['filename']?:'-')?></td><td><?=backup_h(backup_bytes($j['bytes_size']??0))?></td><td><?=backup_h($j['dump_method']?:'-')?></td><td><?=backup_h($j['message']?:'-')?></td></tr><?php endforeach; ?>
   <?php if(!$jobs): ?><tr><td colspan="7">Belum ada riwayat backup.</td></tr><?php endif; ?></tbody></table></div></div>
  </div>
  </div>
+ <script>
+ (()=>{const dataEl=document.getElementById('backup-list-json');if(!dataEl)return;let data={};try{data=JSON.parse(dataEl.textContent||'{}')}catch(e){}const tf=document.getElementById('backup-timeframe'),dlg=document.getElementById('backup-select-dialog'),sel=document.getElementById('backup-file-select'),act=document.getElementById('backup-dialog-action'),title=document.getElementById('backup-dialog-title'),confirmWrap=document.getElementById('backup-confirm-wrap'),submit=document.getElementById('backup-dialog-submit');function open(kind){const type=tf.value,rows=data[type]||[];sel.innerHTML='';rows.forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=(r.started_at||r.created_at)+' — '+(r.filename||'backup')+' ('+Math.round((Number(r.bytes_size)||0)/1048576*10)/10+' MB)';sel.appendChild(o)});if(!rows.length){const o=document.createElement('option');o.value='';o.textContent='Belum ada backup berhasil pada timeframe ini';sel.appendChild(o)}act.value=kind;const restoring=kind==='restore';title.textContent=restoring?'Restore Backup':'Tes Restore';confirmWrap.hidden=!restoring;submit.textContent=restoring?'Restore Sekarang':'Jalankan Tes Restore';submit.disabled=!rows.length;if(typeof dlg.showModal==='function')dlg.showModal();else dlg.setAttribute('open','open')}document.getElementById('backup-test-open')?.addEventListener('click',()=>open('test_restore'));document.getElementById('backup-restore-open')?.addEventListener('click',()=>open('restore'));})();
+ </script>
+
  <?php
 }
