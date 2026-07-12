@@ -2,12 +2,13 @@
 function backup_h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function backup_bytes($n): string { $n=(float)$n; foreach(['B','KB','MB','GB','TB'] as $u){ if($n<1024) return number_format($n,$n<10?2:1,',','.').' '.$u; $n/=1024; } return number_format($n,1,',','.').' PB'; }
 function backup_render_settings(GoogleDriveBackupService $svc,string $callbackUri,string $cronCommand,string $cronUrl,string $csrfHtml,string $postAction=''): void {
- $connected=$svc->isConnected(); $jobs=$svc->recentJobs(30); $secretSaved=(string)$svc->get('oauth_client_secret','')!=='';
+ $connected=$svc->isConnected(); $jobs=$svc->recentJobs(30); $secretSaved=(string)$svc->get('oauth_client_secret','')!==''; $bootstrapError=$svc->bootstrapError(); $diagnostics=$svc->diagnostics();
  ?>
  <style>
  .backup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.backup-card{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#fff}.backup-card h3{margin:0 0 12px}.backup-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.backup-form-grid label{display:block;font-size:13px;font-weight:700}.backup-form-grid input[type=text],.backup-form-grid input[type=email],.backup-form-grid input[type=password],.backup-form-grid input[type=number]{width:100%;box-sizing:border-box;margin-top:5px}.backup-code{display:block;white-space:pre-wrap;word-break:break-all;background:#0f172a;color:#e2e8f0;padding:10px;border-radius:9px;font-size:12px}.backup-status{display:inline-block;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800}.backup-status.ok{background:#dcfce7;color:#166534}.backup-status.bad{background:#fee2e2;color:#991b1b}.backup-status.run{background:#fef3c7;color:#92400e}.backup-table{width:100%;border-collapse:collapse}.backup-table th,.backup-table td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}.backup-actions{display:flex;gap:8px;flex-wrap:wrap}.backup-muted{color:#64748b;font-size:13px}.backup-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.backup-checks label{border:1px solid #e5e7eb;border-radius:10px;padding:10px;font-weight:700}.backup-alert{padding:11px 13px;border-radius:10px;margin-bottom:12px;background:#eff6ff;color:#1e40af}.backup-alert.err{background:#fee2e2;color:#991b1b}@media(max-width:800px){.backup-grid,.backup-form-grid,.backup-checks{grid-template-columns:1fr}}
  </style>
  <div class="backup-alert"><b>Backup terenkripsi ke Google Drive.</b> PHP membutuhkan ekstensi cURL dan OpenSSL; snapshot mingguan/bulanan membutuhkan ZipArchive atau PharData. Database dibuat setiap 6 jam dan harian; snapshot database + file aplikasi dibuat mingguan dan bulanan. Hanya owner yang dapat membuka atau menjalankan fitur ini.</div>
+ <?php if($bootstrapError!==''): ?><div class="backup-alert err"><b>Infrastruktur backup belum siap.</b><br><?=backup_h($bootstrapError)?><br><small>Halaman tetap dibuka agar penyebabnya dapat diperbaiki tanpa HTTP 500.</small></div><?php endif; ?>
  <div class="backup-grid">
   <div class="backup-card">
    <h3>Konfigurasi Google Drive</h3>
@@ -50,6 +51,14 @@ function backup_render_settings(GoogleDriveBackupService $svc,string $callbackUr
    <h3>Cron cPanel</h3><p class="backup-muted">Pasang salah satu cron setiap 15 menit. Runner akan menentukan backup yang jatuh tempo dan mencegah proses ganda.</p>
    <b>CLI — disarankan</b><code class="backup-code"><?=backup_h($cronCommand)?></code>
    <b>URL alternatif</b><code class="backup-code"><?=backup_h($cronUrl)?></code>
+  </div>
+  <div class="backup-card" style="grid-column:1/-1">
+   <h3>Pemeriksaan Server</h3>
+   <div style="overflow:auto"><table class="backup-table"><thead><tr><th>Komponen</th><th>Status</th><th>Detail</th></tr></thead><tbody>
+   <?php foreach($diagnostics as $d): ?><tr><td><?=backup_h($d['label'])?></td><td><span class="backup-status <?=$d['ok']?'ok':'bad'?>"><?=$d['ok']?'Siap':'Bermasalah'?></span></td><td><?=backup_h($d['detail'])?></td></tr><?php endforeach; ?>
+   </tbody></table></div>
+   <form method="post" action="<?=backup_h($postAction)?>" style="margin-top:12px"><?=$csrfHtml?><input type="hidden" name="backup_action" value="repair"><button class="btn light" type="submit">Perbaiki Struktur Backup</button></form>
+   <p class="backup-muted">Tombol ini membuat ulang folder privat, tabel log, dan setting awal. Tidak menghapus backup atau data aplikasi.</p>
   </div>
   <div class="backup-card" style="grid-column:1/-1">
    <h3>Backup Sekarang</h3><div class="backup-actions">

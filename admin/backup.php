@@ -4,8 +4,9 @@ start_secure_session(); require_admin(); if(!current_user_is_owner()){ http_resp
 $svc=adena_backup_service(); $msg=(string)($_SESSION['backup_flash']??''); $err=(string)($_SESSION['backup_flash_error']??''); unset($_SESSION['backup_flash'],$_SESSION['backup_flash_error']);
 $relativeCallback=base_url('admin/backup_google_callback.php'); $callback=preg_match('~^https?://~i',$relativeCallback)?$relativeCallback:(((!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off')?'https':'http').'://'.($_SERVER['HTTP_HOST']??'localhost').'/'.ltrim($relativeCallback,'/'));
 if($_SERVER['REQUEST_METHOD']==='POST'){
- try{ csrf_check(); $a=(string)($_POST['backup_action']??'');
-  if($a==='save_config'){ $svc->saveConfiguration($_POST); $msg='Konfigurasi backup berhasil disimpan.'; }
+ try{ if(!csrf_verify((string)($_POST['_csrf']??''))) throw new RuntimeException('CSRF token tidak valid.'); $a=(string)($_POST['backup_action']??'');
+  if($a==='repair'){ $svc->repairInfrastructure(); $msg='Struktur backup berhasil diperiksa dan diperbaiki.'; }
+  elseif($a==='save_config'){ $svc->saveConfiguration($_POST); $msg='Konfigurasi backup berhasil disimpan.'; }
   elseif($a==='connect'){ $state=bin2hex(random_bytes(24)); $_SESSION['backup_oauth_state']=$state; header('Location: '.$svc->authorizationUrl($callback,$state)); exit; }
   elseif($a==='test'){ $r=$svc->testConnection(); $msg='Koneksi berhasil ke '.($r['email']??'Google Drive').'.'; }
   elseif($a==='disconnect'){ $svc->disconnect(); $msg='Koneksi Google Drive diputus.'; }

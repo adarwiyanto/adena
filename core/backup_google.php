@@ -12,6 +12,7 @@ final class GoogleDriveBackupService {
   private string $timezone;
   private $getSetting;
   private $setSetting;
+  private string $bootstrapError='';
 
   public function __construct(array $cfg) {
     $this->pdo=$cfg['pdo'];
@@ -26,13 +27,43 @@ final class GoogleDriveBackupService {
     date_default_timezone_set($this->timezone);
     $this->getSetting=$cfg['get_setting'];
     $this->setSetting=$cfg['set_setting'];
-    $this->ensurePrivatePath();
-    $this->ensureSchema();
-    $this->ensureDefaults();
+    try {
+      $this->ensurePrivatePath();
+      $this->ensureSchema();
+      $this->ensureDefaults();
+    } catch(Throwable $e) {
+      $this->bootstrapError=$e->getMessage();
+    }
   }
 
-  public function get(string $key, $default=null) { return ($this->getSetting)('backup_'.$key,$default); }
+  public function get(string $key, $default=null) {
+    try { return ($this->getSetting)('backup_'.$key,$default); }
+    catch(Throwable $e) { if($this->bootstrapError==='') $this->bootstrapError=$e->getMessage(); return $default; }
+  }
   public function set(string $key,string $value): void { ($this->setSetting)('backup_'.$key,$value); }
+  public function bootstrapError(): string { return $this->bootstrapError; }
+  public function isReady(): bool { return $this->bootstrapError===''; }
+  private function assertReady(): void { if($this->bootstrapError!=='') throw new RuntimeException('Infrastruktur backup belum siap: '.$this->bootstrapError); }
+  public function repairInfrastructure(): void {
+    $this->bootstrapError='';
+    try { $this->ensurePrivatePath(); $this->ensureSchema(); $this->ensureDefaults(); }
+    catch(Throwable $e) { $this->bootstrapError=$e->getMessage(); throw $e; }
+  }
+  public function diagnostics(): array {
+    $out=[];
+    $out[]=['label'=>'Versi PHP','ok'=>version_compare(PHP_VERSION,'8.1.0','>='),'detail'=>PHP_VERSION.' (minimal 8.1)'];
+    $out[]=['label'=>'PDO MySQL','ok'=>extension_loaded('pdo_mysql'),'detail'=>extension_loaded('pdo_mysql')?'aktif':'tidak aktif'];
+    $out[]=['label'=>'cURL','ok'=>function_exists('curl_init'),'detail'=>function_exists('curl_init')?'aktif':'tidak aktif'];
+    $out[]=['label'=>'OpenSSL','ok'=>function_exists('openssl_encrypt') && in_array('aes-256-gcm',openssl_get_cipher_methods(),true),'detail'=>(function_exists('openssl_encrypt')?'aktif':'tidak aktif')];
+    $out[]=['label'=>'Kompresi GZIP','ok'=>function_exists('gzopen'),'detail'=>function_exists('gzopen')?'aktif':'tidak aktif'];
+    $out[]=['label'=>'Arsip snapshot','ok'=>class_exists('ZipArchive') || class_exists('PharData'),'detail'=>class_exists('ZipArchive')?'ZipArchive aktif':(class_exists('PharData')?'PharData aktif':'ZipArchive/PharData tidak aktif')];
+    $parent=is_dir($this->privatePath)?$this->privatePath:dirname($this->privatePath);
+    $out[]=['label'=>'Folder backup','ok'=>is_dir($this->privatePath)?is_writable($this->privatePath):is_writable($parent),'detail'=>$this->privatePath];
+    try { $t=$this->safeIdentifier($this->jobsTable); $this->pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $ok=true; $detail=$t.' tersedia'; }
+    catch(Throwable $e) { $ok=false; $detail=$e->getMessage(); }
+    $out[]=['label'=>'Tabel log backup','ok'=>$ok,'detail'=>$detail];
+    return $out;
+  }
   public function appKey(): string { return $this->appKey; }
   public function appName(): string { return $this->appName; }
   public function privatePath(): string { return $this->privatePath; }
@@ -85,6 +116,7 @@ final class GoogleDriveBackupService {
   }
 
   public function saveConfiguration(array $input): void {
+    $this->assertReady();
     $oldEmail=strtolower((string)$this->get('google_email',''));
     $oldClientId=(string)$this->get('oauth_client_id','');
     $wasConnected=$this->isConnected();
@@ -110,10 +142,11 @@ final class GoogleDriveBackupService {
     $this->clearFolderCache();
   }
 
-  public function hasOAuthClient(): bool { return trim((string)$this->get('oauth_client_id',''))!=='' && $this->oauthClientSecret()!==''; }
-  public function isConnected(): bool { return $this->refreshToken()!==''; }
+  public function hasOAuthClient(): bool { try{return trim((string)$this->get('oauth_client_id',''))!=='' && $this->oauthClientSecret()!=='';}catch(Throwable $e){return false;} }
+  public function isConnected(): bool { try{return $this->refreshToken()!=='';}catch(Throwable $e){return false;} }
   public function connectedEmail(): string { return (string)$this->get('connected_email',''); }
   public function recoveryKeyText(): string {
+    $this->assertReady();
     $key=base64_encode($this->keyBytes());
     return "ADENA AUTOMATED BACKUP RECOVERY KEY\n".
       "App: {$this->appName}\n".
@@ -124,6 +157,7 @@ final class GoogleDriveBackupService {
   }
 
   public function authorizationUrl(string $redirectUri,string $state): string {
+    $this->assertReady();
     if(!$this->hasOAuthClient()) throw new RuntimeException('Client ID dan Client Secret Google belum disimpan.');
     $q=[
       'client_id'=>(string)$this->get('oauth_client_id',''), 'redirect_uri'=>$redirectUri, 'response_type'=>'code',
@@ -134,6 +168,7 @@ final class GoogleDriveBackupService {
   }
 
   public function completeOAuth(string $code,string $redirectUri): array {
+    $this->assertReady();
     $data=$this->httpForm('https://oauth2.googleapis.com/token',[
       'code'=>$code,'client_id'=>(string)$this->get('oauth_client_id',''),'client_secret'=>$this->oauthClientSecret(),
       'redirect_uri'=>$redirectUri,'grant_type'=>'authorization_code'
@@ -162,6 +197,7 @@ final class GoogleDriveBackupService {
   }
 
   public function testConnection(): array {
+    $this->assertReady();
     $token=$this->accessToken();
     $about=$this->driveJson('GET','https://www.googleapis.com/drive/v3/about?fields=user,storageQuota',$token);
     $folders=$this->ensureFolderTree($token);
@@ -172,6 +208,7 @@ final class GoogleDriveBackupService {
   private function refreshToken(): string { $v=(string)$this->get('oauth_refresh_token',''); return $v===''?'':$this->decryptSecret($v); }
 
   public function accessToken(): string {
+    $this->assertReady();
     $refresh=$this->refreshToken(); if($refresh==='') throw new RuntimeException('Google Drive belum terhubung.');
     $data=$this->httpForm('https://oauth2.googleapis.com/token',[
       'client_id'=>(string)$this->get('oauth_client_id',''),'client_secret'=>$this->oauthClientSecret(),
@@ -182,6 +219,7 @@ final class GoogleDriveBackupService {
   }
 
   public function runDue(): array {
+    $this->assertReady();
     if((string)$this->get('enabled','1')!=='1') return ['status'=>'disabled'];
     $now=new DateTimeImmutable('now',new DateTimeZone($this->timezone));
     // Cron dipasang setiap 15 menit. Slot deterministik mencegah beberapa instalasi
@@ -206,6 +244,7 @@ final class GoogleDriveBackupService {
   }
 
   public function runBackup(string $type,string $initiatedBy='owner',?string $periodKey=null): array {
+    $this->assertReady();
     if(!in_array($type,['6hourly','daily','weekly','monthly'],true)) throw new InvalidArgumentException('Tipe backup tidak valid.');
     if(!$this->isConnected()) throw new RuntimeException('Google Drive belum terhubung.');
     @set_time_limit(0); @ignore_user_abort(true);
@@ -258,7 +297,7 @@ final class GoogleDriveBackupService {
   private function finishJob(int $id,string $status,string $message): void { $t=$this->safeIdentifier($this->jobsTable); $this->pdo->prepare("UPDATE `$t` SET status=?,message=?,finished_at=NOW() WHERE id=?")->execute([$status,substr($message,0,6000),$id]); }
   private function updateJobSuccess(int $id,string $name,int $bytes,string $sha,string $fileId,string $folderId,string $method): void { $t=$this->safeIdentifier($this->jobsTable); $this->pdo->prepare("UPDATE `$t` SET status='success',filename=?,bytes_size=?,sha256=?,drive_file_id=?,drive_folder_id=?,dump_method=?,message='Upload dan verifikasi berhasil',finished_at=NOW() WHERE id=?")->execute([$name,$bytes,$sha,$fileId,$folderId,$method,$id]); }
 
-  public function recentJobs(int $limit=30): array { $t=$this->safeIdentifier($this->jobsTable); $limit=max(1,min(200,$limit)); return $this->pdo->query("SELECT * FROM `$t` ORDER BY id DESC LIMIT $limit")->fetchAll(PDO::FETCH_ASSOC); }
+  public function recentJobs(int $limit=30): array { try{$t=$this->safeIdentifier($this->jobsTable);$limit=max(1,min(200,$limit));return $this->pdo->query("SELECT * FROM `$t` ORDER BY id DESC LIMIT $limit")->fetchAll(PDO::FETCH_ASSOC);}catch(Throwable $e){if($this->bootstrapError==='')$this->bootstrapError=$e->getMessage();return [];} }
 
   private function createDatabaseDump(string $target): string {
     if($this->tryMysqldump($target)) return 'mysqldump';
