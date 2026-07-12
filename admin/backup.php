@@ -45,7 +45,7 @@ $customCss = setting('custom_css', '');
 if ($svc) {
     $cronSecret = (string)$svc->get('cron_secret', '');
     $cronFile = dirname(__DIR__).'/cron_backup.php';
-    $cronCommand = '/usr/local/bin/php -q '.escapeshellarg($cronFile).' >/dev/null 2>&1';
+    $cronCommand = backup_build_cron_command($svc, $cronFile);
     $relativeCron = base_url('cron_backup.php?key='.rawurlencode($cronSecret));
     $cronUrl = preg_match('~^https?://~i', $relativeCron) ? $relativeCron : (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http').'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').'/'.ltrim($relativeCron, '/'));
     backup_render_settings($svc, $callback, $cronCommand, $cronUrl, '<input type="hidden" name="_csrf" value="'.e(csrf_token()).'">');

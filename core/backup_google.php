@@ -52,6 +52,17 @@ final class GoogleDriveBackupService {
     $out[]=['label'=>'OpenSSL','ok'=>function_exists('openssl_encrypt') && in_array('aes-256-gcm',openssl_get_cipher_methods(),true),'detail'=>(function_exists('openssl_encrypt')?'aktif':'tidak aktif')];
     $out[]=['label'=>'Kompresi GZIP','ok'=>function_exists('gzopen'),'detail'=>function_exists('gzopen')?'aktif':'tidak aktif'];
     $out[]=['label'=>'Arsip snapshot','ok'=>class_exists('ZipArchive') || class_exists('PharData'),'detail'=>class_exists('ZipArchive')?'ZipArchive aktif':(class_exists('PharData')?'PharData aktif':'ZipArchive/PharData tidak aktif')];
+    $execAvailable=function_exists('exec') && is_callable('exec');
+    $escapeAvailable=function_exists('escapeshellarg') && is_callable('escapeshellarg');
+    $shellReady=$execAvailable && $escapeAvailable;
+    $out[]=['label'=>'Metode dump database','ok'=>true,'detail'=>$shellReady?'mysqldump tersedia; fallback native PHP tetap aktif':'Fungsi shell dibatasi; otomatis menggunakan native PHP'];
+    $out[]=['label'=>'exec (opsional)','ok'=>true,'detail'=>$execAvailable?'aktif':'tidak aktif/dinonaktifkan hosting'];
+    $out[]=['label'=>'escapeshellarg (opsional)','ok'=>true,'detail'=>$escapeAvailable?'aktif':'tidak aktif/dinonaktifkan hosting'];
+    $disabled=trim((string)ini_get('disable_functions'));
+    $out[]=['label'=>'disable_functions','ok'=>true,'detail'=>$disabled!==''?$disabled:'tidak ada'];
+    $cliPath=trim((string)$this->get('php_cli_path','/opt/cpanel/ea-php84/root/usr/bin/php'));
+    $cliDetected=$cliPath!=='' && @is_file($cliPath) && @is_executable($cliPath);
+    $out[]=['label'=>'PHP CLI cron','ok'=>true,'detail'=>$cliPath.($cliDetected?' (terdeteksi)':' (belum dapat diverifikasi dari PHP web; dapat diubah di setting atau gunakan URL cron)')];
     $parent=is_dir($this->privatePath)?$this->privatePath:dirname($this->privatePath);
     $out[]=['label'=>'Folder backup','ok'=>is_dir($this->privatePath)?is_writable($this->privatePath):is_writable($parent),'detail'=>$this->privatePath];
     try { $t=$this->safeIdentifier($this->jobsTable); $this->pdo->query("SELECT 1 FROM `$t` LIMIT 1"); $ok=true; $detail=$t.' tersedia'; }
@@ -103,7 +114,7 @@ final class GoogleDriveBackupService {
     $defaultSite=strtoupper(trim((string)preg_replace('/[^A-Za-z0-9_-]+/','-',$this->appKey.'-'.(string)($this->dbConfig['name']??'MAIN')),'-'));
     $defaults=[
       'enabled'=>'1','google_email'=>'adarwiyanto@gmail.com','site_code'=>$defaultSite!==''?$defaultSite:$this->appKey,
-      'drive_root'=>'ADENA_AUTOMATED_BACKUP','schedule_6hourly'=>'1','schedule_daily'=>'1','schedule_weekly'=>'1','schedule_monthly'=>'1',
+      'drive_root'=>'ADENA_AUTOMATED_BACKUP','php_cli_path'=>'/opt/cpanel/ea-php84/root/usr/bin/php','schedule_6hourly'=>'1','schedule_daily'=>'1','schedule_weekly'=>'1','schedule_monthly'=>'1',
       'retention_6hourly_days'=>'7','retention_daily_days'=>'30','retention_weekly_days'=>'84','retention_monthly_days'=>'365',
       'cron_secret'=>bin2hex(random_bytes(24))
     ];
@@ -121,12 +132,16 @@ final class GoogleDriveBackupService {
     $site=strtoupper(trim((string)($input['site_code']??'')));
     $site=preg_replace('/[^A-Z0-9_-]+/','-',$site) ?: strtoupper($this->appKey);
     $root=trim((string)($input['drive_root']??'ADENA_AUTOMATED_BACKUP')) ?: 'ADENA_AUTOMATED_BACKUP';
+    $phpCli=trim((string)($input['php_cli_path']??$this->get('php_cli_path','/opt/cpanel/ea-php84/root/usr/bin/php')));
+    if($phpCli==='') $phpCli='/opt/cpanel/ea-php84/root/usr/bin/php';
+    if(preg_match('/[\x00-\x1F\x7F]/',$phpCli)) throw new InvalidArgumentException('Path PHP CLI mengandung karakter yang tidak valid.');
     $clientId=trim((string)($input['oauth_client_id']??''));
     $clientSecret=(string)($input['oauth_client_secret']??'');
     $this->set('enabled',isset($input['enabled'])?'1':'0');
     $this->set('google_email',$email);
     $this->set('site_code',$site);
     $this->set('drive_root',$root);
+    $this->set('php_cli_path',$phpCli);
     $this->set('oauth_client_id',$clientId);
     if($clientSecret!=='') $this->set('oauth_client_secret',$this->encryptSecret($clientSecret));
     if($wasConnected && (($oldEmail!=='' && $email!==$oldEmail) || ($oldClientId!=='' && $clientId!==$oldClientId) || $clientSecret!=='')) $this->disconnect();
@@ -307,14 +322,21 @@ final class GoogleDriveBackupService {
   }
 
   private function tryMysqldump(string $target): bool {
-    if(!function_exists('exec')) return false;
-    $c=$this->dbConfig;
-    $cmd=['mysqldump','--single-transaction','--quick','--routines','--triggers','--events','--hex-blob','--default-character-set=utf8mb4','--set-gtid-purged=OFF',
-      '-h '.escapeshellarg((string)$c['host']),'-P '.escapeshellarg((string)$c['port']),'-u '.escapeshellarg((string)$c['user'])];
-    if((string)($c['pass']??'')!=='') $cmd[]='--password='.escapeshellarg((string)$c['pass']);
-    $cmd[]=escapeshellarg((string)$c['name']); $cmd[]='> '.escapeshellarg($target); $cmd[]='2> '.escapeshellarg($target.'.err');
-    @exec(implode(' ',$cmd),$o,$rc); @unlink($target.'.err');
-    return $rc===0 && is_file($target) && filesize($target)>100;
+    if(!function_exists('exec') || !is_callable('exec') || !function_exists('escapeshellarg') || !is_callable('escapeshellarg')) return false;
+    $errorFile=$target.'.err';
+    try {
+      $c=$this->dbConfig;
+      $cmd=['mysqldump','--single-transaction','--quick','--routines','--triggers','--events','--hex-blob','--default-character-set=utf8mb4','--set-gtid-purged=OFF',
+        '-h '.escapeshellarg((string)$c['host']),'-P '.escapeshellarg((string)$c['port']),'-u '.escapeshellarg((string)$c['user'])];
+      if((string)($c['pass']??'')!=='') $cmd[]='--password='.escapeshellarg((string)$c['pass']);
+      $cmd[]=escapeshellarg((string)$c['name']); $cmd[]='> '.escapeshellarg($target); $cmd[]='2> '.escapeshellarg($errorFile);
+      $o=[]; $rc=1; @exec(implode(' ',$cmd),$o,$rc);
+      return $rc===0 && is_file($target) && filesize($target)>100;
+    } catch(Throwable $e) {
+      return false;
+    } finally {
+      @unlink($errorFile);
+    }
   }
 
   private function nativeDump(string $target): void {

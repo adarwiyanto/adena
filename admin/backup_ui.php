@@ -1,6 +1,19 @@
 <?php
 function backup_h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function backup_bytes($n): string { $n=(float)$n; foreach(['B','KB','MB','GB','TB'] as $u){ if($n<1024) return number_format($n,$n<10?2:1,',','.').' '.$u; $n/=1024; } return number_format($n,1,',','.').' PB'; }
+function backup_default_php_cli_path(): string {
+ $candidates=['/opt/cpanel/ea-php84/root/usr/bin/php','/opt/alt/php84/usr/bin/php','/usr/local/bin/php','/usr/bin/php'];
+ foreach($candidates as $candidate){ if(@is_file($candidate) && @is_executable($candidate)) return $candidate; }
+ return '/opt/cpanel/ea-php84/root/usr/bin/php';
+}
+function backup_shell_quote($value): string {
+ return "'".str_replace("'", "'\"'\"'", (string)$value)."'";
+}
+function backup_build_cron_command($svc,string $cronFile): string {
+ $phpCli=trim((string)$svc->get('php_cli_path',''));
+ if($phpCli==='') $phpCli=backup_default_php_cli_path();
+ return backup_shell_quote($phpCli).' -q '.backup_shell_quote($cronFile).' >/dev/null 2>&1';
+}
 function backup_render_settings($svc,string $callbackUri,string $cronCommand,string $cronUrl,string $csrfHtml,string $postAction=''): void {
  $connected=$svc->isConnected(); $jobs=$svc->recentJobs(30); $secretSaved=(string)$svc->get('oauth_client_secret','')!==''; $bootstrapError=$svc->bootstrapError(); $diagnostics=$svc->diagnostics();
  ?>
@@ -18,6 +31,7 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
      <label>Akun Google tujuan<input type="email" name="google_email" value="<?=backup_h($svc->get('google_email','adarwiyanto@gmail.com'))?>" required></label>
      <label>Kode instalasi<input type="text" name="site_code" value="<?=backup_h($svc->get('site_code',$svc->appKey()))?>" required></label>
      <label>Folder utama Drive<input type="text" name="drive_root" value="<?=backup_h($svc->get('drive_root','ADENA_AUTOMATED_BACKUP'))?>" required></label>
+     <label>Path PHP CLI cPanel<input type="text" name="php_cli_path" value="<?=backup_h($svc->get('php_cli_path',backup_default_php_cli_path()))?>" required><small class="backup-muted">PHP 8.4 cPanel umumnya: /opt/cpanel/ea-php84/root/usr/bin/php</small></label>
      <label>Google OAuth Client ID<input type="text" name="oauth_client_id" value="<?=backup_h($svc->get('oauth_client_id',''))?>" autocomplete="off"></label>
      <label>Google OAuth Client Secret<input type="password" name="oauth_client_secret" value="" placeholder="<?=$secretSaved?'Tersimpan — kosongkan bila tidak diubah':'Masukkan Client Secret'?>" autocomplete="new-password"></label>
     </div>
@@ -39,7 +53,7 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
   <div class="backup-card">
    <h3>Jadwal dan Retensi</h3>
    <form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="save_config">
-    <?php foreach(['google_email','site_code','drive_root','oauth_client_id'] as $hidden): ?><input type="hidden" name="<?=$hidden?>" value="<?=backup_h($svc->get($hidden,''))?>"><?php endforeach; ?><?php if($svc->get('enabled','1')==='1'): ?><input type="hidden" name="enabled" value="1"><?php endif; ?>
+    <?php foreach(['google_email','site_code','drive_root','php_cli_path','oauth_client_id'] as $hidden): ?><input type="hidden" name="<?=$hidden?>" value="<?=backup_h($svc->get($hidden,''))?>"><?php endforeach; ?><?php if($svc->get('enabled','1')==='1'): ?><input type="hidden" name="enabled" value="1"><?php endif; ?>
     <div class="backup-checks">
     <?php foreach(['6hourly'=>'Setiap 6 jam','daily'=>'Harian','weekly'=>'Mingguan','monthly'=>'Bulanan'] as $k=>$label): ?>
      <label><input type="checkbox" name="schedule_<?=$k?>" value="1" <?=$svc->get('schedule_'.$k,'1')==='1'?'checked':''?>> <?=$label?><br><small>Retensi <input style="width:75px" type="number" min="1" max="3650" name="retention_<?=$k?>_days" value="<?=backup_h($svc->get('retention_'.$k.'_days','30'))?>"> hari</small></label>
@@ -49,7 +63,7 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
   </div>
   <div class="backup-card">
    <h3>Cron cPanel</h3><p class="backup-muted">Pasang salah satu cron setiap 15 menit. Runner akan menentukan backup yang jatuh tempo dan mencegah proses ganda.</p>
-   <b>CLI — disarankan</b><code class="backup-code"><?=backup_h($cronCommand)?></code>
+   <b>CLI — disarankan</b><code class="backup-code"><?=backup_h($cronCommand)?></code><p class="backup-muted">Path PHP CLI dapat diubah pada konfigurasi. Command di atas hanya ditampilkan sebagai teks dan tidak menjalankan fungsi shell dari halaman web.</p>
    <b>URL alternatif</b><code class="backup-code"><?=backup_h($cronUrl)?></code>
   </div>
   <div class="backup-card" style="grid-column:1/-1">

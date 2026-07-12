@@ -64,7 +64,7 @@ if (!function_exists('backup_safe_log_path')) {
             }
             if (!headers_sent()) http_response_code(200);
             echo '<div style="margin:16px;padding:14px;border:1px solid #fca5a5;border-radius:12px;background:#fef2f2;color:#991b1b">';
-            echo '<b>Modul backup gagal dimuat.</b><br>';
+            echo '<b>Modul backup mengalami error.</b><br>';
             echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
             echo '<br><small>Detail dicatat pada storage/private_backup/backup-error.log atau PHP error_log.</small></div>';
         });
@@ -92,7 +92,7 @@ if (!function_exists('backup_safe_log_path')) {
             array('Log', backup_safe_log_path($rootPath))
         );
         echo '<div style="padding:14px;border:1px solid #fca5a5;border-radius:12px;background:#fef2f2;color:#7f1d1d">';
-        echo '<h3 style="margin-top:0">Modul backup belum dapat dimuat</h3>';
+        echo '<h3 style="margin-top:0">Modul backup mengalami error</h3>';
         echo '<p>'.htmlspecialchars((string)$message, ENT_QUOTES, 'UTF-8').'</p>';
         echo '<table style="width:100%;border-collapse:collapse;background:#fff">';
         foreach ($items as $row) {
