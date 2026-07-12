@@ -18,8 +18,34 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
  $connected=$svc->isConnected(); $jobs=$svc->recentJobs(30); $secretSaved=(string)$svc->get('oauth_client_secret','')!==''; $bootstrapError=$svc->bootstrapError(); $diagnostics=$svc->diagnostics();
  ?>
  <style>
- .backup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.backup-card{border:1px solid #e5e7eb;border-radius:14px;padding:16px;background:#fff}.backup-card h3{margin:0 0 12px}.backup-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.backup-form-grid label{display:block;font-size:13px;font-weight:700}.backup-form-grid input[type=text],.backup-form-grid input[type=email],.backup-form-grid input[type=password],.backup-form-grid input[type=number]{width:100%;box-sizing:border-box;margin-top:5px}.backup-code{display:block;white-space:pre-wrap;word-break:break-all;background:#0f172a;color:#e2e8f0;padding:10px;border-radius:9px;font-size:12px}.backup-status{display:inline-block;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800}.backup-status.ok{background:#dcfce7;color:#166534}.backup-status.bad{background:#fee2e2;color:#991b1b}.backup-status.run{background:#fef3c7;color:#92400e}.backup-table{width:100%;border-collapse:collapse}.backup-table th,.backup-table td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}.backup-actions{display:flex;gap:8px;flex-wrap:wrap}.backup-muted{color:#64748b;font-size:13px}.backup-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.backup-checks label{border:1px solid #e5e7eb;border-radius:10px;padding:10px;font-weight:700}.backup-alert{padding:11px 13px;border-radius:10px;margin-bottom:12px;background:#eff6ff;color:#1e40af}.backup-alert.err{background:#fee2e2;color:#991b1b}@media(max-width:800px){.backup-grid,.backup-form-grid,.backup-checks{grid-template-columns:1fr}}
+ .backup-settings{width:100%;max-width:1500px;margin:0 auto;color:#0f172a;box-sizing:border-box}
+ .backup-settings *{box-sizing:border-box}
+ .backup-settings .backup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+ .backup-settings .backup-card{min-width:0;border:1px solid #e5e7eb;border-radius:14px;padding:18px;background:#fff}
+ .backup-settings .backup-card h3{margin:0 0 14px;font-size:17px;line-height:1.3}
+ .backup-settings .backup-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}
+ .backup-settings .backup-field{display:block;min-width:0;font-size:13px;font-weight:700;line-height:1.35}
+ .backup-settings .backup-field>input[type=text],.backup-settings .backup-field>input[type=email],.backup-settings .backup-field>input[type=password],.backup-settings .backup-field>input[type=number]{display:block;width:100%!important;min-width:0;height:42px;margin:6px 0 0!important;padding:9px 11px!important;border-radius:9px!important}
+ .backup-settings input[type=checkbox]{appearance:auto!important;-webkit-appearance:checkbox!important;width:18px!important;height:18px!important;min-width:18px!important;max-width:18px!important;padding:0!important;margin:0!important;border:0!important;border-radius:3px!important;box-shadow:none!important;vertical-align:middle;accent-color:#1689d8;cursor:pointer}
+ .backup-settings .backup-toggle{grid-column:1/-1;display:flex;align-items:center;gap:10px;min-height:42px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc;font-size:13px;font-weight:800;cursor:pointer}
+ .backup-settings .backup-toggle span{line-height:1.25}
+ .backup-settings .backup-code{display:block;width:100%;max-width:100%;overflow-x:auto;white-space:pre;word-break:normal;background:#0f172a;color:#e2e8f0;padding:11px 12px;border-radius:9px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+ .backup-settings .backup-status{display:inline-block;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:800}
+ .backup-settings .backup-status.ok{background:#dcfce7;color:#166534}.backup-settings .backup-status.bad{background:#fee2e2;color:#991b1b}.backup-settings .backup-status.run{background:#fef3c7;color:#92400e}
+ .backup-settings .backup-table{width:100%;border-collapse:collapse}.backup-settings .backup-table th,.backup-settings .backup-table td{padding:9px 8px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top}
+ .backup-settings .backup-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.backup-settings .backup-actions form{margin:0}
+ .backup-settings .backup-muted{display:block;color:#64748b;font-size:12.5px;font-weight:500;line-height:1.45;margin-top:5px}
+ .backup-settings .backup-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .backup-settings .backup-schedule{display:block;border:1px solid #e5e7eb;border-radius:11px;padding:13px;background:#fff;cursor:pointer}
+ .backup-settings .backup-schedule-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px;font-size:14px;font-weight:800;line-height:1.25}
+ .backup-settings .backup-retention{display:flex;align-items:center;gap:7px;color:#475569;font-size:12px;font-weight:700}
+ .backup-settings .backup-retention input[type=number]{width:76px!important;height:36px!important;margin:0!important;padding:7px 9px!important;border-radius:8px!important}
+ .backup-settings .backup-alert{padding:12px 14px;border-radius:10px;margin-bottom:14px;background:#eff6ff;color:#1e40af;line-height:1.45}.backup-settings .backup-alert.err{background:#fee2e2;color:#991b1b}
+ .backup-settings p{max-width:none}.backup-settings button.btn{min-height:38px}
+ @media(max-width:900px){.backup-settings .backup-grid,.backup-settings .backup-form-grid,.backup-settings .backup-checks{grid-template-columns:1fr}.backup-settings .backup-toggle{grid-column:auto}}
+ @media(max-width:560px){.backup-settings .backup-card{padding:14px}.backup-settings .backup-grid{gap:12px}.backup-settings .backup-schedule-head{align-items:flex-start}}
  </style>
+ <div class="backup-settings">
  <div class="backup-alert"><b>Backup terenkripsi ke Google Drive.</b> PHP membutuhkan ekstensi cURL dan OpenSSL; snapshot mingguan/bulanan membutuhkan ZipArchive atau PharData. Database dibuat setiap 6 jam dan harian; snapshot database + file aplikasi dibuat mingguan dan bulanan. Hanya owner yang dapat membuka atau menjalankan fitur ini.</div>
  <?php if($bootstrapError!==''): ?><div class="backup-alert err"><b>Infrastruktur backup belum siap.</b><br><?=backup_h($bootstrapError)?><br><small>Halaman tetap dibuka agar penyebabnya dapat diperbaiki tanpa HTTP 500.</small></div><?php endif; ?>
  <div class="backup-grid">
@@ -27,13 +53,13 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
    <h3>Konfigurasi Google Drive</h3>
    <form method="post" action="<?=backup_h($postAction)?>"><?=$csrfHtml?><input type="hidden" name="backup_action" value="save_config">
     <div class="backup-form-grid">
-     <label>Aktifkan backup otomatis<br><input type="checkbox" name="enabled" value="1" <?=$svc->get('enabled','1')==='1'?'checked':''?>></label>
-     <label>Akun Google tujuan<input type="email" name="google_email" value="<?=backup_h($svc->get('google_email','adarwiyanto@gmail.com'))?>" required></label>
-     <label>Kode instalasi<input type="text" name="site_code" value="<?=backup_h($svc->get('site_code',$svc->appKey()))?>" required></label>
-     <label>Folder utama Drive<input type="text" name="drive_root" value="<?=backup_h($svc->get('drive_root','ADENA_AUTOMATED_BACKUP'))?>" required></label>
-     <label>Path PHP CLI cPanel<input type="text" name="php_cli_path" value="<?=backup_h($svc->get('php_cli_path',backup_default_php_cli_path()))?>" required><small class="backup-muted">PHP 8.4 cPanel umumnya: /opt/cpanel/ea-php84/root/usr/bin/php</small></label>
-     <label>Google OAuth Client ID<input type="text" name="oauth_client_id" value="<?=backup_h($svc->get('oauth_client_id',''))?>" autocomplete="off"></label>
-     <label>Google OAuth Client Secret<input type="password" name="oauth_client_secret" value="" placeholder="<?=$secretSaved?'Tersimpan — kosongkan bila tidak diubah':'Masukkan Client Secret'?>" autocomplete="new-password"></label>
+     <label class="backup-toggle"><input type="checkbox" name="enabled" value="1" <?=$svc->get('enabled','1')==='1'?'checked':''?>><span>Aktifkan backup otomatis</span></label>
+     <label class="backup-field">Akun Google tujuan<input type="email" name="google_email" value="<?=backup_h($svc->get('google_email','adarwiyanto@gmail.com'))?>" required></label>
+     <label class="backup-field">Kode instalasi<input type="text" name="site_code" value="<?=backup_h($svc->get('site_code',$svc->appKey()))?>" required></label>
+     <label class="backup-field">Folder utama Drive<input type="text" name="drive_root" value="<?=backup_h($svc->get('drive_root','ADENA_AUTOMATED_BACKUP'))?>" required></label>
+     <label class="backup-field">Path PHP CLI cPanel<input type="text" name="php_cli_path" value="<?=backup_h($svc->get('php_cli_path',backup_default_php_cli_path()))?>" required><small class="backup-muted">PHP 8.4 cPanel umumnya: /opt/cpanel/ea-php84/root/usr/bin/php</small></label>
+     <label class="backup-field">Google OAuth Client ID<input type="text" name="oauth_client_id" value="<?=backup_h($svc->get('oauth_client_id',''))?>" autocomplete="off"></label>
+     <label class="backup-field">Google OAuth Client Secret<input type="password" name="oauth_client_secret" value="" placeholder="<?=$secretSaved?'Tersimpan — kosongkan bila tidak diubah':'Masukkan Client Secret'?>" autocomplete="new-password"></label>
     </div>
     <p class="backup-muted">Authorized redirect URI yang harus dimasukkan di Google Cloud:</p><code class="backup-code"><?=backup_h($callbackUri)?></code>
     <?php foreach(['6hourly','daily','weekly','monthly'] as $sk): if($svc->get('schedule_'.$sk,'1')==='1'): ?><input type="hidden" name="schedule_<?=$sk?>" value="1"><?php endif; ?><input type="hidden" name="retention_<?=$sk?>_days" value="<?=backup_h($svc->get('retention_'.$sk.'_days','30'))?>"><?php endforeach; ?>
@@ -56,7 +82,7 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
     <?php foreach(['google_email','site_code','drive_root','php_cli_path','oauth_client_id'] as $hidden): ?><input type="hidden" name="<?=$hidden?>" value="<?=backup_h($svc->get($hidden,''))?>"><?php endforeach; ?><?php if($svc->get('enabled','1')==='1'): ?><input type="hidden" name="enabled" value="1"><?php endif; ?>
     <div class="backup-checks">
     <?php foreach(['6hourly'=>'Setiap 6 jam','daily'=>'Harian','weekly'=>'Mingguan','monthly'=>'Bulanan'] as $k=>$label): ?>
-     <label><input type="checkbox" name="schedule_<?=$k?>" value="1" <?=$svc->get('schedule_'.$k,'1')==='1'?'checked':''?>> <?=$label?><br><small>Retensi <input style="width:75px" type="number" min="1" max="3650" name="retention_<?=$k?>_days" value="<?=backup_h($svc->get('retention_'.$k.'_days','30'))?>"> hari</small></label>
+     <label class="backup-schedule"><span class="backup-schedule-head"><span><?=$label?></span><input type="checkbox" name="schedule_<?=$k?>" value="1" <?=$svc->get('schedule_'.$k,'1')==='1'?'checked':''?>></span><span class="backup-retention"><span>Retensi</span><input type="number" min="1" max="3650" name="retention_<?=$k?>_days" value="<?=backup_h($svc->get('retention_'.$k.'_days','30'))?>"><span>hari</span></span></label>
     <?php endforeach; ?>
     </div><p><button class="btn" type="submit">Simpan Jadwal</button></p>
    </form>
@@ -82,6 +108,7 @@ function backup_render_settings($svc,string $callbackUri,string $cronCommand,str
   <div class="backup-card" style="grid-column:1/-1"><h3>Riwayat Backup</h3><div style="overflow:auto"><table class="backup-table"><thead><tr><th>Waktu</th><th>Jenis</th><th>Status</th><th>File</th><th>Ukuran</th><th>Metode</th><th>Pesan</th></tr></thead><tbody>
   <?php foreach($jobs as $j): $cls=$j['status']==='success'?'ok':($j['status']==='failed'?'bad':'run'); ?><tr><td><?=backup_h($j['started_at']?:$j['created_at'])?></td><td><?=backup_h($j['backup_type'])?></td><td><span class="backup-status <?=$cls?>"><?=backup_h($j['status'])?></span></td><td><?=backup_h($j['filename']?:'-')?></td><td><?=backup_h(backup_bytes($j['bytes_size']??0))?></td><td><?=backup_h($j['dump_method']?:'-')?></td><td><?=backup_h($j['message']?:'-')?></td></tr><?php endforeach; ?>
   <?php if(!$jobs): ?><tr><td colspan="7">Belum ada riwayat backup.</td></tr><?php endif; ?></tbody></table></div></div>
+ </div>
  </div>
  <?php
 }
