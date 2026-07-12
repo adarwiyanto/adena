@@ -27,13 +27,8 @@ final class GoogleDriveBackupService {
     date_default_timezone_set($this->timezone);
     $this->getSetting=$cfg['get_setting'];
     $this->setSetting=$cfg['set_setting'];
-    try {
-      $this->ensurePrivatePath();
-      $this->ensureSchema();
-      $this->ensureDefaults();
-    } catch(Throwable $e) {
-      $this->bootstrapError=$e->getMessage();
-    }
+    // Membuka halaman setting tidak boleh menulis folder, tabel, atau setting.
+    // Inisialisasi hanya dilakukan melalui aksi eksplisit owner atau saat backup benar-benar berjalan.
   }
 
   public function get(string $key, $default=null) {
@@ -51,7 +46,7 @@ final class GoogleDriveBackupService {
   }
   public function diagnostics(): array {
     $out=[];
-    $out[]=['label'=>'Versi PHP','ok'=>version_compare(PHP_VERSION,'8.1.0','>='),'detail'=>PHP_VERSION.' (minimal 8.1)'];
+    $out[]=['label'=>'Versi PHP','ok'=>version_compare(PHP_VERSION,'8.0.0','>='),'detail'=>PHP_VERSION.' (minimal 8.0)'];
     $out[]=['label'=>'PDO MySQL','ok'=>extension_loaded('pdo_mysql'),'detail'=>extension_loaded('pdo_mysql')?'aktif':'tidak aktif'];
     $out[]=['label'=>'cURL','ok'=>function_exists('curl_init'),'detail'=>function_exists('curl_init')?'aktif':'tidak aktif'];
     $out[]=['label'=>'OpenSSL','ok'=>function_exists('openssl_encrypt') && in_array('aes-256-gcm',openssl_get_cipher_methods(),true),'detail'=>(function_exists('openssl_encrypt')?'aktif':'tidak aktif')];
@@ -117,6 +112,7 @@ final class GoogleDriveBackupService {
 
   public function saveConfiguration(array $input): void {
     $this->assertReady();
+    $this->ensurePrivatePath();
     $oldEmail=strtolower((string)$this->get('google_email',''));
     $oldClientId=(string)$this->get('oauth_client_id','');
     $wasConnected=$this->isConnected();
@@ -147,6 +143,7 @@ final class GoogleDriveBackupService {
   public function connectedEmail(): string { return (string)$this->get('connected_email',''); }
   public function recoveryKeyText(): string {
     $this->assertReady();
+    $this->ensurePrivatePath();
     $key=base64_encode($this->keyBytes());
     return "ADENA AUTOMATED BACKUP RECOVERY KEY\n".
       "App: {$this->appName}\n".
@@ -158,6 +155,7 @@ final class GoogleDriveBackupService {
 
   public function authorizationUrl(string $redirectUri,string $state): string {
     $this->assertReady();
+    $this->ensurePrivatePath();
     if(!$this->hasOAuthClient()) throw new RuntimeException('Client ID dan Client Secret Google belum disimpan.');
     $q=[
       'client_id'=>(string)$this->get('oauth_client_id',''), 'redirect_uri'=>$redirectUri, 'response_type'=>'code',
@@ -169,6 +167,7 @@ final class GoogleDriveBackupService {
 
   public function completeOAuth(string $code,string $redirectUri): array {
     $this->assertReady();
+    $this->ensurePrivatePath();
     $data=$this->httpForm('https://oauth2.googleapis.com/token',[
       'code'=>$code,'client_id'=>(string)$this->get('oauth_client_id',''),'client_secret'=>$this->oauthClientSecret(),
       'redirect_uri'=>$redirectUri,'grant_type'=>'authorization_code'
@@ -198,6 +197,7 @@ final class GoogleDriveBackupService {
 
   public function testConnection(): array {
     $this->assertReady();
+    $this->ensurePrivatePath();
     $token=$this->accessToken();
     $about=$this->driveJson('GET','https://www.googleapis.com/drive/v3/about?fields=user,storageQuota',$token);
     $folders=$this->ensureFolderTree($token);
@@ -209,6 +209,7 @@ final class GoogleDriveBackupService {
 
   public function accessToken(): string {
     $this->assertReady();
+    $this->ensurePrivatePath();
     $refresh=$this->refreshToken(); if($refresh==='') throw new RuntimeException('Google Drive belum terhubung.');
     $data=$this->httpForm('https://oauth2.googleapis.com/token',[
       'client_id'=>(string)$this->get('oauth_client_id',''),'client_secret'=>$this->oauthClientSecret(),
@@ -245,6 +246,7 @@ final class GoogleDriveBackupService {
 
   public function runBackup(string $type,string $initiatedBy='owner',?string $periodKey=null): array {
     $this->assertReady();
+    $this->ensurePrivatePath();
     if(!in_array($type,['6hourly','daily','weekly','monthly'],true)) throw new InvalidArgumentException('Tipe backup tidak valid.');
     if(!$this->isConnected()) throw new RuntimeException('Google Drive belum terhubung.');
     @set_time_limit(0); @ignore_user_abort(true);

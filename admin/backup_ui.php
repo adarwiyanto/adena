@@ -1,7 +1,7 @@
 <?php
 function backup_h($v): string { return htmlspecialchars((string)$v,ENT_QUOTES,'UTF-8'); }
 function backup_bytes($n): string { $n=(float)$n; foreach(['B','KB','MB','GB','TB'] as $u){ if($n<1024) return number_format($n,$n<10?2:1,',','.').' '.$u; $n/=1024; } return number_format($n,1,',','.').' PB'; }
-function backup_render_settings(GoogleDriveBackupService $svc,string $callbackUri,string $cronCommand,string $cronUrl,string $csrfHtml,string $postAction=''): void {
+function backup_render_settings($svc,string $callbackUri,string $cronCommand,string $cronUrl,string $csrfHtml,string $postAction=''): void {
  $connected=$svc->isConnected(); $jobs=$svc->recentJobs(30); $secretSaved=(string)$svc->get('oauth_client_secret','')!==''; $bootstrapError=$svc->bootstrapError(); $diagnostics=$svc->diagnostics();
  ?>
  <style>
