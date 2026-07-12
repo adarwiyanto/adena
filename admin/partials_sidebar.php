@@ -8,6 +8,7 @@ $u = current_user();
 ensure_rbac_schema();
 $resolvedRole = resolve_user_role(is_array($u) ? $u : []);
 $displayRole = (string)($resolvedRole['role_name'] ?? '');
+$financeKpiAllowed = in_array(strtolower((string)($resolvedRole['role_key'] ?? '')), ['owner','admin'], true);
 if ($displayRole === '') {
   $displayRole = (string)($resolvedRole['role_key'] ?? 'unknown');
 }
@@ -52,6 +53,21 @@ if ($apiPairingCanSee) {
 .api-global-notif{position:fixed;top:14px;right:18px;z-index:9999;font-family:inherit}.api-global-notif-btn{border:1px solid #dbeafe;background:#fff;color:#111827;border-radius:999px;min-width:42px;min-height:38px;padding:7px 10px;box-shadow:0 8px 22px rgba(15,23,42,.12);cursor:pointer}.api-global-notif-btn span{display:inline-block;margin-left:4px;background:#ef4444;color:#fff;border-radius:999px;font-size:11px;line-height:1;padding:3px 6px;font-weight:700}.api-global-notif-menu{display:none;position:absolute;right:0;top:44px;width:340px;max-width:88vw;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 20px 45px rgba(15,23,42,.18);overflow:hidden}.api-global-notif:hover .api-global-notif-menu,.api-global-notif:focus-within .api-global-notif-menu{display:block}.api-global-notif-head{padding:10px 12px;border-bottom:1px solid #eef2f7;font-weight:700}.api-global-notif-head b{color:#dc2626}.api-global-notif-item{display:block;padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#111827;text-decoration:none}.api-global-notif-item:hover{background:#f8fafc}.api-global-notif-item small{display:block;color:#64748b;margin-top:2px}.api-global-notif-empty{padding:12px;color:#64748b}.api-global-notif-open{display:block;padding:10px 12px;background:#6f4e37;color:#fff;text-align:center;text-decoration:none;font-weight:700}@media(max-width:760px){.api-global-notif{top:10px;right:10px}.api-global-notif-menu{width:310px}}
 </style>
 <?php endif; ?>
+<style>
+/* Nested system settings menu: scoped to the admin sidebar. */
+.sidebar .admin-nested-toggle{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin:4px 0 2px;padding:9px 10px;border:1px solid #e2e8f0;border-radius:10px;
+  background:#f8fafc;color:var(--text);font:inherit;font-size:14px;font-weight:700;
+  text-align:left;cursor:pointer;box-sizing:border-box;
+}
+.sidebar .admin-nested-toggle:hover,.sidebar .admin-nested-toggle.active{background:#eef6ff;border-color:#bfdbfe}
+.sidebar .admin-nested-chev{margin-left:auto;opacity:.6;transition:transform .18s ease}
+.sidebar .admin-nested-toggle[aria-expanded="true"] .admin-nested-chev{transform:rotate(180deg)}
+.sidebar .admin-nested-submenu{margin:4px 0 8px 12px;padding-left:8px;border-left:2px solid #dbeafe}
+.sidebar .admin-nested-submenu a{padding:8px 10px;font-size:13px}
+.sidebar.collapsed .admin-nested-toggle span,.sidebar.collapsed .admin-nested-submenu{display:none}
+</style>
 <div class="sidebar">
   <div class="sb-top">
     <div class="profile-card">
@@ -122,7 +138,7 @@ if ($apiPairingCanSee) {
         <?php if (has_menu_access($u, 'sales')): ?><a href="<?php echo e(base_url('admin/pos_shifts.php')); ?>">Laporan Shift POS</a><?php endif; ?>
         <?php if (has_menu_access($u, 'rekap_omset')): ?><a href="<?php echo e(base_url('admin/rekap_omset.php')); ?>">Rekap Omset</a><?php endif; ?>
         <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customers.php')); ?>">Pelanggan</a><?php endif; ?>
-        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><?php endif; ?>
+        <?php if (has_menu_access($u, 'purchase')): ?><a href="<?php echo e(base_url('admin/purchase_raw_material.php')); ?>">Pembelian Bahan Baku</a><a href="<?php echo e(base_url('admin/purchase_general.php')); ?>">Pembelian Umum</a><?php endif; ?>
         <?php if (has_menu_access($u, 'suppliers')): ?><a href="<?php echo e(base_url('admin/suppliers.php')); ?>">Master Supplier</a><?php endif; ?>
       </div>
     </div>
@@ -144,6 +160,23 @@ if ($apiPairingCanSee) {
       </div>
     <?php endif; ?>
 
+
+    <?php if ($financeKpiAllowed): ?>
+      <div class="item">
+        <button type="button" data-toggle-submenu="#m-keuangan">
+          <div class="mi">💰</div><div class="label">Keuangan</div>
+          <div class="chev">▾</div>
+        </button>
+        <div class="submenu" id="m-keuangan">
+          <a href="<?php echo e(base_url('admin/finance.php?tab=summary')); ?>">Ringkasan Keuangan</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=purchases')); ?>">Pembelian</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=expenses')); ?>">Pengeluaran</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=payments')); ?>">Permintaan Pembayaran</a>
+          <a href="<?php echo e(base_url('admin/finance.php?tab=settings')); ?>">Setting Jenis Pengeluaran</a>
+        </div>
+      </div>
+    <?php endif; ?>
+
     <?php if (has_menu_access($u, 'pos')): ?>
     <div class="item">
       <a href="<?php echo e(base_url('pos/index.php')); ?>" target="_blank" rel="noopener">
@@ -153,13 +186,24 @@ if ($apiPairingCanSee) {
     <?php endif; ?>
 
     <?php if (has_menu_access($u, 'users') || has_menu_access($u, 'settings') || has_menu_access($u, 'roles') || has_menu_access($u, 'customers')): ?>
+      <?php
+        $currentAdminPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
+        $systemSettingsPagesForAdmin = ['api_desktop.php', 'api_pairing.php', 'inventory_settings.php', 'backup.php'];
+        $adminSystemOpen = in_array($currentAdminPage, $systemSettingsPagesForAdmin, true);
+      ?>
       <div class="item">
-        <button type="button" data-toggle-submenu="#m-admin">
+        <button type="button" data-toggle-submenu="#m-admin" aria-controls="m-admin" aria-expanded="<?php echo $adminSystemOpen ? 'true' : 'false'; ?>">
           <div class="mi">⚙️</div><div class="label">Admin</div>
           <div class="chev">▾</div>
         </button>
-        <div class="submenu" id="m-admin">
+        <div class="submenu<?php echo $adminSystemOpen ? ' open' : ''; ?>" id="m-admin">
           <?php if (has_menu_access($u, 'customers')): ?><a href="<?php echo e(base_url('admin/customer_recap.php')); ?>">Rekapitulasi Pelanggan</a><?php endif; ?>
+          <?php if ($financeKpiAllowed): ?>
+            <div style="padding:8px 14px 4px;font-size:11px;font-weight:800;letter-spacing:.06em;color:#94a3b8;text-transform:uppercase">KPI</div>
+            <a href="<?php echo e(base_url('admin/kpi.php?tab=input')); ?>">↳ Pengisian KPI</a>
+            <a href="<?php echo e(base_url('admin/kpi.php?tab=settings')); ?>">↳ Setting KPI</a>
+          <?php endif; ?>
+
           <?php if (has_menu_access($u, 'users')): ?><a href="<?php echo e(base_url('admin/users.php')); ?>">User</a><?php endif; ?>
           <?php if (current_user_is_owner() || has_menu_access($u, 'roles')): ?>
             <a href="<?php echo e(base_url('admin/roles.php')); ?>">Role & Permission</a>
@@ -169,11 +213,26 @@ if ($apiPairingCanSee) {
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/loyalty.php')); ?>">Loyalti Point</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/payment_methods.php')); ?>">Metode Pembayaran</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/guides.php')); ?>">Daftar Guide</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">API &amp; Integrasi</a><?php endif; ?>
-          <?php if ($apiPairingCanSee): ?><a href="<?php echo e(base_url('admin/api_pairing.php')); ?>">Request API / Pairing</a><?php endif; ?>
-          <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
-          <?php if (current_user_is_owner()): ?>
-            <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
+          <?php
+            $systemSettingsVisible = has_menu_access($u, 'settings') || $apiPairingCanSee || current_user_is_owner();
+            $systemSettingsPages = ['api_desktop.php', 'api_pairing.php', 'inventory_settings.php', 'backup.php'];
+            $systemSettingsOpen = in_array(basename((string)($_SERVER['PHP_SELF'] ?? '')), $systemSettingsPages, true);
+          ?>
+          <?php if ($systemSettingsVisible): ?>
+            <button
+              class="admin-nested-toggle<?php echo $systemSettingsOpen ? ' active' : ''; ?>"
+              type="button"
+              data-toggle-submenu="#m-system-settings"
+              aria-controls="m-system-settings"
+              aria-expanded="<?php echo $systemSettingsOpen ? 'true' : 'false'; ?>">
+              <span>Setting System</span><span class="admin-nested-chev">▾</span>
+            </button>
+            <div class="submenu admin-nested-submenu<?php echo $systemSettingsOpen ? ' open' : ''; ?>" id="m-system-settings">
+              <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">API &amp; Integrasi</a><?php endif; ?>
+              <?php if ($apiPairingCanSee): ?><a href="<?php echo e(base_url('admin/api_pairing.php')); ?>">Pairing Back Office</a><?php endif; ?>
+              <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
+              <?php if (current_user_is_owner()): ?><a href="<?php echo e(base_url('admin/backup.php')); ?>">Setting Backup Google Drive</a><?php endif; ?>
+            </div>
           <?php endif; ?>
         </div>
       </div>

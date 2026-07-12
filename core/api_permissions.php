@@ -25,6 +25,10 @@ function api_permission_catalog(): array {
     'stock_return' => ['group' => 'API Dapur', 'label' => 'Pengembalian stok dari toko ke dapur'],
     'users.view' => ['group' => 'User', 'label' => 'Lihat user'],
     'users.sync' => ['group' => 'User', 'label' => 'Sinkron user'],
+    'kpi.read' => ['group' => 'KPI', 'label' => 'Lihat KPI pegawai toko'],
+    'expenses.read' => ['group' => 'Keuangan', 'label' => 'Lihat pengeluaran'],
+    'payment_requests.read' => ['group' => 'Keuangan', 'label' => 'Lihat permintaan pembayaran'],
+    'financial.read' => ['group' => 'Keuangan', 'label' => 'Lihat ringkasan keuangan'],
     'logs.view' => ['group' => 'Log API', 'label' => 'Lihat log API'],
   ];
 }
@@ -53,7 +57,7 @@ function api_default_permissions(string $type): array {
   }
   if (in_array($type, ['backoffice','admin_rw','admin'], true)) {
     // Back Office diperlakukan seperti admin operasional: read/write data operasional, user hanya view; bukan owner/superadmin.
-    return ['master.view','categories.view','categories.import','categories.edit','products.view','products.import','products.edit','sales.view','sales.push','purchases.view','purchases.push','stocks.view','stocks.adjust','stocks.opname','transfers.view','transfers.create','transfers.receive','users.view','logs.view'];
+    return ['master.view','categories.view','categories.import','categories.edit','products.view','products.import','products.edit','sales.view','sales.push','purchases.view','purchases.push','stocks.view','stocks.adjust','stocks.opname','transfers.view','transfers.create','transfers.receive','users.view','kpi.read','expenses.read','payment_requests.read','financial.read','logs.view'];
   }
   if (in_array($type, ['external','situs_lain','readonly','read_only'], true)) {
     // Situs lain hanya lihat. Tidak ada push/edit/transfer/adjustment.

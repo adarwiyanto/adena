@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS backup_jobs (
+ id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+ backup_type VARCHAR(30) NOT NULL,
+ period_key VARCHAR(80) NOT NULL,
+ status VARCHAR(30) NOT NULL DEFAULT 'queued',
+ filename VARCHAR(255) NULL,
+ bytes_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+ sha256 CHAR(64) NULL,
+ drive_file_id VARCHAR(160) NULL,
+ drive_folder_id VARCHAR(160) NULL,
+ dump_method VARCHAR(30) NULL,
+ initiated_by VARCHAR(80) NULL,
+ attempt_count INT NOT NULL DEFAULT 0,
+ message TEXT NULL,
+ started_at DATETIME NULL,
+ finished_at DATETIME NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updated_at DATETIME NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+ PRIMARY KEY(id), UNIQUE KEY uq_backup_period(backup_type,period_key), KEY idx_backup_status(status,created_at), KEY idx_backup_created(created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

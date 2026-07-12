@@ -1,0 +1,5 @@
+<?php
+$backupRoot=__DIR__;require_once $backupRoot.'/core/backup_safe.php';backup_safe_register($backupRoot,'ADENA backup cron','json');
+$cli=PHP_SAPI==='cli';if(!$cli&&trim((string)($_GET['key']??''))===''){http_response_code(403);header('Content-Type: application/json; charset=utf-8');echo json_encode(array('ok'=>false,'error'=>'Forbidden'));backup_safe_finish();exit;}
+try{require_once $backupRoot.'/core/backup_adapter.php';$svc=adena_backup_service();$key=(string)($_GET['key']??'');if(!$cli&&!hash_equals((string)$svc->get('cron_secret',''),$key)){http_response_code(403);throw new RuntimeException('Forbidden');}header('Content-Type: application/json; charset=utf-8');$r=$svc->runDue();echo json_encode(array('ok'=>true,'result'=>$r),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);}
+catch(Throwable $e){backup_safe_write_log($backupRoot,'ADENA backup cron',backup_safe_error_text($e),$e);if(!headers_sent()){http_response_code(500);header('Content-Type: application/json; charset=utf-8');}echo json_encode(array('ok'=>false,'error'=>$cli?backup_safe_error_text($e):'Backup gagal. Periksa backup-error.log.'),JSON_UNESCAPED_UNICODE);}backup_safe_finish();

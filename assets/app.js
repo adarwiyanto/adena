@@ -149,7 +149,8 @@
       const sel = b.getAttribute('data-toggle-submenu');
       const target = sel ? document.querySelector(sel) : null;
       if (!target) return;
-      target.classList.toggle('open');
+      const isOpen = target.classList.toggle('open');
+      b.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     });
   });
 })();
