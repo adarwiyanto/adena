@@ -197,7 +197,7 @@ if ($apiPairingCanSee) {
           <?php if ($apiPairingCanSee): ?><a href="<?php echo e(base_url('admin/api_pairing.php')); ?>">Pairing Back Office</a><?php endif; ?>
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
           <?php if (current_user_is_owner()): ?>
-            <a href="<?php echo e(base_url('admin/backup.php')); ?>">Backup Database</a>
+            <a href="<?php echo e(base_url('admin/backup.php')); ?>">Setting Backup Google Drive</a>
           <?php endif; ?>
         </div>
       </div>
