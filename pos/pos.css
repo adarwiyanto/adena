@@ -161,14 +161,25 @@
   font-weight:700;
 }
 .pos-bypass-form{
-  margin-top:6px;
+  margin-top:4px;
+  line-height:1;
 }
 .pos-bypass-toggle{
-  font-size:12px;
+  font-size:10px;
   color:var(--muted);
   display:inline-flex;
   align-items:center;
-  gap:6px;
+  gap:4px;
+  padding:2px 5px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  cursor:pointer;
+  user-select:none;
+}
+.pos-bypass-toggle input[type="checkbox"]{
+  width:12px;
+  height:12px;
+  margin:0;
 }
 .pos-qty-static{
   display:flex;
