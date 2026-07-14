@@ -841,3 +841,5 @@
   color:#166534;
 }
 .pos-cash-change.negative{color:#b91c1c}
+
+.pos-customer-card{display:grid;gap:8px;padding:12px;margin-bottom:12px;border:1px solid rgba(0,0,0,.12);border-radius:10px;background:#fff}.pos-customer-card input,.pos-customer-card select{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px}.pos-customer-status{font-size:.8rem;color:#64748b}.pos-customer-status.is-found{color:#15803d;font-weight:600}.pos-customer-status.is-new{color:#b45309}

@@ -118,10 +118,24 @@ try {
           }
         }
 
+        $customerName = trim((string)($payload['customer_name'] ?? ''));
+        $customerPhone = preg_replace('/\D+/', '', (string)($payload['customer_phone'] ?? '')) ?? '';
+        if ($customerPhone !== '' && str_starts_with($customerPhone, '0')) $customerPhone = '62' . substr($customerPhone, 1);
+        elseif ($customerPhone !== '' && !str_starts_with($customerPhone, '62')) $customerPhone = '62' . $customerPhone;
+        $customerGender = (string)($payload['customer_gender'] ?? '');
+        if (!in_array($customerGender, ['', 'male', 'female'], true)) $customerGender = '';
+        $customerId = null;
+        if ($customerPhone !== '') {
+          if ($customerName === '') throw new Exception('Nama pelanggan wajib diisi.');
+          $findCustomer = db()->prepare('SELECT id,name FROM customers WHERE phone=? LIMIT 1');
+          $findCustomer->execute([$customerPhone]); $existingCustomer=$findCustomer->fetch();
+          if ($existingCustomer) { $customerId=(int)$existingCustomer['id']; $customerName=(string)$existingCustomer['name']; }
+          else { $newCustomer=db()->prepare('INSERT INTO customers (name,phone,gender) VALUES (?,?,?)'); $newCustomer->execute([$customerName,$customerPhone,$customerGender ?: null]); $customerId=(int)db()->lastInsertId(); }
+        }
         $db = db();
         $db->beginTransaction();
-        $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, created_by, branch_id, shift_id)
-          VALUES (?,?,?,'synced',?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?)");
+        $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, customer_id, customer_name, customer_phone, created_by, branch_id, shift_id)
+          VALUES (?,?,?,'synced',?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         $firstId = 0;
         foreach ($itemsPayload as $i => $s) {
           $pid = (int)($s['product_id'] ?? 0);
@@ -130,7 +144,7 @@ try {
           if ($pid <= 0 || $qty <= 0) continue;
           $total = $price * $qty;
           $rowOffline = $i === 0 ? $offlineUuid : null;
-          $stmt->execute([$transactionCode, $groupUuid, $rowOffline, $transactionCode, $pid, $qty, $price, $total, $paymentMethod, null, $paymentBank, (int)$me['id'], $branchId, (int)$active['id']]);
+          $stmt->execute([$transactionCode, $groupUuid, $rowOffline, $transactionCode, $pid, $qty, $price, $total, $paymentMethod, null, $paymentBank, $customerId, $customerName ?: null, $customerPhone ?: null, (int)$me['id'], $branchId, (int)$active['id']]);
           $saleId = (int)$db->lastInsertId();
           if ($firstId <= 0) $firstId = $saleId;
           try {

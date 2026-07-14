@@ -19,6 +19,16 @@ if (!function_exists('pos_safe_branch_id')) {
   }
 }
 
+if (!function_exists('pos_normalize_customer_phone')) {
+  function pos_normalize_customer_phone(string $phone): string {
+    $digits = preg_replace('/\D+/', '', $phone) ?? '';
+    if ($digits === '') return '';
+    if (str_starts_with($digits, '0')) $digits = '62' . substr($digits, 1);
+    elseif (!str_starts_with($digits, '62')) $digits = '62' . $digits;
+    return $digits;
+  }
+}
+
 start_secure_session();
 require_login();
 ensure_landing_order_tables();
@@ -340,6 +350,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $cashChange = $cashReceived - $expectedFinalTotal;
       }
+      $customerName = trim((string)($_POST['customer_name'] ?? ''));
+      $customerPhone = pos_normalize_customer_phone((string)($_POST['customer_phone'] ?? ''));
+      $customerGender = trim((string)($_POST['customer_gender'] ?? ''));
+      if (!in_array($customerGender, ['', 'male', 'female'], true)) $customerGender = '';
+      $customerId = null;
+      if ($customerPhone !== '') {
+        if ($customerName === '') throw new Exception('Nama pelanggan wajib diisi untuk nomor HP baru.');
+        $lookup = db()->prepare("SELECT id, name, gender FROM customers WHERE phone=? LIMIT 1");
+        $lookup->execute([$customerPhone]);
+        $existingCustomer = $lookup->fetch();
+        if ($existingCustomer) {
+          $customerId = (int)$existingCustomer['id'];
+          $customerName = (string)$existingCustomer['name'];
+          $customerGender = (string)($existingCustomer['gender'] ?? $customerGender);
+        } else {
+          $createCustomer = db()->prepare("INSERT INTO customers (name, phone, gender) VALUES (?,?,?)");
+          $createCustomer->execute([$customerName, $customerPhone, $customerGender !== '' ? $customerGender : null]);
+          $customerId = (int)db()->lastInsertId();
+        }
+      }
       $db = db();
       $db->beginTransaction();
       $branchId = pos_safe_branch_id();
@@ -349,7 +379,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $transactionGroupUuid = 'GRP-' . date('YmdHis') . '-' . strtoupper(bin2hex(random_bytes(4)));
       }
       $offlineUuid = trim((string)($_POST['offline_uuid'] ?? ''));
-      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, guide_name, discount_amount, discount_type, tx_discount_amount, tx_discount_type, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, guide_name, discount_amount, discount_type, tx_discount_amount, tx_discount_type, customer_id, customer_name, customer_phone, created_by, shift_id) VALUES (?,?,?, ?, ?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
       $receiptItems = [];
       $receiptTotal = 0.0;
       $autoProductionIds = [];
@@ -1140,6 +1170,17 @@ if (!empty($rewardCart)) {
                   <input type="hidden" name="action" value="checkout">
                   <input type="hidden" name="offline_uuid" value="">
                   <input type="hidden" name="transaction_group_uuid" value="">
+                  <div class="pos-customer-card">
+                    <label for="pos-customer-phone">Pelanggan / Membership</label>
+                    <input id="pos-customer-phone" type="tel" name="customer_phone" autocomplete="tel" placeholder="Nomor HP pelanggan">
+                    <div id="pos-customer-status" class="pos-customer-status">Masukkan nomor HP untuk mengecek membership.</div>
+                    <input id="pos-customer-name" type="text" name="customer_name" autocomplete="name" placeholder="Nama pelanggan">
+                    <select id="pos-customer-gender" name="customer_gender">
+                      <option value="">Jenis kelamin</option>
+                      <option value="male">Laki-laki</option>
+                      <option value="female">Perempuan</option>
+                    </select>
+                  </div>
                   <div class="pos-guide">
                     <label for="pos-guide-name">Nama Guide <small style="font-weight:400;opacity:.7">(opsional)</small></label>
                     <input id="pos-guide-name" type="text" name="guide_name" list="pos-guide-list" autocomplete="off" placeholder="Ketik atau pilih nama guide..." maxlength="100">
@@ -1243,6 +1284,8 @@ if (!empty($rewardCart)) {
       csrf: <?php echo json_encode(csrf_token()); ?>,
       shiftApiUrl: <?php echo json_encode(base_url('pos/shift_api.php')); ?>,
       syncUrl: <?php echo json_encode(base_url('pos/sync.php')); ?>,
+      customerLookupUrl: <?php echo json_encode(base_url('pos/customer_lookup.php')); ?>,
+      serviceWorkerUrl: <?php echo json_encode(base_url('pos/service-worker.js')); ?>,
       userName: <?php echo json_encode($me['name'] ?? 'Kasir'); ?>,
       isShiftAdmin: <?php echo $isShiftAdmin ? 'true' : 'false'; ?>,
       hasActiveShift: <?php echo $activeShift ? 'true' : 'false'; ?>,
@@ -1257,5 +1300,6 @@ if (!empty($rewardCart)) {
   </script>
   <script defer src="<?php echo e(asset_url('pos/offline-sync.js')); ?>"></script>
   <script defer src="<?php echo e(asset_url('pos/pos.js')); ?>"></script>
+  <script nonce="<?php echo e(csp_nonce()); ?>">if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register(window.POS_RUNTIME.serviceWorkerUrl).catch(function(){}); }); }</script>
 </body>
 </html>
