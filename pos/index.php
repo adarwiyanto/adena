@@ -1021,6 +1021,7 @@ if (!empty($rewardCart)) {
               </div>
               <div class="pos-cart-count"><?php echo e((string)$cartCount); ?> item</div>
             </div>
+            <div class="pos-cart-scroll">
             <?php if (!empty($activeOrder)): ?>
               <div class="pos-order-banner">
                 Pesanan: <strong><?php echo e($activeOrder['order_code']); ?></strong><br>
@@ -1234,6 +1235,7 @@ if (!empty($rewardCart)) {
                 </form>
               </div>
             <?php endif; ?>
+            </div>
           </aside>
         </div>
       <?php endif; ?>

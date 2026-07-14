@@ -436,6 +436,13 @@
   gap:12px;
 }
 
+.pos-cart-scroll{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-width:0;
+}
+
 .pos-cart-count{
   background:#e0f2fe;
   color:#0369a1;
@@ -746,14 +753,28 @@
     overflow:hidden;
   }
 
-  .pos-cart-items{
-    overflow-y:auto;
+  .pos-cart-header{
+    flex:0 0 auto;
+  }
+
+  .pos-cart-scroll{
     flex:1 1 auto;
     min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    padding-right:4px;
+    overscroll-behavior:contain;
+    scrollbar-gutter:stable;
+  }
+
+  .pos-cart-items{
+    flex:0 0 auto;
+    overflow:visible;
   }
 
   .pos-summary{
     flex:0 0 auto;
+    margin-top:0;
   }
 }
 
