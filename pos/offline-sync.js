@@ -120,6 +120,16 @@
       throw new Error('Pilih bank terlebih dahulu.');
     }
 
+    const customerPhoneInput = form.querySelector('[name="customer_phone"]');
+    const customerNameInput = form.querySelector('[name="customer_name"]');
+    const customerGenderInput = form.querySelector('[name="customer_gender"]');
+    let customerPhone = customerPhoneInput ? String(customerPhoneInput.value || '').replace(/\D+/g, '') : '';
+    if (customerPhone.startsWith('0')) customerPhone = '62' + customerPhone.slice(1);
+    else if (customerPhone && !customerPhone.startsWith('62')) customerPhone = '62' + customerPhone;
+    const customerName = customerNameInput ? String(customerNameInput.value || '').trim() : '';
+    const customerGender = customerGenderInput ? String(customerGenderInput.value || '') : '';
+    if (customerPhone && !customerName) throw new Error('Nama pelanggan wajib diisi untuk nomor HP baru.');
+
     const transactionCode = 'TRX-LOCAL-' + Date.now();
     const paymentLabel = bankRequiredMethods.has(paymentMethod) && paymentBank !== ''
       ? paymentMethod.toUpperCase() + ' - ' + paymentBank
@@ -144,6 +154,9 @@
       transaction_group_uuid: txUuid,
       payment_method: paymentMethod,
       payment_bank: paymentBank,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      customer_gender: customerGender,
       items: cartItems,
     });
 

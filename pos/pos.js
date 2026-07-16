@@ -274,3 +274,15 @@ document.addEventListener('DOMContentLoaded', () => {
   input.addEventListener('input', filterProducts);
   filterProducts();
 });
+
+(function(){
+  const normalizePhone=(v)=>{let d=String(v||'').replace(/\D+/g,'');if(!d)return '';if(d.startsWith('0'))d='62'+d.slice(1);else if(!d.startsWith('62'))d='62'+d;return d;};
+  document.addEventListener('DOMContentLoaded',()=>{
+    const phone=document.getElementById('pos-customer-phone'),name=document.getElementById('pos-customer-name'),gender=document.getElementById('pos-customer-gender'),status=document.getElementById('pos-customer-status'); if(!phone)return; let timer;
+    const setStatus=(text,cls)=>{status.textContent=text;status.className='pos-customer-status '+(cls||'');};
+    phone.addEventListener('input',()=>{clearTimeout(timer);const normalized=normalizePhone(phone.value);phone.dataset.normalized=normalized;if(normalized.length<9){setStatus('Masukkan nomor HP untuk mengecek membership.');return;} timer=setTimeout(async()=>{
+      const cache=JSON.parse(localStorage.getItem('pos_customer_cache_v1')||'{}');
+      try{if(!navigator.onLine)throw new Error('offline');const r=await fetch(window.POS_RUNTIME.customerLookupUrl+'?phone='+encodeURIComponent(normalized),{headers:{'X-Requested-With':'XMLHttpRequest'}});const b=await r.json();if(b.found){name.value=b.customer.name||'';gender.value=b.customer.gender||'';cache[normalized]=b.customer;localStorage.setItem('pos_customer_cache_v1',JSON.stringify(cache));setStatus('Membership ditemukan: '+(b.customer.name||''),'is-found');}else{setStatus('Nomor belum terdaftar. Isi nama dan jenis kelamin.','is-new');}}catch(e){const c=cache[normalized];if(c){name.value=c.name||'';gender.value=c.gender||'';setStatus('Membership ditemukan dari cache offline: '+(c.name||''),'is-found');}else setStatus('Offline: nomor belum ada di cache perangkat.','is-new');}
+    },350);});
+  });
+})();
