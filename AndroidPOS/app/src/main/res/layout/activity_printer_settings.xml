@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvCurrentPrinter"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:text="@string/printer_status_not_selected"
+        android:paddingBottom="8dp" />
+
+    <TextView
+        android:id="@+id/tvBluetoothStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Bluetooth: -" />
+
+    <TextView
+        android:id="@+id/tvPermissionStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Izin Bluetooth: -" />
+
+    <TextView
+        android:id="@+id/tvPairedCount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="8dp"
+        android:text="Paired devices: 0" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnReconnect"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Reconnect" />
+
+        <Button
+            android:id="@+id/btnTestPrint"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Test Print" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Perangkat Bluetooth Paired"
+        android:paddingTop="12dp"
+        android:paddingBottom="6dp"
+        android:textStyle="bold" />
+
+    <ListView
+        android:id="@+id/listPaired"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <TextView
+        android:id="@+id/tvEmptyState"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="8dp"
+        android:text="Belum ada perangkat Bluetooth yang ter-pair." />
+
+</LinearLayout>

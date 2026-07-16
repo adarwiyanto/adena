@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Adena POS</string>
+    <string name="printer_status_not_selected">Printer: belum dipilih</string>
+    <string name="kiosk_device_admin_description">Mengunci tablet ke aplikasi Adena saat mode kiosk aktif.</string>
+</resources>
