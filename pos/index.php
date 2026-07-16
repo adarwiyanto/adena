@@ -53,6 +53,7 @@ ensure_rbac_schema();
 $me = require_menu_access('pos', 'view');
 $isOwner = ((string)(resolve_user_role($me)['role_key'] ?? '') === 'owner');
 $resolvedRoleKey = (string)(resolve_user_role($me)['role_key'] ?? '');
+$adminLandingUrl = resolve_default_landing_page_for_user($me);
 $isShiftAdmin = has_menu_access($me, 'shift', 'create');
 $branchId = pos_safe_branch_id();
 $activeShift = null;
@@ -827,6 +828,7 @@ if (!empty($rewardCart)) {
           <div class="pos-user-chevron">▾</div>
         </button>
         <div class="pos-user-dropdown submenu" id="pos-user-menu">
+          <a href="<?php echo e($adminLandingUrl); ?>" class="pos-admin-link">Masuk ke Halaman Admin</a>
           <a href="<?php echo e(base_url('pos/history.php')); ?>">Riwayat Transaksi</a>
           <a href="<?php echo e(base_url('profile.php')); ?>">Edit Profil</a>
           <a href="<?php echo e(base_url('password.php')); ?>">Ubah Password</a>
@@ -985,7 +987,7 @@ if (!empty($rewardCart)) {
             </div>
             <div class="pos-products-grid">
               <?php foreach ($products as $p): ?>
-                <div class="pos-product-card" data-name="<?php echo e(strtolower($p['name'])); ?>">
+                <div class="pos-product-card" data-name="<?php echo e(strtolower($p['name'])); ?>" data-product-id="<?php echo e((string)$p['id']); ?>" data-product-title="<?php echo e($p['name']); ?>" data-product-price="<?php echo e((string)(float)$p['price']); ?>">
                   <div class="pos-product-thumb">
                     <?php if (!empty($p['image_path'])): ?>
                       <img src="<?php echo e(upload_url($p['image_path'], 'image')); ?>" alt="<?php echo e($p['name']); ?>">
@@ -1019,7 +1021,7 @@ if (!empty($rewardCart)) {
                 <h3>Keranjang</h3>
                 <small>Ringkasan transaksi.</small>
               </div>
-              <div class="pos-cart-count"><?php echo e((string)$cartCount); ?> item</div>
+              <div class="pos-cart-count" data-local-cart-count><?php echo e((string)$cartCount); ?> item</div>
             </div>
             <div class="pos-cart-scroll">
             <?php if (!empty($activeOrder)): ?>
@@ -1049,13 +1051,11 @@ if (!empty($rewardCart)) {
               <?php endif; ?>
             <?php endif; ?>
 
-            <?php if (empty($cartItems)): ?>
-              <div class="pos-empty-cart">
-                <p><strong>Keranjang masih kosong.</strong></p>
-                <small>Tambahkan produk dari daftar di kiri.</small>
-              </div>
-            <?php else: ?>
-              <div class="pos-cart-items">
+            <div class="pos-empty-cart" data-local-cart-empty <?php echo empty($cartItems) ? '' : 'hidden'; ?>>
+              <p><strong>Keranjang masih kosong.</strong></p>
+              <small>Tambahkan produk dari daftar di kiri.</small>
+            </div>
+            <div class="pos-cart-items" data-local-cart-items <?php echo empty($cartItems) ? 'hidden' : ''; ?>>
                 <?php foreach ($cartItems as $item): ?>
                   <div class="pos-cart-item<?php echo !empty($item['is_reward']) ? ' pos-cart-item-reward' : ''; ?>">
                     <div class="pos-cart-item-head">
@@ -1156,10 +1156,10 @@ if (!empty($rewardCart)) {
                 <?php endforeach; ?>
               </div>
 
-              <div class="pos-summary">
+              <div class="pos-summary" data-local-cart-summary <?php echo empty($cartItems) ? 'hidden' : ''; ?>>
                 <div class="pos-summary-row">
                   <span>Total</span>
-                  <strong>Rp <?php echo e(format_number_id($total)); ?></strong>
+                  <strong data-local-cart-total>Rp <?php echo e(format_number_id($total)); ?></strong>
                 </div>
                 <form method="post" class="pos-new-transaction-form">
                   <input type="hidden" name="_csrf" value="<?php echo e(csrf_token()); ?>">
@@ -1234,7 +1234,6 @@ if (!empty($rewardCart)) {
                   <button class="btn pos-checkout" type="submit">Checkout</button>
                 </form>
               </div>
-            <?php endif; ?>
             </div>
           </aside>
         </div>
@@ -1286,6 +1285,8 @@ if (!empty($rewardCart)) {
       csrf: <?php echo json_encode(csrf_token()); ?>,
       shiftApiUrl: <?php echo json_encode(base_url('pos/shift_api.php')); ?>,
       syncUrl: <?php echo json_encode(base_url('pos/sync.php')); ?>,
+      cartStateUrl: <?php echo json_encode(base_url('pos/cart_state.php')); ?>,
+      cartStorageKey: <?php echo json_encode('adena_pos_cart_v2_u' . (int)($me['id'] ?? 0) . '_b' . $branchId); ?>,
       customerLookupUrl: <?php echo json_encode(base_url('pos/customer_lookup.php')); ?>,
       serviceWorkerUrl: <?php echo json_encode(base_url('pos/service-worker.js')); ?>,
       userName: <?php echo json_encode($me['name'] ?? 'Kasir'); ?>,
@@ -1297,10 +1298,12 @@ if (!empty($rewardCart)) {
     window.POS_STATE = {
       cartItems: <?php echo json_encode($cartItems); ?>,
       productNames: <?php echo json_encode(array_map(fn($p) => $p['name'], $productsById)); ?>,
+      products: <?php echo json_encode(array_values(array_map(fn($p) => ['id'=>(int)$p['id'],'name'=>$p['name'],'price'=>(float)$p['price']], $products))); ?>,
       activeShiftId: <?php echo json_encode($activeShift ? (int)$activeShift['id'] : null); ?>
     };
   </script>
   <script defer src="<?php echo e(asset_url('pos/offline-sync.js')); ?>"></script>
+  <script defer src="<?php echo e(asset_url('pos/local-cart.js')); ?>"></script>
   <script defer src="<?php echo e(asset_url('pos/pos.js')); ?>"></script>
   <script nonce="<?php echo e(csp_nonce()); ?>">if ('serviceWorker' in navigator) { window.addEventListener('load', function(){ navigator.serviceWorker.register(window.POS_RUNTIME.serviceWorkerUrl).catch(function(){}); }); }</script>
 </body>
