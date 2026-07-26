@@ -190,6 +190,6 @@
     updateIndicators();
     setInterval(() => {
       if (navigator.onLine) syncNow();
-    }, 15000);
+    }, 60000);
   });
 })();

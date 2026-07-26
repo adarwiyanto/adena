@@ -270,11 +270,6 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 updateCurrentUrlSnapshot(url, "onPageFinished")
 
-                if (shouldRedirectToPos(url)) {
-                    view.loadUrl(POS_URL)
-                    return
-                }
-
                 if (isTrustedUrl(url)) {
                     view.evaluateJavascript(
                         "window.AdenaAndroidBridgeInfo={ready:true,name:'AndroidBridge',host:'$TRUSTED_HOST'};",
@@ -834,13 +829,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun shouldRedirectToPos(url: String): Boolean {
-        val parsed = Uri.parse(url)
-        val host = parsed.host ?: return false
-        val path = parsed.path ?: return false
-        if (host != TRUSTED_HOST) return false
-        return path.startsWith("/admin") || path.startsWith("/dashboard")
-    }
 
     private fun isTrustedUrl(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
@@ -960,7 +948,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val LOGIN_URL = "https://adena.co.id/adm.php"
-        private const val POS_URL = "https://adena.co.id/pos/index.php"
         private const val TRUSTED_HOST = "adena.co.id"
         private const val STATE_CURRENT_URL = "adena_current_url"
         private const val MAX_UPLOAD_IMAGE_BYTES = 1 * 1024 * 1024
