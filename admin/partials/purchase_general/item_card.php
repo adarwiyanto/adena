@@ -50,7 +50,7 @@ $type = (string)($item['type'] ?? 'product');
       <input name="items[<?php echo e($index); ?>][guide_name_manual]" value="<?php echo e((string)($item['guide_name_manual'] ?? '')); ?>" placeholder="Isi bila tidak ada di daftar">
     </label>
 
-    <label class="pg-field pg-span-8" data-show-for="electricity guide office_supplies kitchen_project service transport maintenance other">
+    <label class="pg-field pg-span-8 pg-description-field" data-show-for="electricity guide office_supplies kitchen_project service transport maintenance other">
       <span>Nama / Uraian</span>
       <input name="items[<?php echo e($index); ?>][description]" value="<?php echo e((string)($item['description'] ?? '')); ?>" placeholder="Contoh: Komisi Guide / tagihan listrik Juli / kertas A4 / perbaikan exhaust" data-description>
     </label>
@@ -60,27 +60,27 @@ $type = (string)($item['type'] ?? 'product');
       <input name="items[<?php echo e($index); ?>][qty]" type="number" min="0.0001" step="0.0001" value="<?php echo e((string)($item['qty'] ?? '1')); ?>" data-qty required>
     </label>
 
-    <label class="pg-field pg-span-4">
-      <span>Harga / Nominal</span>
+    <label class="pg-field pg-span-5">
+      <span>Harga / Nominal Satuan</span>
       <input name="items[<?php echo e($index); ?>][unit_cost]" type="number" min="0.01" step="0.01" value="<?php echo e((string)($item['unit_cost'] ?? '')); ?>" placeholder="0" data-unit-cost required>
     </label>
 
-    <div class="pg-field pg-span-2 pg-line-total">
-      <span>Total Item</span>
+    <div class="pg-field pg-span-5 pg-line-total">
+      <span>Subtotal Item</span>
       <strong data-line-total>Rp0</strong>
     </div>
 
-    <label class="pg-field pg-span-4" data-show-for="electricity">
+    <label class="pg-field pg-span-3 pg-period-field" data-show-for="electricity">
       <span>Periode Tagihan</span>
       <input name="items[<?php echo e($index); ?>][period]" value="<?php echo e((string)($item['period'] ?? '')); ?>" placeholder="Contoh: Juli 2026">
     </label>
 
-    <label class="pg-field pg-span-4" data-show-for="electricity">
+    <label class="pg-field pg-span-3 pg-customer-field" data-show-for="electricity">
       <span>Nomor Pelanggan</span>
       <input name="items[<?php echo e($index); ?>][customer_no]" value="<?php echo e((string)($item['customer_no'] ?? '')); ?>" placeholder="ID pelanggan / meter">
     </label>
 
-    <label class="pg-field pg-span-4" data-show-for="electricity guide office_supplies kitchen_project service transport maintenance other">
+    <label class="pg-field pg-span-6 pg-payment-field" data-show-for="electricity guide office_supplies kitchen_project service transport maintenance other">
       <span>Metode Pembayaran / Pemberian</span>
       <select name="items[<?php echo e($index); ?>][payment_method]">
         <?php $payment = (string)($item['payment_method'] ?? ''); ?>
@@ -93,7 +93,7 @@ $type = (string)($item['type'] ?? 'product');
       </select>
     </label>
 
-    <label class="pg-field pg-span-4" data-show-for="electricity guide office_supplies kitchen_project service transport maintenance other">
+    <label class="pg-field pg-span-6 pg-reference-field" data-show-for="electricity guide office_supplies kitchen_project service transport maintenance other">
       <span>Nomor Referensi</span>
       <input name="items[<?php echo e($index); ?>][reference_no]" value="<?php echo e((string)($item['reference_no'] ?? '')); ?>" placeholder="No. transfer / struk / referensi">
     </label>

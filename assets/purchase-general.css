@@ -147,8 +147,21 @@
 }
 
 .pg-span-2 { grid-column: span 2; }
+.pg-span-3 { grid-column: span 3; }
 .pg-span-4 { grid-column: span 4; }
+.pg-span-5 { grid-column: span 5; }
+.pg-span-6 { grid-column: span 6; }
 .pg-span-8 { grid-column: span 8; }
+.pg-span-12 { grid-column: span 12; }
+
+.pg-item-card[data-item-type-value="guide"] .pg-description-field {
+  grid-column: span 12;
+}
+
+.pg-item-card[data-item-type-value="electricity"] .pg-payment-field,
+.pg-item-card[data-item-type-value="electricity"] .pg-reference-field {
+  grid-column: span 3;
+}
 
 .pg-line-total {
   align-self: stretch;
@@ -316,9 +329,20 @@
   .pg-header-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .pg-span-2 { grid-column: span 3; }
-  .pg-span-4 { grid-column: span 6; }
-  .pg-span-8 { grid-column: span 12; }
+  .pg-span-2,
+  .pg-span-3 { grid-column: span 3; }
+  .pg-span-4,
+  .pg-span-5,
+  .pg-span-6 { grid-column: span 6; }
+  .pg-span-8,
+  .pg-span-12,
+  .pg-item-card[data-item-type-value="guide"] .pg-description-field {
+    grid-column: span 12;
+  }
+  .pg-item-card[data-item-type-value="electricity"] .pg-payment-field,
+  .pg-item-card[data-item-type-value="electricity"] .pg-reference-field {
+    grid-column: span 6;
+  }
   .pg-detail-item {
     grid-template-columns: minmax(0, 1fr) 200px;
   }
@@ -345,8 +369,15 @@
     grid-template-columns: 1fr;
   }
   .pg-span-2,
+  .pg-span-3,
   .pg-span-4,
-  .pg-span-8 {
+  .pg-span-5,
+  .pg-span-6,
+  .pg-span-8,
+  .pg-span-12,
+  .pg-item-card[data-item-type-value="guide"] .pg-description-field,
+  .pg-item-card[data-item-type-value="electricity"] .pg-payment-field,
+  .pg-item-card[data-item-type-value="electricity"] .pg-reference-field {
     grid-column: 1;
   }
   .pg-form-footer {

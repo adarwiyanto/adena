@@ -20,7 +20,13 @@
   });
 
   const asNumber = (value) => {
-    const parsed = Number.parseFloat(String(value || '').replace(',', '.'));
+    const normalized = String(value ?? '')
+      .trim()
+      .replace(/(?:Rp|IDR)/gi, '')
+      .replace(/\s+/g, '')
+      .replace(/,/g, '')
+      .replace(/[^0-9.-]/g, '');
+    const parsed = Number.parseFloat(normalized);
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
@@ -36,6 +42,7 @@
   const updateCard = (card) => {
     const typeSelect = card.querySelector('[data-item-type]');
     const type = typeSelect ? typeSelect.value : 'product';
+    card.dataset.itemTypeValue = type;
     const label = typeSelect?.selectedOptions?.[0]?.textContent?.trim() || 'Item Pembelian';
     const title = card.querySelector('[data-item-title]');
     if (title) title.textContent = label;
