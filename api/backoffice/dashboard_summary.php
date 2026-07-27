@@ -1,23 +1,20 @@
 <?php
 require_once __DIR__ . '/../../core/api_pairing.php';
 require_once __DIR__ . '/../../core/store_kpi_finance.php';
+require_once __DIR__ . '/../../core/store_accounting.php';
 pairing_auth('readonly');
 
 function adena_bo_sales_filter_sql(): string {
-  $where=[];
-  if(adena_module_column_exists('sales','return_reason')) $where[]="(return_reason IS NULL OR return_reason='')";
-  if(adena_module_column_exists('sales','is_active_revision')) $where[]='COALESCE(is_active_revision,1)=1';
-  if(adena_module_column_exists('sales','include_in_sales_report')) $where[]='COALESCE(include_in_sales_report,1)=1';
-  return $where?' AND '.implode(' AND ',$where):'';
+  // Dipertahankan untuk kompatibilitas internal; kalkulasi omzet menggunakan controller terpusat.
+  return '';
 }
 function adena_bo_sales_summary(string $start,string $end): array {
-  $out=['transactions'=>0,'revenue'=>0.0];
-  if(!adena_module_table_exists('sales')) return $out;
-  try{
-    $txExpr=adena_module_column_exists('sales','transaction_group_uuid')?"COALESCE(NULLIF(transaction_group_uuid,''),NULLIF(transaction_code,''),CONCAT('LEGACY-',id))":"COALESCE(NULLIF(transaction_code,''),CONCAT('LEGACY-',id))";
-    $st=db()->prepare("SELECT COUNT(DISTINCT $txExpr) transactions,COALESCE(SUM(total),0) revenue FROM sales WHERE sold_at>=? AND sold_at<?".adena_bo_sales_filter_sql());$st->execute([$start,$end]);$r=$st->fetch(PDO::FETCH_ASSOC)?:[];$out=['transactions'=>(int)($r['transactions']??0),'revenue'=>(float)($r['revenue']??0)];
-  }catch(Throwable $e){$out['error']=$e->getMessage();}
-  return $out;
+  try {
+    $metrics=store_acc_sales_metrics($start,$end);
+    return ['transactions'=>(int)$metrics['transactions'],'revenue'=>(float)$metrics['net_sales']];
+  } catch(Throwable $e) {
+    return ['transactions'=>0,'revenue'=>0.0,'error'=>$e->getMessage()];
+  }
 }
 function adena_bo_distribution_summary(): array {
   $out=['pending'=>0,'received'=>0,'returned'=>0,'failed'=>0,'total'=>0];
@@ -48,8 +45,10 @@ function adena_bo_finance_summary(string $start,string $end,float $sales): array
   try{if(adena_module_table_exists('purchase_headers')){$st=db()->prepare("SELECT grand_total,notes FROM purchase_headers WHERE purchase_date>=? AND purchase_date<? AND status='posted'");$st->execute([$start,$end]);foreach($st->fetchAll(PDO::FETCH_ASSOC) as $r){$v=(float)$r['grand_total'];$out['purchase_total']+=$v;$notes=strtolower((string)($r['notes']??''));if(str_contains($notes,'dapur')||str_contains($notes,'internal transfer'))$out['purchase_internal']+=$v;else$out['purchase_external']+=$v;}}}catch(Throwable $e){}
   try{if(adena_module_table_exists('expenses')){$st=db()->prepare("SELECT COALESCE(SUM(amount),0) FROM expenses WHERE expense_date>=? AND expense_date<? AND status IN ('approved','paid') AND deleted_at IS NULL");$st->execute([$start,$end]);$out['expense_total']=(float)$st->fetchColumn();}}catch(Throwable $e){}
   try{if(adena_module_table_exists('payment_requests')){$st=db()->prepare("SELECT COALESCE(SUM(amount),0) FROM payment_requests WHERE request_date>=? AND request_date<? AND status IN ('draft','submitted','approved') AND deleted_at IS NULL");$st->execute([$start,$end]);$out['payment_pending']=(float)$st->fetchColumn();}}catch(Throwable $e){}
-  $out['estimated_cash_profit']=$sales-$out['purchase_external']-$out['expense_total'];return $out;
+  try{$accounting=store_accounting_metrics($start,$end);$out['estimated_cash_profit']=(float)$accounting['operating_profit'];}catch(Throwable $e){$out['estimated_cash_profit']=$sales-$out['expense_total'];}
+  return $out;
 }
+
 
 $today=date('Y-m-d');$tomorrow=date('Y-m-d',strtotime($today.' +1 day'));$month=trim((string)($_GET['month']??date('Y-m')));if(!preg_match('/^\d{4}-\d{2}$/',$month))$month=date('Y-m');$monthStart=$month.'-01';$monthEnd=date('Y-m-d',strtotime($monthStart.' +1 month'));
 $todaySales=adena_bo_sales_summary($today,$tomorrow);$monthSales=adena_bo_sales_summary($monthStart,$monthEnd);$employees=count(adena_store_employee_rows(true));$store=adena_store_identity();$distribution=adena_bo_distribution_summary();$production=adena_bo_production_summary($today,$monthStart,$monthEnd);$kpi=adena_bo_kpi_summary($monthStart);$finance=adena_bo_finance_summary($monthStart,$monthEnd,(float)$monthSales['revenue']);$products=0;try{$products=(int)db()->query('SELECT COUNT(*) FROM products')->fetchColumn();}catch(Throwable $e){}

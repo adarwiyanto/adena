@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../core/inventory.php';
+require_once __DIR__ . '/../core/store_accounting.php';
 ensure_inventory_module_schema();
 ensure_landing_order_tables();
 
@@ -31,63 +32,21 @@ foreach ($branchBaseRows as $b) {
   ];
 }
 
-$stmt = db()->prepare(" 
-  SELECT COALESCE(branch_id, ?) AS branch_id,
-         COUNT(DISTINCT COALESCE(NULLIF(transaction_code,''), CONCAT('LEGACY-', id))) AS tx_count,
-         COALESCE(SUM(total),0) AS revenue
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-  GROUP BY COALESCE(branch_id, ?)
-");
-$stmt->execute([$defaultBranchId, $rangeStartStr, $rangeEndStr, $defaultBranchId]);
-foreach ($stmt->fetchAll() as $row) {
-  $bid = (int)$row['branch_id'];
+foreach ($branchBaseRows as $b) {
+  $bid = (int)$b['id'];
+  $metricOptions = ['branch_id' => $bid, 'include_legacy_branch' => $bid === $defaultBranchId];
+  $current = store_acc_sales_metrics($rangeStartStr, $rangeEndStr, $metricOptions);
+  $previous = store_acc_sales_metrics($prevStartStr, $prevEndStr, $metricOptions);
   if (!isset($dashboardBranchRows[$bid])) continue;
-  $dashboardBranchRows[$bid]['tx_count'] = (int)$row['tx_count'];
-  $dashboardBranchRows[$bid]['revenue'] = (float)$row['revenue'];
-  $dashboardBranchRows[$bid]['avg_ticket'] = (int)$row['tx_count'] > 0 ? (float)$row['revenue'] / (int)$row['tx_count'] : 0;
-}
-$stmt = db()->prepare(" 
-  SELECT COALESCE(branch_id, ?) AS branch_id, COALESCE(SUM(total),0) AS revenue
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-  GROUP BY COALESCE(branch_id, ?)
-");
-$stmt->execute([$defaultBranchId, $prevStartStr, $prevEndStr, $defaultBranchId]);
-foreach ($stmt->fetchAll() as $row) {
-  $bid = (int)$row['branch_id'];
-  if (!isset($dashboardBranchRows[$bid])) continue;
-  $prev = (float)$row['revenue'];
-  $dashboardBranchRows[$bid]['prev_revenue'] = $prev;
-  $dashboardBranchRows[$bid]['growth_pct'] = $prev > 0 ? (($dashboardBranchRows[$bid]['revenue'] - $prev) / $prev) * 100 : null;
-}
-
-$stmt = db()->prepare(" 
-  SELECT COALESCE(s.branch_id, ?) AS branch_id, p.name, SUM(s.qty) qty, SUM(s.total) omzet
-  FROM sales s JOIN products p ON p.id=s.product_id
-  WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL AND s.is_active_revision=1
-  GROUP BY COALESCE(s.branch_id, ?), p.id, p.name
-  ORDER BY branch_id ASC, qty DESC, omzet DESC
-");
-$stmt->execute([$defaultBranchId, $rangeStartStr, $rangeEndStr, $defaultBranchId]);
-foreach ($stmt->fetchAll() as $row) {
-  $bid = (int)$row['branch_id'];
-  if (!isset($dashboardTopProductsByBranch[$bid])) $dashboardTopProductsByBranch[$bid] = [];
-  if (count($dashboardTopProductsByBranch[$bid]) < 3) $dashboardTopProductsByBranch[$bid][] = $row;
-}
-
-$stmt = db()->prepare(" 
-  SELECT COALESCE(branch_id, ?) AS branch_id, payment_method, COUNT(*) c, SUM(total) s
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-  GROUP BY COALESCE(branch_id, ?), payment_method
-  ORDER BY branch_id ASC, s DESC
-");
-$stmt->execute([$defaultBranchId, $rangeStartStr, $rangeEndStr, $defaultBranchId]);
-foreach ($stmt->fetchAll() as $row) {
-  $bid = (int)$row['branch_id'];
-  if (!isset($dashboardPaymentsByBranch[$bid])) $dashboardPaymentsByBranch[$bid] = [];
-  if (count($dashboardPaymentsByBranch[$bid]) < 3) $dashboardPaymentsByBranch[$bid][] = $row;
+  $dashboardBranchRows[$bid]['tx_count'] = (int)$current['transactions'];
+  $dashboardBranchRows[$bid]['revenue'] = (float)$current['net_sales'];
+  $dashboardBranchRows[$bid]['avg_ticket'] = (float)$current['avg_transaction'];
+  $dashboardBranchRows[$bid]['prev_revenue'] = (float)$previous['net_sales'];
+  $dashboardBranchRows[$bid]['growth_pct'] = (float)$previous['net_sales'] > 0
+    ? (((float)$current['net_sales'] - (float)$previous['net_sales']) / (float)$previous['net_sales']) * 100
+    : null;
+  $dashboardTopProductsByBranch[$bid] = array_slice($current['products'], 0, 3);
+  $dashboardPaymentsByBranch[$bid] = array_slice($current['payment_breakdown'], 0, 3);
 }
 
 $stmt = db()->prepare(" 
@@ -178,7 +137,7 @@ $genderMapDash = ['male'=>'Laki-laki','female'=>'Perempuan','other'=>'Lainnya'];
       <div class="card">
         <h4 style="margin-top:0"><?php echo e($br['branch_name']); ?></h4>
         <div class="grid cols-3">
-          <div><small>Omzet</small><br><strong><?php echo e(format_rupiah($br['revenue'])); ?></strong></div>
+          <div><small>Omzet Bersih</small><br><strong><?php echo e(format_rupiah($br['revenue'])); ?></strong></div>
           <div><small>Transaksi</small><br><strong><?php echo e((string)$br['tx_count']); ?></strong></div>
           <div><small>Avg</small><br><strong><?php echo e(format_rupiah($br['avg_ticket'])); ?></strong></div>
         </div>

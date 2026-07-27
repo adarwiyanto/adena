@@ -25,9 +25,21 @@ if (!$shift) {
 }
 $summary = pos_shift_calculate_summary($id);
 
-$txStmt = db()->prepare("SELECT transaction_code, payment_method, created_by, SUM(total) AS total, MIN(sold_at) AS sold_at FROM sales WHERE shift_id=? GROUP BY transaction_code, payment_method, created_by ORDER BY sold_at ASC");
-$txStmt->execute([$id]);
-$txRows = $txStmt->fetchAll();
+$shiftStart = (string)($shift['opened_at'] ?? '1970-01-01 00:00:00');
+$shiftEndBase = (string)($shift['closed_at'] ?? date('Y-m-d H:i:s'));
+$shiftEnd = date('Y-m-d H:i:s', strtotime($shiftEndBase . ' +1 second'));
+$shiftSales = store_acc_sales_metrics($shiftStart, $shiftEnd, ['shift_id' => $id]);
+$txRows = $shiftSales['details'];
+$userNames = [];
+$userIds = array_values(array_unique(array_filter(array_map(static fn($r) => (int)($r['created_by'] ?? 0), $txRows))));
+if ($userIds) {
+  try {
+    $ph = implode(',', array_fill(0, count($userIds), '?'));
+    $userStmt = db()->prepare("SELECT id,name FROM users WHERE id IN ($ph)");
+    $userStmt->execute($userIds);
+    foreach ($userStmt->fetchAll(PDO::FETCH_ASSOC) as $row) $userNames[(int)$row['id']] = (string)$row['name'];
+  } catch (Throwable $e) {}
+}
 
 $cashStmt = db()->prepare("SELECT cm.*, u.name AS created_by_name FROM pos_cash_movements cm LEFT JOIN users u ON u.id=cm.created_by WHERE cm.shift_id=? ORDER BY cm.created_at ASC");
 $cashStmt->execute([$id]);
@@ -68,8 +80,8 @@ $customCss = setting('custom_css', '');
           <div class="card"><small>Penutup</small><div><?php echo e($shift['closed_by_name'] ?? '-'); ?></div><small><?php echo e($shift['closed_at'] ?? '-'); ?></small></div>
           <div class="card"><small>Status</small><div><?php echo e($shift['status']); ?> / <?php echo e($shift['sync_status']); ?></div></div>
           <div class="card"><small>Kas Awal</small><div>Rp <?php echo e(format_number_id((float)$summary['opening_cash'])); ?></div></div>
-          <div class="card"><small>Cash Sales</small><div>Rp <?php echo e(format_number_id((float)$summary['cash_sales'])); ?></div></div>
-          <div class="card"><small>Non-cash</small><div>Rp <?php echo e(format_number_id((float)$summary['non_cash_sales'])); ?></div></div>
+          <div class="card"><small>Cash Sales Bersih</small><div>Rp <?php echo e(format_number_id((float)$summary['cash_sales'])); ?></div></div>
+          <div class="card"><small>Non-cash Bersih</small><div>Rp <?php echo e(format_number_id((float)$summary['non_cash_sales'])); ?></div></div>
           <div class="card"><small>Kas Masuk/Keluar</small><div>Rp <?php echo e(format_number_id((float)$summary['cash_in'])); ?> / Rp <?php echo e(format_number_id((float)$summary['cash_out'])); ?></div></div>
           <div class="card"><small>Expected / Counted</small><div>Rp <?php echo e(format_number_id((float)$summary['expected_cash'])); ?> / Rp <?php echo e(format_number_id((float)($shift['counted_cash_total'] ?? 0))); ?></div></div>
           <div class="card"><small>Selisih</small><div>Rp <?php echo e(format_number_id((float)($shift['cash_difference'] ?? 0))); ?></div></div>
@@ -78,7 +90,7 @@ $customCss = setting('custom_css', '');
 
       <div class="card" style="margin-top:12px">
         <h4 style="margin-top:0">Transaksi Shift</h4>
-        <table><thead><tr><th>Waktu</th><th>Kode</th><th>Metode</th><th>Total</th><th>User</th></tr></thead><tbody><?php if(!$txRows): ?><tr><td colspan="5">Belum ada transaksi.</td></tr><?php else: foreach($txRows as $r): ?><tr><td><?php echo e($r['sold_at']); ?></td><td><?php echo e($r['transaction_code']); ?></td><td><?php echo e($r['payment_method']); ?></td><td>Rp <?php echo e(format_number_id((float)$r['total'])); ?></td><td><?php echo e((string)$r['created_by']); ?></td></tr><?php endforeach; endif; ?></tbody></table>
+        <table><thead><tr><th>Waktu</th><th>Jenis</th><th>Kode</th><th>Metode</th><th>Kotor</th><th>Diskon</th><th>Retur</th><th>Omzet Bersih</th><th>User</th></tr></thead><tbody><?php if(!$txRows): ?><tr><td colspan="9">Belum ada transaksi.</td></tr><?php else: foreach($txRows as $r): ?><tr><td><?php echo e($r['event_at']); ?></td><td><?php echo e($r['event_label']); ?></td><td><?php echo e($r['transaction_code']); ?></td><td><?php echo e($r['payment_method']); ?></td><td>Rp <?php echo e(format_number_id((float)$r['gross'])); ?></td><td>Rp <?php echo e(format_number_id((float)$r['discount_total'])); ?></td><td>Rp <?php echo e(format_number_id((float)$r['return_amount'])); ?></td><td><?php echo (float)$r['net'] < 0 ? '- ' : ''; ?>Rp <?php echo e(format_number_id(abs((float)$r['net']))); ?></td><td><?php echo e($userNames[(int)($r['created_by'] ?? 0)] ?? (string)($r['created_by'] ?? '-')); ?></td></tr><?php endforeach; endif; ?></tbody></table>
       </div>
 
       <div class="card" style="margin-top:12px">

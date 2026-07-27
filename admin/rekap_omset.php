@@ -4,6 +4,7 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/store_accounting.php';
 
 start_secure_session();
 require_admin();
@@ -47,51 +48,53 @@ $tsTill = $dateTo   . ' 23:59:59';
 // --- Export CSV ---
 $exportCsv = isset($_GET['export']) && $_GET['export'] === 'csv' && has_menu_access($me, 'rekap_omset', 'export');
 
-// --- Query ringkasan per metode pembayaran ---
-$summaryStmt = db()->prepare("
-  SELECT
-    s.payment_method,
-    COALESCE(pm.name, s.payment_method) AS payment_method_name,
-    COUNT(DISTINCT s.transaction_code) AS total_transaksi,
-    SUM(s.total) AS total_omset
-  FROM sales s
-  LEFT JOIN payment_methods pm ON pm.code = s.payment_method
-  WHERE s.is_active_revision = 1
-    AND s.sold_at BETWEEN ? AND ?
-  GROUP BY s.payment_method, pm.name
-  ORDER BY total_omset DESC
-");
-$summaryStmt->execute([$tsFrom, $tsTill]);
-$summaryRows = $summaryStmt->fetchAll(PDO::FETCH_ASSOC);
+// --- Perhitungan terpusat (tanpa perubahan struktur database) ---
+$salesMetrics = store_acc_sales_metrics($tsFrom, date('Y-m-d H:i:s', strtotime($tsTill . ' +1 second')));
 
-$grandTotal = 0;
-$grandTx    = 0;
-foreach ($summaryRows as $r) {
-  $grandTotal += (float)$r['total_omset'];
-  $grandTx    += (int)$r['total_transaksi'];
+$paymentNameMap = [];
+try {
+  foreach (db()->query("SELECT code,name FROM payment_methods")->fetchAll(PDO::FETCH_ASSOC) as $method) {
+    $paymentNameMap[(string)$method['code']] = (string)$method['name'];
+  }
+} catch (Throwable $e) {}
+
+$summaryRows = [];
+foreach ($salesMetrics['payment_breakdown'] as $row) {
+  $code = (string)($row['payment_method'] ?? 'unknown');
+  $summaryRows[] = [
+    'payment_method' => $code,
+    'payment_method_name' => $paymentNameMap[$code] ?? $code,
+    'total_transaksi' => (int)($row['c'] ?? 0),
+    'penjualan_setelah_diskon' => (float)($row['sales_after_discount'] ?? 0),
+    'total_retur' => (float)($row['returns'] ?? 0),
+    'total_omset' => (float)($row['s'] ?? 0),
+  ];
 }
 
-// --- Query detail transaksi ---
-$detailStmt = db()->prepare("
-  SELECT
-    s.transaction_code,
-    MIN(s.sold_at) AS sold_at,
-    s.payment_method,
-    COALESCE(pm.name, s.payment_method) AS payment_method_name,
-    s.payment_bank,
-    SUM(s.total) AS total,
-    u.name AS cashier
-  FROM sales s
-  LEFT JOIN payment_methods pm ON pm.code = s.payment_method
-  LEFT JOIN users u ON u.id = s.created_by
-  WHERE s.is_active_revision = 1
-    AND s.sold_at BETWEEN ? AND ?
-  GROUP BY s.transaction_code, s.payment_method, pm.name, s.payment_bank, s.created_by, u.name
-  ORDER BY sold_at ASC
-");
-$detailStmt->execute([$tsFrom, $tsTill]);
-$detailRows = $detailStmt->fetchAll(PDO::FETCH_ASSOC);
+$grandTotal = (float)$salesMetrics['net_sales'];
+$grandTx = (int)$salesMetrics['transactions'];
 
+$userNames = [];
+$userIds = array_values(array_unique(array_filter(array_map(static fn($r) => (int)($r['created_by'] ?? 0), $salesMetrics['details']))));
+if ($userIds) {
+  try {
+    $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+    $stmtUsers = db()->prepare("SELECT id,name FROM users WHERE id IN ($placeholders)");
+    $stmtUsers->execute($userIds);
+    foreach ($stmtUsers->fetchAll(PDO::FETCH_ASSOC) as $row) $userNames[(int)$row['id']] = (string)$row['name'];
+  } catch (Throwable $e) {}
+}
+
+$detailRows = [];
+foreach ($salesMetrics['details'] as $row) {
+  $method = (string)($row['payment_method'] ?? 'unknown');
+  $detailRows[] = $row + [
+    'sold_at' => $row['event_at'] ?? null,
+    'payment_method_name' => $paymentNameMap[$method] ?? $method,
+    'cashier' => $userNames[(int)($row['created_by'] ?? 0)] ?? '-',
+    'total' => (float)($row['net'] ?? 0),
+  ];
+}
 // --- Export CSV ---
 if ($exportCsv) {
   $label = match ($period) {
@@ -113,27 +116,34 @@ if ($exportCsv) {
 
   // Ringkasan
   fputcsv($out, ['Ringkasan per Metode Pembayaran'], ';');
-  fputcsv($out, ['Metode Pembayaran', 'Jumlah Transaksi', 'Total Omset'], ';');
+  fputcsv($out, ['Metode Pembayaran', 'Jumlah Transaksi', 'Penjualan Setelah Diskon', 'Retur', 'Omzet Bersih'], ';');
   foreach ($summaryRows as $r) {
     fputcsv($out, [
       $r['payment_method_name'],
       (int)$r['total_transaksi'],
+      number_format((float)$r['penjualan_setelah_diskon'], 2, ',', '.'),
+      number_format((float)$r['total_retur'], 2, ',', '.'),
       number_format((float)$r['total_omset'], 2, ',', '.'),
     ], ';');
   }
-  fputcsv($out, ['TOTAL', $grandTx, number_format($grandTotal, 2, ',', '.')], ';');
+  fputcsv($out, ['TOTAL', $grandTx, number_format((float)$salesMetrics['sales_after_discount'], 2, ',', '.'), number_format((float)$salesMetrics['returns'], 2, ',', '.'), number_format($grandTotal, 2, ',', '.')], ';');
   fputcsv($out, [], ';');
 
   // Detail
   fputcsv($out, ['Detail Transaksi'], ';');
-  fputcsv($out, ['Waktu', 'Kode Transaksi', 'Metode Pembayaran', 'Bank/Akun', 'Kasir', 'Total'], ';');
+  fputcsv($out, ['Waktu', 'Jenis', 'Kode Transaksi', 'Metode Pembayaran', 'Bank/Akun', 'Kasir', 'Penjualan Kotor', 'Diskon Item', 'Diskon Transaksi', 'Retur', 'Omzet Bersih'], ';');
   foreach ($detailRows as $r) {
     fputcsv($out, [
       $r['sold_at'],
+      $r['event_label'] ?? 'Penjualan',
       $r['transaction_code'],
       $r['payment_method_name'],
       $r['payment_bank'] ?? '-',
       $r['cashier'] ?? '-',
+      number_format((float)$r['gross'], 2, ',', '.'),
+      number_format((float)$r['item_discount'], 2, ',', '.'),
+      number_format((float)$r['transaction_discount'], 2, ',', '.'),
+      number_format((float)$r['return_amount'], 2, ',', '.'),
       number_format((float)$r['total'], 2, ',', '.'),
     ], ';');
   }
@@ -234,6 +244,14 @@ function rekapUrl(array $params): string {
         </div>
 
         <div class="summary-grid">
+          <div class="summary-card"><div class="label">Penjualan Kotor</div><div class="value">Rp <?php echo e(format_number_id((float)$salesMetrics['gross_sales'])); ?></div></div>
+          <div class="summary-card"><div class="label">Diskon Item</div><div class="value">Rp <?php echo e(format_number_id((float)$salesMetrics['item_discount'])); ?></div></div>
+          <div class="summary-card"><div class="label">Diskon Transaksi</div><div class="value">Rp <?php echo e(format_number_id((float)$salesMetrics['transaction_discount'])); ?></div></div>
+          <div class="summary-card"><div class="label">Retur Penjualan</div><div class="value">Rp <?php echo e(format_number_id((float)$salesMetrics['returns'])); ?></div><div class="sub"><?php echo (int)$salesMetrics['return_transactions']; ?> transaksi retur</div></div>
+        </div>
+
+        <h4 style="margin:14px 0 8px">Omzet Bersih per Metode Pembayaran</h4>
+        <div class="summary-grid">
           <?php foreach ($summaryRows as $r): ?>
           <div class="summary-card">
             <div class="label"><?php echo e($r['payment_method_name']); ?></div>
@@ -247,9 +265,9 @@ function rekapUrl(array $params): string {
         </div>
 
         <div class="summary-card total-card" style="margin-top:4px">
-          <div class="label">Total Omset</div>
+          <div class="label">Omzet Penjualan Bersih</div>
           <div class="value">Rp <?php echo e(format_number_id($grandTotal)); ?></div>
-          <div class="sub"><?php echo $grandTx; ?> transaksi</div>
+          <div class="sub"><?php echo $grandTx; ?> transaksi · setelah diskon dan retur</div>
         </div>
       </div>
 
@@ -260,31 +278,39 @@ function rekapUrl(array $params): string {
             <thead>
               <tr>
                 <th>Waktu</th>
+                <th>Jenis</th>
                 <th>Kode Transaksi</th>
                 <th>Metode Pembayaran</th>
                 <th>Bank / Akun</th>
                 <th>Kasir</th>
-                <th style="text-align:right">Total</th>
+                <th style="text-align:right">Kotor</th>
+                <th style="text-align:right">Diskon</th>
+                <th style="text-align:right">Retur</th>
+                <th style="text-align:right">Omzet Bersih</th>
               </tr>
             </thead>
             <tbody>
               <?php if (empty($detailRows)): ?>
-              <tr><td colspan="6" style="text-align:center;color:var(--muted,#6c757d);padding:24px">Tidak ada transaksi pada periode ini.</td></tr>
+              <tr><td colspan="10" style="text-align:center;color:var(--muted,#6c757d);padding:24px">Tidak ada transaksi pada periode ini.</td></tr>
               <?php else: foreach ($detailRows as $r): ?>
               <tr>
                 <td><?php echo e(date('d/m/Y H:i', strtotime($r['sold_at']))); ?></td>
+                <td><?php echo e($r['event_label'] ?? 'Penjualan'); ?></td>
                 <td><?php echo e($r['transaction_code']); ?></td>
                 <td><?php echo e($r['payment_method_name']); ?></td>
                 <td><?php echo e($r['payment_bank'] ?? '-'); ?></td>
                 <td><?php echo e($r['cashier'] ?? '-'); ?></td>
-                <td style="text-align:right">Rp <?php echo e(format_number_id((float)$r['total'])); ?></td>
+                <td style="text-align:right">Rp <?php echo e(format_number_id((float)$r['gross'])); ?></td>
+                <td style="text-align:right">Rp <?php echo e(format_number_id((float)$r['discount_total'])); ?></td>
+                <td style="text-align:right">Rp <?php echo e(format_number_id((float)$r['return_amount'])); ?></td>
+                <td style="text-align:right"><?php echo (float)$r['total'] < 0 ? '- ' : ''; ?>Rp <?php echo e(format_number_id(abs((float)$r['total']))); ?></td>
               </tr>
               <?php endforeach; endif; ?>
             </tbody>
             <?php if (!empty($detailRows)): ?>
             <tfoot>
               <tr>
-                <td colspan="5">Total (<?php echo count($detailRows); ?> transaksi)</td>
+                <td colspan="9">Omzet Bersih Periode</td>
                 <td style="text-align:right">Rp <?php echo e(format_number_id($grandTotal)); ?></td>
               </tr>
             </tfoot>

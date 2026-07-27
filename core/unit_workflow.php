@@ -2,6 +2,7 @@
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/inventory.php';
+require_once __DIR__ . '/store_accounting.php';
 
 function ensure_unit_workflow_schema(): void {
   static $done = false;
@@ -61,13 +62,22 @@ function unit_dashboard_metrics(int $unitId, string $type): array {
   ensure_unit_workflow_schema();
   $out = ['today_sales'=>0,'month_sales'=>0,'today_tx'=>0,'month_tx'=>0,'open_shift'=>null,'stock_low'=>0,'dead_stock'=>[],'payment'=>[],'transfer_pending'=>0,'production_month'=>0,'transfer_month'=>0,'legacy_sales'=>0];
   try {
-    $st=db()->prepare("SELECT COALESCE(SUM(total),0) total, COUNT(DISTINCT COALESCE(transaction_group_uuid, transaction_code, id)) tx FROM sales WHERE branch_id=? AND DATE(sold_at)=CURDATE() AND include_in_sales_report=1 AND (return_reason IS NULL OR return_reason='')"); $st->execute([$unitId]); $r=$st->fetch(PDO::FETCH_ASSOC)?:[]; $out['today_sales']=(float)($r['total']??0); $out['today_tx']=(int)($r['tx']??0);
+    $todayStart=date('Y-m-d 00:00:00');
+    $todayEnd=date('Y-m-d 00:00:00',strtotime('+1 day'));
+    $todayMetrics=store_acc_sales_metrics($todayStart,$todayEnd,['branch_id'=>$unitId]);
+    $out['today_sales']=(float)$todayMetrics['net_sales'];
+    $out['today_tx']=(int)$todayMetrics['transactions'];
+    $out['payment']=$todayMetrics['payment_breakdown'];
   } catch(Throwable $e) {}
   try {
-    $st=db()->prepare("SELECT COALESCE(SUM(total),0) total, COUNT(DISTINCT COALESCE(transaction_group_uuid, transaction_code, id)) tx FROM sales WHERE branch_id=? AND sold_at>=DATE_FORMAT(CURDATE(),'%Y-%m-01') AND include_in_sales_report=1 AND (return_reason IS NULL OR return_reason='')"); $st->execute([$unitId]); $r=$st->fetch(PDO::FETCH_ASSOC)?:[]; $out['month_sales']=(float)($r['total']??0); $out['month_tx']=(int)($r['tx']??0);
+    $monthStart=date('Y-m-01 00:00:00');
+    $monthEnd=date('Y-m-01 00:00:00',strtotime('+1 month'));
+    $monthMetrics=store_acc_sales_metrics($monthStart,$monthEnd,['branch_id'=>$unitId]);
+    $out['month_sales']=(float)$monthMetrics['net_sales'];
+    $out['month_tx']=(int)$monthMetrics['transactions'];
   } catch(Throwable $e) {}
   try { $st=db()->prepare("SELECT * FROM pos_shifts WHERE branch_id=? AND status='open' ORDER BY id DESC LIMIT 1"); $st->execute([$unitId]); $out['open_shift']=$st->fetch(PDO::FETCH_ASSOC)?:null; } catch(Throwable $e) {}
-  try { $st=db()->prepare("SELECT payment_method, COALESCE(payment_bank,payment_channel_name,'') bank, COALESCE(SUM(total),0) total FROM sales WHERE branch_id=? AND DATE(sold_at)=CURDATE() AND include_in_sales_report=1 GROUP BY payment_method, bank ORDER BY total DESC"); $st->execute([$unitId]); $out['payment']=$st->fetchAll(PDO::FETCH_ASSOC)?:[]; } catch(Throwable $e) {}
+
   try { $st=db()->prepare("SELECT COUNT(*) c FROM stock_transfers WHERE to_location_id=? AND status IN ('sent','draft')"); $st->execute([$unitId]); $out['transfer_pending']=(int)($st->fetch(PDO::FETCH_ASSOC)['c']??0); } catch(Throwable $e) {}
   try { $st=db()->prepare("SELECT COALESCE(SUM(qty_to_produce),0) q FROM production_headers WHERE branch_id=? AND status='posted' AND production_date>=DATE_FORMAT(CURDATE(),'%Y-%m-01')"); $st->execute([$unitId]); $out['production_month']=(float)($st->fetch(PDO::FETCH_ASSOC)['q']??0); } catch(Throwable $e) {}
   try { $st=db()->prepare("SELECT COUNT(*) c FROM stock_transfers WHERE from_location_id=? AND created_at>=DATE_FORMAT(CURDATE(),'%Y-%m-01')"); $st->execute([$unitId]); $out['transfer_month']=(int)($st->fetch(PDO::FETCH_ASSOC)['c']??0); } catch(Throwable $e) {}

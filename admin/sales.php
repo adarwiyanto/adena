@@ -6,6 +6,7 @@ require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/store_accounting.php';
 require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../core/sales_revision.php';
 
@@ -277,6 +278,18 @@ if ($legacyIds) {
   }
 }
 
+foreach ($transactions as &$tx) {
+  $code = (string)($tx['tx_code'] ?? '');
+  if (!empty($itemsByTx[$code])) {
+    $preparedTx = store_acc_prepare_transaction($itemsByTx[$code]);
+    $tx['total_amount'] = (float)$preparedTx['net_before_return'];
+    $tx['gross_amount'] = (float)$preparedTx['gross'];
+    $tx['discount_total'] = (float)$preparedTx['discount_total'];
+    $itemsByTx[$code] = $preparedTx['rows'];
+  }
+}
+unset($tx);
+
 $detailTxCode = trim((string)($_GET['detail'] ?? ''));
 $revTxCode = trim((string)($_GET['revisions'] ?? ''));
 $editTxCode = trim((string)($_GET['edit'] ?? ''));
@@ -293,6 +306,10 @@ if ($detailTxCode !== '') {
     ORDER BY s.id ASC");
   $stmt->execute([$detailTxCode]);
   $detailItems = $stmt->fetchAll();
+  if ($detailItems) {
+    $preparedDetail = store_acc_prepare_transaction($detailItems);
+    $detailItems = $preparedDetail['rows'];
+  }
   $detailSale = $detailItems[0] ?? null;
 }
 if ($revTxCode !== '' && in_array(($me['role'] ?? ''), ['owner', 'admin'], true)) {
@@ -305,6 +322,20 @@ if ($revTxCode !== '' && in_array(($me['role'] ?? ''), ['owner', 'admin'], true)
     ORDER BY s.revision_no DESC, s.id DESC");
   $stmt->execute([$revTxCode]);
   $revisionRows = $stmt->fetchAll();
+  foreach ($revisionRows as &$revisionRow) {
+    $revisionCode = (string)($revisionRow['transaction_code'] ?? '');
+    if ($revisionCode === '') {
+      continue;
+    }
+    $lineStmt = db()->prepare("SELECT * FROM sales WHERE transaction_code=? ORDER BY id ASC");
+    $lineStmt->execute([$revisionCode]);
+    $revisionLines = $lineStmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($revisionLines) {
+      $preparedRevision = store_acc_prepare_transaction($revisionLines);
+      $revisionRow['grand_total'] = (float)$preparedRevision['net_before_return'];
+    }
+  }
+  unset($revisionRow);
 }
 
 $customCss = setting('custom_css', '');
@@ -529,7 +560,7 @@ $customCss = setting('custom_css', '');
                 <?php if (!empty($items)): ?>
                   <ul class="transaction-items">
                     <?php foreach ($items as $item): ?>
-                      <li><?php echo e($item['product_name']); ?> × <?php echo e((string)$item['qty']); ?> (Rp <?php echo e(format_number_id((float)$item['total'])); ?>)</li>
+                      <li><?php echo e($item['product_name']); ?> × <?php echo e((string)$item['qty']); ?> (Rp <?php echo e(format_number_id((float)($item['_line_net'] ?? $item['total']))); ?>)</li>
                     <?php endforeach; ?>
                   </ul>
                 <?php endif; ?>
@@ -588,8 +619,8 @@ $customCss = setting('custom_css', '');
                 <p><strong>Bank QRIS:</strong> <?php echo e($detailSale['payment_bank']); ?></p>
               <?php endif; ?>
               <table class="table"><thead><tr><th>Produk</th><th>Qty</th><th>Satuan</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>
-                <?php $sum=0; foreach ($detailItems as $di): $sum += (float)$di['total']; ?>
-                  <tr><td><?php echo e($di['product_name']); ?></td><td><?php echo e((string)$di['qty']); ?></td><td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td><td>Rp <?php echo e(format_number_id((float)$di['price_each'])); ?></td><td>Rp <?php echo e(format_number_id((float)$di['total'])); ?></td></tr>
+                <?php $sum=0; foreach ($detailItems as $di): $lineNet=(float)($di['_line_net'] ?? $di['total']); $sum += $lineNet; ?>
+                  <tr><td><?php echo e($di['product_name']); ?></td><td><?php echo e((string)$di['qty']); ?></td><td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td><td>Rp <?php echo e(format_number_id((float)$di['price_each'])); ?></td><td>Rp <?php echo e(format_number_id($lineNet)); ?></td></tr>
                 <?php endforeach; ?>
               </tbody></table>
               <p><strong>Subtotal:</strong> Rp <?php echo e(format_number_id($sum)); ?> · <strong>Grand Total:</strong> Rp <?php echo e(format_number_id($sum)); ?></p>

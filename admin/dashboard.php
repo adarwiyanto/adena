@@ -5,6 +5,7 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/dashboard_charts.php';
+require_once __DIR__ . '/../core/store_accounting.php';
 
 date_default_timezone_set('Asia/Jakarta');
 
@@ -78,45 +79,31 @@ $weekdayPayload = dashboard_weekday_payload([
   'range' => 'weekly',
 ]);
 
+$rangeAccounting = store_accounting_metrics($rangeStartStr, $rangeEndStr);
+$rangeSales = $rangeAccounting['sales'];
+$rangeCosts = $rangeAccounting['costs'];
+$rangeHpp = $rangeAccounting['hpp'];
+
 $stats = [
   'products' => (int)db()->query("SELECT COUNT(*) c FROM products")->fetch()['c'],
-  'sales' => 0,
-  'revenue' => 0.0,
-  'returns' => 0,
-  'avg_transaction' => 0.0,
+  'sales' => (int)$rangeSales['transactions'],
+  'gross_revenue' => (float)$rangeSales['gross_sales'],
+  'item_discount' => (float)$rangeSales['item_discount'],
+  'transaction_discount' => (float)$rangeSales['transaction_discount'],
+  'discount_total' => (float)$rangeSales['discount_total'],
+  'returns' => (int)$rangeSales['return_transactions'],
+  'return_amount' => (float)$rangeSales['returns'],
+  'revenue' => (float)$rangeSales['net_sales'],
+  'avg_transaction' => (float)$rangeSales['avg_transaction'],
+  'hpp' => (float)$rangeHpp['hpp_net'],
+  'hpp_coverage' => (float)$rangeHpp['coverage_percent'],
+  'gross_profit' => (float)$rangeAccounting['gross_profit'],
+  'operating_expenses' => (float)$rangeCosts['operating_expenses'],
+  'operating_profit' => (float)$rangeAccounting['operating_profit'],
+  'inventory_purchases' => (float)$rangeCosts['inventory_purchases'],
+  'internal_inventory_purchases' => (float)$rangeCosts['internal_inventory_purchases'],
 ];
-
-$stmt = db()->prepare("
-  SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c,
-         COALESCE(SUM(total),0) s
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
-$statsRange = $stmt->fetch();
-$stats['sales'] = (int)($statsRange['c'] ?? 0);
-$stats['revenue'] = (float)($statsRange['s'] ?? 0);
-$stats['avg_transaction'] = $stats['sales'] > 0 ? ($stats['revenue'] / $stats['sales']) : 0.0;
-
-$stmt = db()->prepare("
-  SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c
-  FROM sales
-  WHERE COALESCE(returned_at, sold_at) >= ?
-    AND COALESCE(returned_at, sold_at) < ?
-    AND return_reason IS NOT NULL
-");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
-$stats['returns'] = (int)($stmt->fetch()['c'] ?? 0);
-
-$stmt = db()->prepare("
-  SELECT payment_method, COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c, COALESCE(SUM(total),0) s
-  FROM sales
-  WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-  GROUP BY payment_method
-  ORDER BY s DESC
-");
-$stmt->execute([$rangeStartStr, $rangeEndStr]);
-$paymentBreakdown = $stmt->fetchAll();
+$paymentBreakdown = $rangeSales['payment_breakdown'];
 
 $stmt = db()->prepare("
   SELECT s.*, p.name product_name
@@ -142,30 +129,15 @@ $todayStartStr = $todayStart->format('Y-m-d H:i:s');
 $todayEndStr = $todayEnd->format('Y-m-d H:i:s');
 
 if ($role === 'admin') {
-  $stmt = db()->prepare("
-    SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-  ");
-  $stmt->execute([$todayStartStr, $todayEndStr]);
-  $row = $stmt->fetch();
-
-  $stmt = db()->prepare("
-    SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c
-    FROM sales
-    WHERE COALESCE(returned_at, sold_at) >= ?
-      AND COALESCE(returned_at, sold_at) < ?
-      AND return_reason IS NOT NULL
-  ");
-  $stmt->execute([$todayStartStr, $todayEndStr]);
-  $returnsToday = (int)($stmt->fetch()['c'] ?? 0);
+  $todaySales = store_acc_sales_metrics($todayStartStr, $todayEndStr);
 
   $stmt = db()->prepare("
     SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c
     FROM sales
     WHERE sold_at >= ?
       AND sold_at < ?
-      AND return_reason IS NULL AND is_active_revision=1
+      AND (return_reason IS NULL OR return_reason='')
+      AND COALESCE(is_active_revision,1)=1
       AND payment_method != 'cash'
       AND payment_proof_path IS NULL
   ");
@@ -173,9 +145,9 @@ if ($role === 'admin') {
   $attention = (int)($stmt->fetch()['c'] ?? 0);
 
   $adminStats = [
-    'sales_today' => (int)($row['c'] ?? 0),
-    'revenue_today' => (float)($row['s'] ?? 0),
-    'returns_today' => $returnsToday,
+    'sales_today' => (int)$todaySales['transactions'],
+    'revenue_today' => (float)$todaySales['net_sales'],
+    'returns_today' => (int)$todaySales['return_transactions'],
     'attention' => $attention,
   ];
 
@@ -183,7 +155,7 @@ if ($role === 'admin') {
     SELECT s.*, p.name product_name
     FROM sales s
     JOIN products p ON p.id = s.product_id
-    WHERE s.return_reason IS NOT NULL
+    WHERE s.return_reason IS NOT NULL AND TRIM(s.return_reason)<>''
     ORDER BY COALESCE(s.returned_at, s.sold_at) DESC
     LIMIT 5
   ");
@@ -202,87 +174,29 @@ if ($role === 'owner') {
   $lastMonthStartStr = $lastMonthStart->format('Y-m-d H:i:s');
   $lastMonthEndStr = $lastMonthEnd->format('Y-m-d H:i:s');
 
-  $stmt = db()->prepare("
-    SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-  ");
-  $stmt->execute([$todayStartStr, $todayEndStr]);
-  $todayRow = $stmt->fetch();
-
-  $stmt->execute([$monthStartStr, $monthEndStr]);
-  $monthRow = $stmt->fetch();
-
-  $stmt->execute([$lastMonthStartStr, $lastMonthEndStr]);
-  $lastMonthRow = $stmt->fetch();
-
-  $stmt = db()->prepare("
-    SELECT COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c
-    FROM sales
-    WHERE COALESCE(returned_at, sold_at) >= ?
-      AND COALESCE(returned_at, sold_at) < ?
-      AND return_reason IS NOT NULL
-  ");
-  $stmt->execute([$monthStartStr, $monthEndStr]);
-  $returnsMonth = (int)($stmt->fetch()['c'] ?? 0);
-
-  $stmt = db()->prepare("
-    SELECT payment_method, COUNT(DISTINCT COALESCE(NULLIF(transaction_code, ''), CONCAT('LEGACY-', id))) c, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-    GROUP BY payment_method
-    ORDER BY s DESC
-  ");
-  $stmt->execute([$monthStartStr, $monthEndStr]);
-  $sharePaymentsMonth = $stmt->fetchAll();
+  $todayOwnerSales = store_acc_sales_metrics($todayStartStr, $todayEndStr);
+  $monthSales = store_acc_sales_metrics($monthStartStr, $monthEndStr);
+  $lastMonthOwnerSales = store_acc_sales_metrics($lastMonthStartStr, $lastMonthEndStr);
+  $sharePaymentsMonth = $monthSales['payment_breakdown'];
 
   $superStats = [
-    'sales_today' => (float)($todayRow['s'] ?? 0),
-    'sales_month' => (float)($monthRow['s'] ?? 0),
-    'tx_today' => (int)($todayRow['c'] ?? 0),
-    'tx_month' => (int)($monthRow['c'] ?? 0),
-    'sales_last_month' => (float)($lastMonthRow['s'] ?? 0),
-    'returns_month' => $returnsMonth,
+    'sales_today' => (float)$todayOwnerSales['net_sales'],
+    'sales_month' => (float)$monthSales['net_sales'],
+    'tx_today' => (int)$todayOwnerSales['transactions'],
+    'tx_month' => (int)$monthSales['transactions'],
+    'sales_last_month' => (float)$lastMonthOwnerSales['net_sales'],
+    'returns_month' => (int)$monthSales['return_transactions'],
   ];
 
   $trendStart = $today->modify('-6 days');
-  $trendStartStr = $trendStart->format('Y-m-d H:i:s');
-  $trendEndStr = $todayEndStr;
-
-  $stmt = db()->prepare("
-    SELECT DATE(sold_at) d, COALESCE(SUM(total),0) s
-    FROM sales
-    WHERE sold_at >= ? AND sold_at < ? AND return_reason IS NULL AND is_active_revision=1
-    GROUP BY DATE(sold_at)
-    ORDER BY d ASC
-  ");
-  $stmt->execute([$trendStartStr, $trendEndStr]);
-  $trendRowsRaw = $stmt->fetchAll();
-  $trendMap = [];
-  foreach ($trendRowsRaw as $row) {
-    $trendMap[$row['d']] = (float)$row['s'];
-  }
-  $trendRows = [];
+  $trendMetrics = store_acc_sales_metrics($trendStart->format('Y-m-d H:i:s'), $todayEndStr);
   for ($i = 0; $i < 7; $i++) {
     $day = $trendStart->modify('+' . $i . ' days');
     $key = $day->format('Y-m-d');
-    $trendRows[] = [
-      'date' => $key,
-      'amount' => $trendMap[$key] ?? 0,
-    ];
+    $trendRows[] = ['date' => $key, 'amount' => (float)($trendMetrics['daily'][$key] ?? 0)];
   }
 
-  $stmt = db()->prepare("
-    SELECT p.name, SUM(s.qty) qty, COALESCE(SUM(s.total),0) omzet
-    FROM sales s
-    JOIN products p ON p.id = s.product_id
-    WHERE s.sold_at >= ? AND s.sold_at < ? AND s.return_reason IS NULL AND is_active_revision=1
-    GROUP BY s.product_id
-    ORDER BY qty DESC
-    LIMIT 5
-  ");
-  $stmt->execute([$monthStartStr, $monthEndStr]);
-  $topProducts = $stmt->fetchAll();
+  $topProducts = array_slice($monthSales['products'], 0, 5);
 
   $last30Start = $today->modify('-30 days');
   $last30StartStr = $last30Start->format('Y-m-d H:i:s');
@@ -293,7 +207,9 @@ if ($role === 'owner') {
     FROM products p
     LEFT JOIN sales s
       ON s.product_id = p.id
-      AND s.return_reason IS NULL AND is_active_revision=1
+      AND (s.return_reason IS NULL OR s.return_reason='')
+      AND COALESCE(s.is_active_revision,1)=1
+      AND COALESCE(s.include_in_sales_report,1)=1
       AND s.sold_at >= ?
       AND s.sold_at < ?
     WHERE s.id IS NULL
@@ -305,11 +221,13 @@ if ($role === 'owner') {
 
   if (count($deadStock) === 0) {
     $stmt = db()->prepare("
-      SELECT p.name, COALESCE(SUM(s.qty),0) qty, COALESCE(SUM(s.total),0) omzet
+      SELECT p.name, COALESCE(SUM(s.qty),0) qty
       FROM products p
       LEFT JOIN sales s
         ON s.product_id = p.id
-        AND s.return_reason IS NULL AND is_active_revision=1
+        AND (s.return_reason IS NULL OR s.return_reason='')
+        AND COALESCE(s.is_active_revision,1)=1
+        AND COALESCE(s.include_in_sales_report,1)=1
         AND s.sold_at >= ?
         AND s.sold_at < ?
       GROUP BY p.id
@@ -320,7 +238,6 @@ if ($role === 'owner') {
     $deadStock = $stmt->fetchAll();
   }
 }
-
 function format_rupiah($amount)
 {
   return 'Rp ' . format_number_id((float)$amount);
@@ -363,6 +280,9 @@ function format_rupiah($amount)
       justify-content: center;
       width: 100%;
     }
+    .dashboard-compact .dash-kpi-card.kpi-primary { border:2px solid var(--primary,#2563eb); background:rgba(37,99,235,.07); }
+    .dashboard-compact .dash-kpi-card.kpi-warning { border-color:#f59e0b; background:rgba(245,158,11,.08); }
+    .dashboard-compact .dash-kpi-note { font-size:10px; color:#64748b; line-height:1.25; margin-top:4px; }
     .dashboard-compact .dash-kpi-line {
       display:flex;
       flex-direction:column;
@@ -391,7 +311,10 @@ function format_rupiah($amount)
       .dashboard-filter-form .btn { min-height:34px; padding:6px 12px; border-radius:9px; }
       .dashboard-compact .dash-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
       .dashboard-compact .dash-kpi-card { min-height:44px; align-items:center; }
-      .dashboard-compact .dash-kpi-line { flex-direction:row; align-items:baseline; justify-content:center; gap:6px; white-space:nowrap; }
+      .dashboard-compact .dash-kpi-card.kpi-primary { border:2px solid var(--primary,#2563eb); background:rgba(37,99,235,.07); }
+    .dashboard-compact .dash-kpi-card.kpi-warning { border-color:#f59e0b; background:rgba(245,158,11,.08); }
+    .dashboard-compact .dash-kpi-note { font-size:10px; color:#64748b; line-height:1.25; margin-top:4px; }
+    .dashboard-compact .dash-kpi-line { flex-direction:row; align-items:baseline; justify-content:center; gap:6px; white-space:nowrap; }
       .dashboard-compact .dash-kpi-label::after { content: ':'; }
       .dashboard-compact .dash-kpi-value { font-size:15px; }
       .dashboard-compact .grid.cols-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
@@ -543,16 +466,38 @@ function format_rupiah($amount)
           <div class="card dash-kpi-card">
             <div class="dash-kpi-line"><span class="dash-kpi-label">Transaksi</span><span class="dash-kpi-value"><?php echo e((string)$stats['sales']); ?></span></div>
           </div>
-          <div class="card dash-kpi-card">
-            <div class="dash-kpi-line"><span class="dash-kpi-label">Omzet</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['revenue'])); ?></span></div>
+          <div class="card dash-kpi-card kpi-primary">
+            <div class="dash-kpi-line"><span class="dash-kpi-label">Omzet Bersih</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['revenue'])); ?></span></div>
           </div>
           <div class="card dash-kpi-card">
-            <div class="dash-kpi-line"><span class="dash-kpi-label">Retur</span><span class="dash-kpi-value"><?php echo e((string)$stats['returns']); ?></span></div>
+            <div class="dash-kpi-line"><span class="dash-kpi-label">Retur</span><span class="dash-kpi-value"><?php echo e((string)$stats['returns']); ?> · <?php echo e(format_rupiah($stats['return_amount'])); ?></span></div>
           </div>
           <div class="card dash-kpi-card">
             <div class="dash-kpi-line"><span class="dash-kpi-label">Rata-rata Belanja</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['avg_transaction'])); ?></span></div>
           </div>
         </div>
+
+        <?php if (in_array($role, ['owner','admin'], true)): ?>
+        <div class="card" style="margin-top:12px">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+            <div>
+              <h3 style="margin:0">Ringkasan Keuangan Operasional Toko</h3>
+              <p class="kpi-subtitle">Omzet mengikuti diskon dan retur. Pembelian stok tidak langsung dianggap beban; profit memakai HPP yang dapat ditelusuri dari mutasi stok.</p>
+            </div>
+            <small>Periode: <?php echo e($rangeLabel); ?></small>
+          </div>
+          <div class="dash-kpi-grid" style="margin-top:12px;margin-bottom:0">
+            <div class="card dash-kpi-card"><div><div class="dash-kpi-line"><span class="dash-kpi-label">Penjualan Kotor</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['gross_revenue'])); ?></span></div></div></div>
+            <div class="card dash-kpi-card"><div><div class="dash-kpi-line"><span class="dash-kpi-label">Diskon Penjualan</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['discount_total'])); ?></span></div><div class="dash-kpi-note">Item <?php echo e(format_rupiah($stats['item_discount'])); ?> · transaksi <?php echo e(format_rupiah($stats['transaction_discount'])); ?></div></div></div>
+            <div class="card dash-kpi-card kpi-primary"><div><div class="dash-kpi-line"><span class="dash-kpi-label">Omzet Bersih</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['revenue'])); ?></span></div><div class="dash-kpi-note">Setelah diskon dan retur</div></div></div>
+            <div class="card dash-kpi-card <?php echo $stats['hpp_coverage'] < 99.9 ? 'kpi-warning' : ''; ?>"><div><div class="dash-kpi-line"><span class="dash-kpi-label">HPP Tercatat</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['hpp'])); ?></span></div><div class="dash-kpi-note">Kelengkapan biaya <?php echo e(format_number_id($stats['hpp_coverage'])); ?>%</div></div></div>
+            <div class="card dash-kpi-card"><div><div class="dash-kpi-line"><span class="dash-kpi-label"><?php echo $stats['hpp_coverage'] < 99.9 ? 'Estimasi Laba Kotor' : 'Laba Kotor'; ?></span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['gross_profit'])); ?></span></div><div class="dash-kpi-note">Omzet bersih − HPP tercatat</div></div></div>
+            <div class="card dash-kpi-card"><div><div class="dash-kpi-line"><span class="dash-kpi-label">Biaya Operasional</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['operating_expenses'])); ?></span></div><div class="dash-kpi-note">Tidak termasuk pembelian persediaan</div></div></div>
+            <div class="card dash-kpi-card <?php echo $stats['hpp_coverage'] < 99.9 ? 'kpi-warning' : 'kpi-primary'; ?>"><div><div class="dash-kpi-line"><span class="dash-kpi-label"><?php echo $stats['hpp_coverage'] < 99.9 ? 'Estimasi Profit Toko' : 'Profit Operasional Toko'; ?></span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['operating_profit'])); ?></span></div><div class="dash-kpi-note"><?php echo $stats['hpp_coverage'] < 99.9 ? 'Belum final karena biaya stok belum lengkap' : 'Laba kotor − biaya operasional'; ?></div></div></div>
+            <div class="card dash-kpi-card"><div><div class="dash-kpi-line"><span class="dash-kpi-label">Pembelian Persediaan</span><span class="dash-kpi-value"><?php echo e(format_rupiah($stats['inventory_purchases'])); ?></span></div><div class="dash-kpi-note">Dari dapur/internal <?php echo e(format_rupiah($stats['internal_inventory_purchases'])); ?></div></div></div>
+          </div>
+        </div>
+        <?php endif; ?>
 
         <div class="dashboard-chart-grid" style="margin-top:12px">
           <div class="card dash-chart-card">
@@ -637,13 +582,13 @@ function format_rupiah($amount)
             <p class="kpi-subtitle">Ringkasan performa penjualan toko.</p>
             <div class="grid cols-3">
               <div class="card">
-                <h4 style="margin-top:0">Sales Hari Ini</h4>
-                <div class="kpi-subtitle">Total omzet penjualan hari ini.</div>
+                <h4 style="margin-top:0">Omzet Bersih Hari Ini</h4>
+                <div class="kpi-subtitle">Setelah diskon penjualan dan retur hari ini.</div>
                 <div style="font-size:20px;font-weight:600"><?php echo e(format_rupiah($superStats['sales_today'])); ?></div>
               </div>
               <div class="card">
-                <h4 style="margin-top:0">Sales Bulan Ini</h4>
-                <div class="kpi-subtitle">Total omzet penjualan bulan berjalan.</div>
+                <h4 style="margin-top:0">Omzet Bersih Bulan Ini</h4>
+                <div class="kpi-subtitle">Setelah diskon penjualan dan retur bulan berjalan.</div>
                 <div style="font-size:20px;font-weight:600"><?php echo e(format_rupiah($superStats['sales_month'])); ?></div>
               </div>
               <div class="card">
@@ -824,7 +769,7 @@ function format_rupiah($amount)
                 <div style="font-size:20px;font-weight:600"><?php echo e((string)$adminStats['sales_today']); ?></div>
               </div>
               <div class="card">
-                <h4 style="margin-top:0">Omzet Hari Ini</h4>
+                <h4 style="margin-top:0">Omzet Bersih Hari Ini</h4>
                 <div style="font-size:20px;font-weight:600"><?php echo e(format_rupiah($adminStats['revenue_today'])); ?></div>
               </div>
               <div class="card">
@@ -915,7 +860,7 @@ function format_rupiah($amount)
                   <th>Tanggal</th>
                   <th>Produk</th>
                   <th>Qty</th>
-                  <th>Total</th>
+                  <th>Subtotal Item</th>
                   <th>Metode</th>
                 </tr>
               </thead>

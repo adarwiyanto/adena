@@ -4,6 +4,7 @@ require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/csrf.php';
 require_once __DIR__ . '/rbac.php';
 require_once __DIR__ . '/inventory.php';
+require_once __DIR__ . '/store_accounting.php';
 
 function ensure_unit_sales_review_schema(): void {
   try {
@@ -110,14 +111,16 @@ function unit_review_render(string $section): void {
         $reason = trim((string)($_POST['reason'] ?? $_POST['return_reason'] ?? ''));
         if ($reason === '') $reason = 'Retur penjualan';
         $uuid = 'WEBRET-' . date('YmdHis') . '-' . strtoupper(substr(md5($code . microtime(true)), 0, 6));
-        $total = 0.0;
-        foreach ($items as $it) $total += (float)($it['line_net_total'] ?: $it['total']);
+        $preparedReturn = store_acc_prepare_transaction($items);
+        $total = (float)$preparedReturn['net_before_return'];
+        $preparedLinesById = [];
+        foreach ($preparedReturn['rows'] as $preparedLine) $preparedLinesById[(int)$preparedLine['id']] = $preparedLine;
         db()->beginTransaction();
         db()->prepare("INSERT INTO sales_returns (offline_uuid, transaction_group_uuid, transaction_code, branch_id, reason, total_return, created_by, created_at, sync_status) VALUES (?,?,?,?,?,?,?,NOW(),'synced')")
           ->execute([$uuid, $items[0]['transaction_group_uuid'] ?? $code, $code, (int)$unitId, $reason, $total, (int)($u['id'] ?? 0)]);
         $rid = (int)db()->lastInsertId();
         foreach ($items as $it) {
-          $lineTotal = (float)($it['line_net_total'] ?: $it['total']);
+          $lineTotal = (float)($preparedLinesById[(int)$it['id']]['_line_net'] ?? $it['total']);
           db()->prepare("INSERT INTO sales_return_items (return_id,sale_id,product_id,qty,price_each,subtotal) VALUES (?,?,?,?,?,?)")
             ->execute([$rid, (int)$it['id'], (int)$it['product_id'], (float)$it['qty'], (float)$it['price_each'], $lineTotal]);
           db()->prepare("UPDATE sales SET return_reason=?, returned_at=NOW(), returned_by=? WHERE id=? AND branch_id=?")
@@ -179,6 +182,14 @@ function unit_review_render(string $section): void {
     $st = db()->prepare($sql);
     $st->execute([(int)$unitId, $from, $to]);
     $rows = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as &$row) {
+      $txItems = unit_review_load_items((int)$unitId, (string)$row['transaction_code']);
+      if ($txItems) {
+        $prepared = store_acc_prepare_transaction($txItems);
+        $row['total'] = (float)$prepared['net_before_return'];
+      }
+    }
+    unset($row);
   } catch (Throwable $e) { $msg = $e->getMessage(); }
 
   $detailItems = [];
@@ -186,6 +197,10 @@ function unit_review_render(string $section): void {
   if ($detailTx !== '' && $isAdmin) {
     try {
       $detailItems = unit_review_load_items((int)$unitId, $detailTx);
+      if ($detailItems) {
+        $preparedDetail = store_acc_prepare_transaction($detailItems);
+        $detailItems = $preparedDetail['rows'];
+      }
       $detailSale = $detailItems[0] ?? null;
       if (!$detailSale && $msg === '') $msg = 'Detail transaksi tidak ditemukan pada unit ini.';
     } catch (Throwable $e) { $msg = $e->getMessage(); }
@@ -282,7 +297,7 @@ function unit_review_render(string $section): void {
           <p class="muted"><strong>Tanggal:</strong> <?php echo e($detailSale['sold_at']); ?> · <strong>Kasir:</strong> <?php echo e($detailSale['cashier_name'] ?? '-'); ?> · <strong>Pembayaran:</strong> <?php echo e(($detailSale['payment_method'] ?? '-') . (!empty($detailSale['payment_bank']) ? ' - ' . $detailSale['payment_bank'] : '')); ?></p>
           <?php if(!empty($detailSale['return_reason'])): ?><p><strong>Status retur:</strong> <?php echo e($detailSale['return_reason']); ?> <?php if(!empty($detailSale['returned_by_name'])) echo 'oleh ' . e($detailSale['returned_by_name']); ?></p><?php endif; ?>
           <table class="table"><thead><tr><th>Produk</th><th>Qty</th><th>Satuan</th><th>Harga</th><th>Diskon</th><th>Total</th></tr></thead><tbody>
-            <?php $sum=0.0; foreach($detailItems as $it): $line=(float)($it['line_net_total'] ?: $it['total']); $sum += $line; ?>
+            <?php $sum=0.0; foreach($detailItems as $it): $line=(float)($it['_line_net'] ?? ($it['line_net_total'] ?: $it['total'])); $sum += $line; ?>
               <tr><td><?php echo e($it['product_name'] ?? '-'); ?></td><td><?php echo e((string)$it['qty']); ?></td><td><?php echo e($it['sale_unit'] ?? 'pcs'); ?></td><td><?php echo e(format_money($it['price_each'])); ?></td><td><?php echo e(($it['discount_type'] ?? 'fixed') . ' ' . format_number_id((float)($it['discount_amount'] ?? 0))); ?></td><td><?php echo e(format_money($line)); ?></td></tr>
             <?php endforeach; ?>
           </tbody></table>

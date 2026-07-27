@@ -5,6 +5,7 @@ require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/store_accounting.php';
 require_once __DIR__ . '/../core/sales_revision.php';
 require_once __DIR__ . '/../lib/upload_secure.php';
 
@@ -152,9 +153,25 @@ if ($detailTxCode !== '') {
     ");
     $stmt->execute([$detailTxCode]);
     $detailItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($detailItems) {
+      $preparedDetail = store_acc_prepare_transaction($detailItems);
+      $detailItems = $preparedDetail['rows'];
+    }
     $detailSale  = $detailItems[0] ?? null;
   } catch (Throwable $e) {}
 }
+
+foreach ($transactions as &$tx) {
+  $code = (string)($tx['tx_code'] ?? '');
+  if (!empty($itemsByTx[$code])) {
+    $preparedTx = store_acc_prepare_transaction($itemsByTx[$code]);
+    $tx['total_amount'] = (float)$preparedTx['net_before_return'];
+    $tx['gross_amount'] = (float)$preparedTx['gross'];
+    $tx['discount_total'] = (float)$preparedTx['discount_total'];
+    $itemsByTx[$code] = $preparedTx['rows'];
+  }
+}
+unset($tx);
 
 $grandTotal = array_sum(array_column($transactions, 'total_amount'));
 $customCss  = setting('custom_css', '');
@@ -290,7 +307,7 @@ $customCss  = setting('custom_css', '');
                     <?php if ($item['is_reward']): ?>
                       <small style="color:#a16207">(reward — Gratis)</small>
                     <?php else: ?>
-                      (Rp <?php echo e(format_number_id((float)$item['total'])); ?>)
+                      (Rp <?php echo e(format_number_id((float)($item['_line_net'] ?? $item['total']))); ?>)
                     <?php endif; ?>
                   </li>
                 <?php endforeach; ?>
@@ -335,13 +352,13 @@ $customCss  = setting('custom_css', '');
                     </tr>
                   </thead>
                   <tbody>
-                    <?php $sum = 0; foreach ($detailItems as $di): $sum += (float)$di['total']; ?>
+                    <?php $sum = 0; foreach ($detailItems as $di): $lineNet=(float)($di['_line_net'] ?? $di['total']); $sum += $lineNet; ?>
                       <tr>
                         <td><?php echo e($di['product_name'] ?? '-'); ?><?php echo ((int)($di['is_reward'] ?? 0)) ? ' <small style="color:#a16207">(reward)</small>' : ''; ?></td>
                         <td><?php echo e((string)$di['qty']); ?></td>
                         <td><?php echo e($di['sale_unit'] ?? 'pcs'); ?></td>
                         <td style="text-align:right"><?php echo ((int)($di['is_reward'] ?? 0)) ? 'Gratis' : 'Rp ' . e(format_number_id((float)$di['price_each'])); ?></td>
-                        <td style="text-align:right">Rp <?php echo e(format_number_id((float)$di['total'])); ?></td>
+                        <td style="text-align:right">Rp <?php echo e(format_number_id($lineNet)); ?></td>
                       </tr>
                     <?php endforeach; ?>
                   </tbody>

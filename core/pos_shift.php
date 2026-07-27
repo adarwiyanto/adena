@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/store_accounting.php';
 
 function ensure_pos_shift_schema(): void {
   static $ensured = false;
@@ -207,17 +208,23 @@ function pos_shift_calculate_summary(int $shiftId): array {
   $shift = $shiftStmt->fetch();
   if (!$shift) throw new Exception('Shift tidak ditemukan.');
 
-  $cashSalesStmt = $db->prepare("SELECT COALESCE(SUM(total),0) AS amount FROM sales WHERE shift_id=? AND return_reason IS NULL AND payment_method='cash'");
-  $cashSalesStmt->execute([$shiftId]);
-  $cashSales = (float)($cashSalesStmt->fetch()['amount'] ?? 0);
-
-  $nonCashStmt = $db->prepare("SELECT COALESCE(SUM(total),0) AS amount FROM sales WHERE shift_id=? AND return_reason IS NULL AND payment_method<>'cash'");
-  $nonCashStmt->execute([$shiftId]);
-  $nonCashSales = (float)($nonCashStmt->fetch()['amount'] ?? 0);
-
-  $refundStmt = $db->prepare("SELECT COALESCE(SUM(total),0) AS amount FROM sales WHERE shift_id=? AND return_reason IS NOT NULL AND payment_method='cash'");
-  $refundStmt->execute([$shiftId]);
-  $cashRefund = (float)($refundStmt->fetch()['amount'] ?? 0);
+  $start = (string)($shift['opened_at'] ?? '1970-01-01 00:00:00');
+  $endBase = (string)($shift['closed_at'] ?? date('Y-m-d H:i:s'));
+  $end = date('Y-m-d H:i:s', strtotime($endBase . ' +1 second'));
+  $sales = store_acc_sales_metrics($start, $end, ['shift_id' => $shiftId]);
+  $cashSales = 0.0;
+  $cashRefund = 0.0;
+  $nonCashSales = 0.0;
+  foreach ($sales['payment_breakdown'] as $row) {
+    $method = strtolower(trim((string)($row['payment_method'] ?? '')));
+    $isCash = in_array($method, ['cash', 'tunai'], true) || str_contains($method, 'cash') || str_contains($method, 'tunai');
+    if ($isCash) {
+      $cashSales += (float)($row['sales_after_discount'] ?? 0);
+      $cashRefund += (float)($row['returns'] ?? 0);
+    } else {
+      $nonCashSales += (float)($row['s'] ?? 0);
+    }
+  }
 
   $cashMoveStmt = $db->prepare("SELECT movement_type, COALESCE(SUM(amount),0) AS amount FROM pos_cash_movements WHERE shift_id=? GROUP BY movement_type");
   $cashMoveStmt->execute([$shiftId]);
@@ -233,14 +240,17 @@ function pos_shift_calculate_summary(int $shiftId): array {
 
   return [
     'shift' => $shift,
-    'opening_cash' => $openingCash,
-    'cash_sales' => $cashSales,
-    'cash_refund' => $cashRefund,
+    'opening_cash' => store_acc_money($openingCash),
+    'cash_sales' => store_acc_money($cashSales),
+    'cash_refund' => store_acc_money($cashRefund),
     'cash_cancel' => 0.0,
-    'cash_in' => $cashIn,
-    'cash_out' => $cashOut,
-    'non_cash_sales' => $nonCashSales,
-    'expected_cash' => $expectedCash,
+    'cash_in' => store_acc_money($cashIn),
+    'cash_out' => store_acc_money($cashOut),
+    'non_cash_sales' => store_acc_money($nonCashSales),
+    'expected_cash' => store_acc_money($expectedCash),
+    'gross_sales' => (float)$sales['gross_sales'],
+    'discount_total' => (float)$sales['discount_total'],
+    'net_sales' => (float)$sales['net_sales'],
   ];
 }
 

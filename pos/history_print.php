@@ -4,6 +4,7 @@ require_once __DIR__ . '/../core/functions.php';
 require_once __DIR__ . '/../core/security.php';
 require_once __DIR__ . '/../core/auth.php';
 require_once __DIR__ . '/../core/rbac.php';
+require_once __DIR__ . '/../core/store_accounting.php';
 
 start_secure_session();
 require_login();
@@ -38,7 +39,7 @@ try {
   $stmt = db()->prepare("
     SELECT
       s.transaction_code,
-      MIN(s.created_at)     AS created_at,
+      MIN(s.sold_at)        AS created_at,
       SUM(s.total)          AS total,
       MAX(s.payment_method) AS payment_method,
       $bankSelect           AS payment_bank,
@@ -70,7 +71,7 @@ if ((int)$tx['created_by'] !== $userId && !$hasSalesAccess) {
 }
 
 $stmtItems = db()->prepare("
-  SELECT p.name AS product_name, s.qty, s.price_each, s.total, s.price_each = 0 AS is_reward
+  SELECT s.*, p.name AS product_name, s.price_each = 0 AS is_reward
   FROM sales s
   LEFT JOIN products p ON p.id = s.product_id
   WHERE s.transaction_code = ?
@@ -79,6 +80,11 @@ $stmtItems = db()->prepare("
 ");
 $stmtItems->execute([$txCode]);
 $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
+$preparedTransaction = store_acc_prepare_transaction($items);
+$items = $preparedTransaction['rows'];
+$tx['gross_total'] = (float)$preparedTransaction['gross'];
+$tx['discount_total'] = (float)$preparedTransaction['discount_total'];
+$tx['total'] = (float)$preparedTransaction['net_before_return'];
 
 $pmLabel = strtoupper($tx['payment_method'] ?? '-');
 if (!empty($tx['payment_bank'])) $pmLabel .= ' — ' . $tx['payment_bank'];
@@ -148,7 +154,7 @@ if (!empty($storeLogo)) {
                 <?php echo $item['is_reward'] ? 'Gratis' : 'Rp ' . e(format_number_id((float)$item['price_each'])); ?>
               </div>
               <div class="receipt-item-subtotal">
-                <?php echo $item['is_reward'] ? 'Rp 0' : 'Rp ' . e(format_number_id((float)$item['total'])); ?>
+                <?php echo $item['is_reward'] ? 'Rp 0' : 'Rp ' . e(format_number_id((float)$item['_line_net'])); ?>
               </div>
             </div>
           </div>
@@ -157,8 +163,18 @@ if (!empty($storeLogo)) {
 
       <div class="receipt-summary">
         <div class="receipt-line">
-          <span>Total</span>
-          <span>Rp <?php echo e(format_number_id((float)$tx['total'])); ?></span>
+          <span>Penjualan Kotor</span>
+          <span>Rp <?php echo e(format_number_id((float)$tx['gross_total'])); ?></span>
+        </div>
+        <?php if ((float)$tx['discount_total'] > 0): ?>
+        <div class="receipt-line">
+          <span>Diskon</span>
+          <span>- Rp <?php echo e(format_number_id((float)$tx['discount_total'])); ?></span>
+        </div>
+        <?php endif; ?>
+        <div class="receipt-line">
+          <strong>Total Setelah Diskon</strong>
+          <strong>Rp <?php echo e(format_number_id((float)$tx['total'])); ?></strong>
         </div>
         <div class="receipt-line">
           <span>Pembayaran</span>
