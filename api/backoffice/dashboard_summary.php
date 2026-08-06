@@ -50,11 +50,14 @@ function adena_bo_finance_summary(string $start,string $end,float $sales): array
 }
 
 
-$today=date('Y-m-d');$tomorrow=date('Y-m-d',strtotime($today.' +1 day'));$month=trim((string)($_GET['month']??date('Y-m')));if(!preg_match('/^\d{4}-\d{2}$/',$month))$month=date('Y-m');$monthStart=$month.'-01';$monthEnd=date('Y-m-d',strtotime($monthStart.' +1 month'));
-$todaySales=adena_bo_sales_summary($today,$tomorrow);$monthSales=adena_bo_sales_summary($monthStart,$monthEnd);$employees=count(adena_store_employee_rows(true));$store=adena_store_identity();$distribution=adena_bo_distribution_summary();$production=adena_bo_production_summary($today,$monthStart,$monthEnd);$kpi=adena_bo_kpi_summary($monthStart);$finance=adena_bo_finance_summary($monthStart,$monthEnd,(float)$monthSales['revenue']);$products=0;try{$products=(int)db()->query('SELECT COUNT(*) FROM products')->fetchColumn();}catch(Throwable $e){}
+$today=date('Y-m-d');$tomorrow=date('Y-m-d',strtotime($today.' +1 day'));$yesterday=date('Y-m-d',strtotime($today.' -1 day'));$twoDaysAgo=date('Y-m-d',strtotime($today.' -2 day'));$month=trim((string)($_GET['month']??date('Y-m')));if(!preg_match('/^\d{4}-\d{2}$/',$month))$month=date('Y-m');$monthStart=$month.'-01';$monthEnd=date('Y-m-d',strtotime($monthStart.' +1 month'));$customStart=trim((string)($_GET['start_date']??$today));$customEnd=trim((string)($_GET['end_date']??$today));if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$customStart))$customStart=$today;if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$customEnd))$customEnd=$today;if($customEnd<$customStart){$tmp=$customStart;$customStart=$customEnd;$customEnd=$tmp;}$customEndExclusive=date('Y-m-d',strtotime($customEnd.' +1 day'));
+$todaySales=adena_bo_sales_summary($today,$tomorrow);$yesterdaySales=adena_bo_sales_summary($yesterday,$today);$twoDaysSales=adena_bo_sales_summary($twoDaysAgo,$yesterday);$monthSales=adena_bo_sales_summary($monthStart,$monthEnd);$customSales=adena_bo_sales_summary($customStart,$customEndExclusive);$employees=count(adena_store_employee_rows(true));$store=adena_store_identity();$distribution=adena_bo_distribution_summary();$production=adena_bo_production_summary($today,$monthStart,$monthEnd);$kpi=adena_bo_kpi_summary($monthStart);$finance=adena_bo_finance_summary($monthStart,$monthEnd,(float)$monthSales['revenue']);$products=0;try{$products=(int)db()->query('SELECT COUNT(*) FROM products')->fetchColumn();}catch(Throwable $e){}
 $data=[
  'system'=>['type'=>'adena','name'=>$store['name']], 'store_name'=>$store['name'],'connection_label'=>$store['name'],
  'transactions_today'=>(int)$todaySales['transactions'],'sales_today'=>(int)$todaySales['transactions'],'revenue_today'=>(float)$todaySales['revenue'],'omset_today'=>(float)$todaySales['revenue'],
+ 'transactions_yesterday'=>(int)$yesterdaySales['transactions'],'revenue_yesterday'=>(float)$yesterdaySales['revenue'],'omset_yesterday'=>(float)$yesterdaySales['revenue'],
+ 'transactions_two_days_ago'=>(int)$twoDaysSales['transactions'],'revenue_two_days_ago'=>(float)$twoDaysSales['revenue'],'omset_two_days_ago'=>(float)$twoDaysSales['revenue'],
+ 'transactions_custom'=>(int)$customSales['transactions'],'revenue_custom'=>(float)$customSales['revenue'],'omset_custom'=>(float)$customSales['revenue'],
  'transactions_month'=>(int)$monthSales['transactions'],'revenue_month'=>(float)$monthSales['revenue'],'omset_month'=>(float)$monthSales['revenue'],'omset_bulan_ini'=>(float)$monthSales['revenue'],'monthly_revenue'=>(float)$monthSales['revenue'],
  'employees_count'=>$employees,'employee_count'=>$employees,'active_employees'=>$employees,'products'=>$products,'active_products'=>$products,
  'production'=>['batches_today'=>$production['batches_today'],'qty_today'=>$production['qty_today'],'batches_month'=>$production['batches_month'],'qty_month'=>$production['qty_month']],
@@ -64,6 +67,9 @@ $data=[
  'kpi'=>array_merge($kpi,['employee_count'=>$employees,'unassessed_count'=>max(0,$employees-$kpi['assessed_count'])]),
  'finance'=>$finance,'purchase_total_month'=>$finance['purchase_total'],'expense_total_month'=>$finance['expense_total'],'estimated_profit_month'=>$finance['estimated_cash_profit'],
  'today'=>['transactions'=>(int)$todaySales['transactions'],'revenue'=>(float)$todaySales['revenue'],'omset'=>(float)$todaySales['revenue']],
+ 'yesterday'=>['transactions'=>(int)$yesterdaySales['transactions'],'revenue'=>(float)$yesterdaySales['revenue']],
+ 'two_days_ago'=>['transactions'=>(int)$twoDaysSales['transactions'],'revenue'=>(float)$twoDaysSales['revenue']],
+ 'custom'=>['start_date'=>$customStart,'end_date'=>$customEnd,'transactions'=>(int)$customSales['transactions'],'revenue'=>(float)$customSales['revenue']],
  'month'=>['period'=>$month,'transactions'=>(int)$monthSales['transactions'],'revenue'=>(float)$monthSales['revenue'],'omset'=>(float)$monthSales['revenue']],
  'pending_pairing'=>pairing_pending_count(),'period'=>['today'=>$today,'month'=>$month,'month_start'=>$monthStart,'month_end_exclusive'=>$monthEnd]
 ];
