@@ -1,7 +1,9 @@
 package id.co.adena.pos.ui
 
-import android.webkit.JavascriptInterface
 import android.util.Log
+import android.webkit.JavascriptInterface
+import id.co.adena.pos.data.PosLocalStore
+import org.json.JSONArray
 import org.json.JSONObject
 
 class WebAppBridge(
@@ -9,17 +11,16 @@ class WebAppBridge(
     private val isTrustedOrigin: () -> Boolean,
     private val onPrintReceipt: (String?) -> BridgeResult,
     private val onOpenPrinterSettings: () -> Unit,
+    private val localStore: PosLocalStore,
 ) {
+    private fun trusted(): Boolean = try { isTrustedOrigin() } catch (_: Throwable) { false }
 
     @JavascriptInterface
     fun printReceipt(payloadJson: String?): String {
         return try {
             val cachedUrl = getCurrentUrlSnapshot()
             Log.d(TAG, "printReceipt() entered cachedUrl=$cachedUrl")
-            if (!isTrustedOrigin()) {
-                Log.w(TAG, "printReceipt ditolak: UNTRUSTED_ORIGIN")
-                return BridgeResult(false, "UNTRUSTED_ORIGIN", "Origin tidak diizinkan").toJson()
-            }
+            if (!trusted()) return BridgeResult(false, "UNTRUSTED_ORIGIN", "Origin tidak diizinkan").toJson()
             onPrintReceipt(payloadJson).toJson()
         } catch (t: Throwable) {
             Log.e(TAG, "printReceipt fatal exception", t)
@@ -30,55 +31,103 @@ class WebAppBridge(
     @JavascriptInterface
     fun openPrinterSettings() {
         try {
-            val cachedUrl = getCurrentUrlSnapshot()
-            Log.d(TAG, "openPrinterSettings() entered cachedUrl=$cachedUrl")
-            if (!isTrustedOrigin()) {
-                Log.w(TAG, "openPrinterSettings ditolak: UNTRUSTED_ORIGIN")
-                return
-            }
+            if (!trusted()) return
             onOpenPrinterSettings()
         } catch (t: Throwable) {
             Log.e(TAG, "openPrinterSettings fatal exception", t)
         }
     }
 
+    /** Save product master into native SQLite. */
     @JavascriptInterface
-    fun ping(): String = try {
-        BridgeResult(true, "PONG", "pong").toJson()
+    fun cacheProducts(productsJson: String?): String = try {
+        if (!trusted()) return BridgeResult(false, "UNTRUSTED_ORIGIN", "Origin tidak diizinkan").toJson()
+        val raw = productsJson ?: "[]"
+        JSONArray(raw) // validate first
+        val count = localStore.saveProducts(raw)
+        JSONObject().put("ok", true).put("code", "PRODUCTS_CACHED").put("count", count).toString()
     } catch (t: Throwable) {
-        Log.e(TAG, "ping fatal exception", t)
-        BridgeResult(false, "INTERNAL_ERROR", t.message ?: "Terjadi kesalahan internal bridge").toJson()
-    }
-
-    @JavascriptInterface
-    fun isReady(): String = try {
-        BridgeResult(true, "READY", "Android bridge siap").toJson()
-    } catch (t: Throwable) {
-        Log.e(TAG, "isReady fatal exception", t)
-        BridgeResult(false, "INTERNAL_ERROR", t.message ?: "Terjadi kesalahan internal bridge").toJson()
+        Log.e(TAG, "cacheProducts failed", t)
+        JSONObject().put("ok", false).put("code", "CACHE_FAILED").put("message", t.message ?: "Cache produk gagal").toString()
     }
 
     @JavascriptInterface
-    fun isReadySimple(): Boolean = try {
-        true
+    fun getCachedProducts(): String = try {
+        if (!trusted()) return "[]"
+        localStore.loadProducts()
     } catch (t: Throwable) {
-        Log.e(TAG, "isReadySimple fatal exception", t)
-        false
+        Log.e(TAG, "getCachedProducts failed", t)
+        "[]"
     }
 
-    data class BridgeResult(
-        val ok: Boolean,
-        val code: String,
-        val message: String,
-    ) {
-        fun toJson(): String = JSONObject()
-            .put("ok", ok)
-            .put("code", code)
-            .put("message", message)
-            .toString()
+    /** Durable JSON state. Used for cart, receipts, customer cache, and sync metadata. */
+    @JavascriptInterface
+    fun putLocalState(key: String?, valueJson: String?): String = try {
+        if (!trusted()) return BridgeResult(false, "UNTRUSTED_ORIGIN", "Origin tidak diizinkan").toJson()
+        val safeKey = key?.trim().orEmpty()
+        if (safeKey.isBlank()) return BridgeResult(false, "INVALID_KEY", "Key kosong").toJson()
+        val raw = valueJson ?: "null"
+        // Accept any JSON value, but guarantee it parses before storing.
+        JSONObject("{\"value\":$raw}")
+        localStore.putState(safeKey, raw)
+        BridgeResult(true, "STATE_SAVED", "State tersimpan di SQLite").toJson()
+    } catch (t: Throwable) {
+        Log.e(TAG, "putLocalState failed", t)
+        BridgeResult(false, "STATE_SAVE_FAILED", t.message ?: "State gagal disimpan").toJson()
     }
 
-    companion object {
-        private const val TAG = "WebAppBridge"
+    @JavascriptInterface
+    fun getLocalState(key: String?): String = try {
+        if (!trusted()) return "null"
+        localStore.getState(key?.trim().orEmpty()) ?: "null"
+    } catch (t: Throwable) {
+        Log.e(TAG, "getLocalState failed", t)
+        "null"
     }
+
+    /** Persist sync work outside WebView localStorage so reload/crash does not lose a sale. */
+    @JavascriptInterface
+    fun enqueueSync(entityType: String?, payloadJson: String?, offlineUuid: String?): String = try {
+        if (!trusted()) return BridgeResult(false, "UNTRUSTED_ORIGIN", "Origin tidak diizinkan").toJson()
+        val type = entityType?.trim().orEmpty()
+        if (type.isBlank()) return BridgeResult(false, "INVALID_ENTITY", "entity_type kosong").toJson()
+        val raw = payloadJson ?: "{}"
+        JSONObject(raw)
+        JSONObject().put("ok", true).put("item", localStore.enqueue(type, raw, offlineUuid)).toString()
+    } catch (t: Throwable) {
+        Log.e(TAG, "enqueueSync failed", t)
+        JSONObject().put("ok", false).put("code", "QUEUE_FAILED").put("message", t.message ?: "Queue gagal").toString()
+    }
+
+    @JavascriptInterface
+    fun getSyncQueue(): String = try {
+        if (!trusted()) return "[]"
+        localStore.loadQueue()
+    } catch (t: Throwable) {
+        Log.e(TAG, "getSyncQueue failed", t)
+        "[]"
+    }
+
+    @JavascriptInterface
+    fun markSyncResult(offlineUuid: String?, status: String?, error: String?): String = try {
+        if (!trusted()) return BridgeResult(false, "UNTRUSTED_ORIGIN", "Origin tidak diizinkan").toJson()
+        val uuid = offlineUuid?.trim().orEmpty()
+        if (uuid.isBlank()) return BridgeResult(false, "INVALID_UUID", "offline_uuid kosong").toJson()
+        val normalized = if (status == "synced") "synced" else "failed"
+        localStore.markQueue(uuid, normalized, error.orEmpty())
+        BridgeResult(true, "QUEUE_UPDATED", "Queue diperbarui").toJson()
+    } catch (t: Throwable) {
+        Log.e(TAG, "markSyncResult failed", t)
+        BridgeResult(false, "QUEUE_UPDATE_FAILED", t.message ?: "Queue gagal diperbarui").toJson()
+    }
+
+    @JavascriptInterface fun ping(): String = BridgeResult(true, "PONG", "pong").toJson()
+    @JavascriptInterface fun isReady(): String = BridgeResult(true, "READY", "Android bridge siap").toJson()
+    @JavascriptInterface fun isReadySimple(): Boolean = true
+
+    data class BridgeResult(val ok: Boolean, val code: String, val message: String) {
+        fun toJson(): String = JSONObject().put("ok", ok).put("code", code).put("message", message).toString()
+    }
+
+    companion object { private const val TAG = "WebAppBridge" }
 }

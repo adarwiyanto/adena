@@ -36,6 +36,7 @@ import androidx.lifecycle.lifecycleScope
 import id.co.adena.pos.bluetooth.BluetoothPrinterManager
 import id.co.adena.pos.bluetooth.EscPosFormatter
 import id.co.adena.pos.data.PrinterPrefs
+import id.co.adena.pos.data.PosLocalStore
 import id.co.adena.pos.data.model.ReceiptPayload
 import id.co.adena.pos.databinding.ActivityMainBinding
 import id.co.adena.pos.kiosk.KioskManager
@@ -44,7 +45,6 @@ import id.co.adena.pos.network.LogoDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.runBlocking
 import org.json.JSONException
 import java.io.File
 import java.io.InputStream
@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var kioskPrefs: KioskPrefs
     private lateinit var kioskManager: KioskManager
     private lateinit var printerManager: BluetoothPrinterManager
+    private lateinit var posLocalStore: PosLocalStore
     private val logoDownloader = LogoDownloader()
     @Volatile
     private var currentPageUrlSnapshot: String? = null
@@ -155,6 +156,7 @@ class MainActivity : AppCompatActivity() {
 
         printerPrefs = PrinterPrefs(this)
         printerManager = BluetoothPrinterManager(this)
+        posLocalStore = PosLocalStore(applicationContext)
 
         ensureBluetoothPermissions()
         cleanupOldUploadCacheFiles()
@@ -201,7 +203,7 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            cacheMode = WebSettings.LOAD_DEFAULT
+            cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -226,6 +228,7 @@ class MainActivity : AppCompatActivity() {
                 isTrustedOrigin = { isTrustedCachedOrigin() },
                 onPrintReceipt = { handlePrintReceipt(it) },
                 onOpenPrinterSettings = { openPrinterSettingsSafely() },
+                localStore = posLocalStore,
             ),
             "AndroidBridge",
         )
@@ -748,32 +751,28 @@ class MainActivity : AppCompatActivity() {
             return WebAppBridge.BridgeResult(false, "INVALID_JSON", "Format JSON receipt tidak valid")
         }
 
-        Log.d(TAG, "Bridge mulai koneksi printer mac=$printerMac")
-        val result = runBlocking {
-            withContext(Dispatchers.IO) {
+        Log.d(TAG, "Bridge enqueue print mac=$printerMac")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val logo = logoDownloader.download(payload.logoUrl)
                     val receiptBytes = EscPosFormatter.formatReceipt(payload, logo)
                     printerManager.print(printerMac, receiptBytes)
                 }
             }
-        }
-
-        return if (result.isSuccess) {
-            Log.d(TAG, "Bridge write printer sukses")
-            val successMessage = if (payload.documentType == "sales_report") "Print laporan berhasil" else "Print receipt berhasil"
-            showToast(successMessage)
-            WebAppBridge.BridgeResult(true, "PRINT_OK", successMessage)
-        } else {
-            val error = result.exceptionOrNull()
-            Log.e(TAG, "Bridge write printer gagal", error)
-            val code = (error as? BluetoothPrinterManager.PrinterException)?.code ?: "PRINT_FAILED"
-            val message = error?.message ?: if (payload.documentType == "sales_report") "Gagal mencetak laporan" else "Gagal mencetak receipt"
-            if (code == "MISSING_PERMISSION" || code == "MISSING_CONNECT_PERMISSION" || code == "MISSING_SCAN_PERMISSION") {
-                ensureBluetoothPermissions()
+            if (result.isSuccess) {
+                Log.d(TAG, "Async printer write sukses")
+                val successMessage = if (payload.documentType == "sales_report") "Print laporan berhasil" else "Print receipt berhasil"
+                showToast(successMessage)
+            } else {
+                val error = result.exceptionOrNull()
+                Log.e(TAG, "Async printer write gagal", error)
+                val code = (error as? BluetoothPrinterManager.PrinterException)?.code ?: "PRINT_FAILED"
+                if (code == "MISSING_PERMISSION" || code == "MISSING_CONNECT_PERMISSION") ensureBluetoothPermissions()
+                showToast(error?.message ?: "Gagal mencetak")
             }
-            WebAppBridge.BridgeResult(false, code, message)
         }
+        return WebAppBridge.BridgeResult(true, "PRINT_QUEUED", "Print masuk antrian")
     }
 
     private fun autoConnectDefaultPrinter() {
@@ -921,9 +920,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (::binding.isInitialized && level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-            binding.webView.clearCache(false)
-        }
+        // Jangan hapus WebView cache saat memory pressure. POS memakai cache sebagai fallback offline.
+        // Android akan tetap mereklamasi resource renderer bila dibutuhkan.
     }
 
     override fun onDestroy() {

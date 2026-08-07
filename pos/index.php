@@ -69,8 +69,8 @@ $posDefaultOpeningCash = (float)setting('pos_default_opening_cash', '100000');
 $activePaymentMethods = get_active_payment_methods();
 $qrisBanks = get_active_qris_banks();
 $activeGuides = get_active_guides();
-$stmtProducts = db()->prepare("SELECT p.id, p.name, CASE WHEN bpp.is_active = 1 THEN bpp.price ELSE p.price END AS price, p.image_path, p.product_type, p.track_stock, p.allow_bom FROM products p LEFT JOIN branch_product_prices bpp ON bpp.product_id=p.id AND bpp.branch_id=? WHERE p.show_on_pos = 1 ORDER BY p.name ASC");
-$stmtProducts->execute([$branchId]);
+$stmtProducts = db()->prepare("SELECT p.id, p.name, CASE WHEN bpp.is_active = 1 THEN bpp.price ELSE p.price END AS price, p.image_path, p.product_type, p.track_stock, p.allow_bom, p.category AS category_id, COALESCE(st.current_stock,0) AS current_stock FROM products p LEFT JOIN branch_product_prices bpp ON bpp.product_id=p.id AND bpp.branch_id=? LEFT JOIN (SELECT product_id, SUM(qty_in-qty_out) AS current_stock FROM stock_ledger WHERE branch_id=? GROUP BY product_id) st ON st.product_id=p.id WHERE p.show_on_pos = 1 ORDER BY p.name ASC");
+$stmtProducts->execute([$branchId, $branchId]);
 $products = $stmtProducts->fetchAll();
 $hasProducts = !empty($products);
 $productsById = [];
@@ -1293,12 +1293,18 @@ if (!empty($rewardCart)) {
       isShiftAdmin: <?php echo $isShiftAdmin ? 'true' : 'false'; ?>,
       hasActiveShift: <?php echo $activeShift ? 'true' : 'false'; ?>,
       shiftState: <?php echo json_encode($activeShift ? 'active_shift_exists' : 'no_active_shift'); ?>,
-      cartTotal: <?php echo json_encode((float)$total); ?>
+      cartTotal: <?php echo json_encode((float)$total); ?>,
+      storeName: <?php echo json_encode($storeName); ?>,
+      storeSubtitle: <?php echo json_encode($storeSubtitle); ?>,
+      storeAddress: <?php echo json_encode(setting('store_address', '')); ?>,
+      storePhone: <?php echo json_encode(setting('store_phone', '')); ?>,
+      receiptFooter: <?php echo json_encode(setting('receipt_footer', '')); ?>,
+      storeLogoUrl: <?php echo json_encode(upload_url(setting('store_logo', ''), 'image')); ?>
     };
     window.POS_STATE = {
       cartItems: <?php echo json_encode($cartItems); ?>,
       productNames: <?php echo json_encode(array_map(fn($p) => $p['name'], $productsById)); ?>,
-      products: <?php echo json_encode(array_values(array_map(fn($p) => ['id'=>(int)$p['id'],'name'=>$p['name'],'price'=>(float)$p['price']], $products))); ?>,
+      products: <?php echo json_encode(array_values(array_map(fn($p) => ['id'=>(int)$p['id'],'name'=>$p['name'],'price'=>(float)$p['price'],'image_path'=>$p['image_path'] ?? '','track_stock'=>(int)($p['track_stock'] ?? 1),'current_stock'=>(float)($p['current_stock'] ?? 0),'category_id'=>$p['category_id'] ?? null], $products))); ?>,
       activeShiftId: <?php echo json_encode($activeShift ? (int)$activeShift['id'] : null); ?>
     };
   </script>

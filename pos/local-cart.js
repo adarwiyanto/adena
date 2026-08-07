@@ -3,7 +3,15 @@
   const runtime = window.POS_RUNTIME || {};
   const state = window.POS_STATE || {};
   const key = runtime.cartStorageKey || 'adena_pos_cart_v2';
-  const products = new Map((state.products || []).map((p) => [String(p.id), { id: Number(p.id), name: String(p.name || ''), price: Number(p.price || 0) }]));
+  const nativeBridge = window.AndroidBridge && typeof window.AndroidBridge.getLocalState === 'function' ? window.AndroidBridge : null;
+  const initialProducts = (() => {
+    let rows = Array.isArray(state.products) ? state.products : [];
+    if ((!rows || !rows.length) && nativeBridge && typeof nativeBridge.getCachedProducts === 'function') {
+      try { rows = JSON.parse(nativeBridge.getCachedProducts() || '[]') || []; } catch (_) {}
+    }
+    return rows || [];
+  })();
+  const products = new Map(initialProducts.map((p) => [String(p.id), { id: Number(p.id), name: String(p.name || ''), price: Number(p.price || 0), current_stock: p.current_stock == null ? null : Number(p.current_stock), track_stock: Number(p.track_stock == null ? 1 : p.track_stock) }]));
   let cart = {};
   let dirty = false;
   let syncing = false;
@@ -11,11 +19,17 @@
   const parse = (raw, fallback) => { try { return JSON.parse(raw); } catch (_) { return fallback; } };
   const serverCart = () => Object.fromEntries((state.cartItems || []).filter((x) => !x.is_reward).map((x) => [String(x.id), Number(x.qty || 0)]));
   const load = () => {
-    const local = parse(localStorage.getItem(key) || 'null', null);
+    let local = null;
+    if (nativeBridge) { try { local = parse(nativeBridge.getLocalState('cart:' + key) || 'null', null); } catch (_) {} }
+    if (!local) local = parse(localStorage.getItem(key) || 'null', null);
     if (local && local.cart && local.dirty) { dirty = true; return local.cart; }
     return serverCart();
   };
-  const save = () => localStorage.setItem(key, JSON.stringify({ cart, dirty, updated_at: Date.now() }));
+  const save = () => {
+    const raw = JSON.stringify({ cart, dirty, updated_at: Date.now() });
+    localStorage.setItem(key, raw);
+    if (nativeBridge) { try { nativeBridge.putLocalState('cart:' + key, raw); } catch (_) {} }
+  };
   const money = (n) => 'Rp ' + Math.max(0, Number(n || 0)).toLocaleString('id-ID');
   const total = () => Object.entries(cart).reduce((sum, [id, qty]) => sum + ((products.get(id)?.price || 0) * Number(qty || 0)), 0);
   const count = () => Object.values(cart).reduce((sum, qty) => sum + Number(qty || 0), 0);
@@ -56,7 +70,15 @@
     id = String(id);
     if (!products.has(id)) return;
     const current = Number(cart[id] || 0);
-    if (mode === 'add' || mode === 'inc') cart[id] = Math.min(9999, current + 1);
+    if (mode === 'add' || mode === 'inc') {
+      const p = products.get(id);
+      const wanted = current + 1;
+      if (p && p.track_stock === 1 && p.current_stock != null && wanted > p.current_stock) {
+        document.dispatchEvent(new CustomEvent('adena:stock-warning', {detail:{product_id:Number(id), available:p.current_stock}}));
+        return;
+      }
+      cart[id] = Math.min(9999, wanted);
+    }
     if (mode === 'dec') current <= 1 ? delete cart[id] : cart[id] = current - 1;
     if (mode === 'remove') delete cart[id];
     if (mode === 'qty') { const q = Math.min(9999, Math.max(0, Number(value || 0))); q ? cart[id] = q : delete cart[id]; }
@@ -92,6 +114,7 @@
       return;
     }
     if (form.matches('[data-checkout-form]')) {
+      if (nativeBridge) return;
       if (!navigator.onLine) return;
       if (form.dataset.cartReady === '1') { form.dataset.cartReady = ''; return; }
       event.preventDefault();
@@ -114,6 +137,24 @@
   });
   window.addEventListener('online', () => syncCart());
   window.addEventListener('pagehide', () => { if (dirty && navigator.sendBeacon) navigator.sendBeacon(runtime.cartStateUrl || 'cart_state.php', new Blob([JSON.stringify({_csrf:runtime.csrf || '', cart})], {type:'application/json'})); });
-  document.addEventListener('DOMContentLoaded', function () { cart = load(); save(); render(); setInterval(() => syncCart(), 60000); });
-  window.POSLocalCart = { syncNow: () => syncCart({force:true}), getCart: () => ({...cart}) };
+  document.addEventListener('DOMContentLoaded', function () {
+    if (nativeBridge && state.products && state.products.length && typeof nativeBridge.cacheProducts === 'function') {
+      try { nativeBridge.cacheProducts(JSON.stringify(state.products)); } catch (_) {}
+    }
+    cart = load(); save(); render();
+    // Android local-first tidak melakukan cart sync periodik; transaksi disimpan lokal lalu di-sync queue.
+    if (!nativeBridge) setInterval(() => syncCart(), 60000);
+  });
+  window.POSLocalCart = {
+    syncNow: () => nativeBridge ? Promise.resolve({ok:true, skipped:true, local_first:true}) : syncCart({force:true}),
+    getCart: () => ({...cart}),
+    clear: () => { cart = {}; dirty = false; save(); render(); },
+    commitSale: () => {
+      Object.entries(cart).forEach(([id, qty]) => {
+        const p = products.get(String(id));
+        if (p && p.track_stock === 1 && p.current_stock != null) p.current_stock = Math.max(0, Number(p.current_stock) - Number(qty || 0));
+      });
+      cart = {}; dirty = false; save(); render();
+    }
+  };
 })();

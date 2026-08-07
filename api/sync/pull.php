@@ -101,6 +101,18 @@ try {
                    " ORDER BY is_favorite DESC, name ASC";
     $products = safe_rows($pdo, 'products', $productSql, $hasFilter ? [$sinceParam] : [], $debugNotes);
 
+    $branchId = (int)($user['branch_id'] ?? 0);
+    $stocks = [];
+    if ($branchId > 0) {
+        $stocks = safe_rows(
+            $pdo,
+            'stocks',
+            "SELECT product_id, ? AS branch_id, COALESCE(SUM(qty_in-qty_out),0) AS current_stock, MAX(created_at) AS updated_at FROM stock_ledger WHERE branch_id=? GROUP BY product_id",
+            [$branchId, $branchId],
+            $debugNotes
+        );
+    }
+
     $categories = safe_rows(
         $pdo,
         'categories',
@@ -228,6 +240,8 @@ try {
         'server_time' => gmdate('Y-m-d H:i:s'),
         'data' => [
             'products' => array_values($products),
+            'stocks' => array_values($stocks),
+            'branch_id' => $branchId,
             'categories' => array_values($categories),
             'guides' => array_values($guides),
             'banks' => array_values($banks),

@@ -224,7 +224,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      if (navigator.onLine) return;
+      const nativeLocalFirst = document.body && document.body.dataset.androidApp === '1' && window.AndroidBridge && typeof window.AndroidBridge.enqueueSync === 'function';
+      if (navigator.onLine && !nativeLocalFirst) return;
 
       if (!window.POSOfflineSync) return;
       e.preventDefault();
@@ -235,9 +236,35 @@ document.addEventListener('DOMContentLoaded', () => {
         if (offlineUuidInput) offlineUuidInput.value = queued.queue.offline_uuid;
         if (groupUuidInput) groupUuidInput.value = queued.queue.payload.transaction_group_uuid || queued.queue.offline_uuid;
 
-        alert('Transaksi tersimpan offline. Jangan refresh halaman sebelum koneksi kembali.');
-        const cartList = document.querySelector('.pos-cart-items');
-        if (cartList) cartList.innerHTML = '<div class="pos-empty-cart"><strong>Transaksi offline berhasil disimpan.</strong><br><small>Silakan sinkronkan saat online.</small></div>';
+        if (window.POSLocalCart && typeof window.POSLocalCart.commitSale === 'function') window.POSLocalCart.commitSale();
+        else if (window.POSLocalCart && typeof window.POSLocalCart.clear === 'function') window.POSLocalCart.clear();
+
+        // Cetak langsung dari data lokal; proses Bluetooth berjalan async di Android.
+        if (window.AndroidBridge && typeof window.AndroidBridge.printReceipt === 'function') {
+          try {
+            const r = queued.receipt || {};
+            const payload = {
+              document_type: 'receipt', receipt_id: r.id || queued.queue.offline_uuid,
+              tanggal_jam: r.time || new Date().toLocaleString('id-ID'), cashier: r.cashier || 'Kasir',
+              store_name: (window.POS_RUNTIME && window.POS_RUNTIME.storeName) || 'Adena POS',
+              store_subtitle: (window.POS_RUNTIME && window.POS_RUNTIME.storeSubtitle) || '',
+              store_address: (window.POS_RUNTIME && window.POS_RUNTIME.storeAddress) || '',
+              store_phone: (window.POS_RUNTIME && window.POS_RUNTIME.storePhone) || '',
+              footer: (window.POS_RUNTIME && window.POS_RUNTIME.receiptFooter) || '',
+              logo_url: (window.POS_RUNTIME && window.POS_RUNTIME.storeLogoUrl) || '',
+              payment_method: r.payment || '', total: Number(r.total || 0),
+              bayar: Number(cashInput ? cashInput.value || r.total || 0 : r.total || 0),
+              kembalian: Math.max(0, Number(cashInput ? cashInput.value || 0 : 0) - Number(r.total || 0)),
+              paper_width: 58, items: r.items || []
+            };
+            window.AndroidBridge.printReceipt(JSON.stringify(payload));
+          } catch (_) {}
+        }
+
+        alert(nativeLocalFirst ? 'Transaksi tersimpan di database Android.' : 'Transaksi tersimpan offline.');
+        if (navigator.onLine && nativeLocalFirst) {
+          setTimeout(() => window.POSOfflineSync.syncNow().catch(() => {}), 50);
+        }
       } catch (err) {
         alert(err.message || 'Gagal menyimpan transaksi offline');
       }

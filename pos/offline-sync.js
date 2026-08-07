@@ -2,11 +2,16 @@
   const QUEUE_KEY = 'pos_offline_queue_v1';
   const RECEIPT_KEY = 'pos_offline_receipts_v1';
 
+  const nativeBridge = window.AndroidBridge && typeof window.AndroidBridge.getSyncQueue === 'function' ? window.AndroidBridge : null;
+
   const parseJson = (raw, fallback) => {
     try { return JSON.parse(raw); } catch (e) { return fallback; }
   };
 
-  const loadQueue = () => parseJson(localStorage.getItem(QUEUE_KEY) || '[]', []);
+  const loadQueue = () => {
+    if (nativeBridge) { try { return parseJson(nativeBridge.getSyncQueue() || '[]', []); } catch (_) {} }
+    return parseJson(localStorage.getItem(QUEUE_KEY) || '[]', []);
+  };
   const saveQueue = (queue) => localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
   const loadReceipts = () => parseJson(localStorage.getItem(RECEIPT_KEY) || '[]', []);
   const saveReceipts = (rows) => localStorage.setItem(RECEIPT_KEY, JSON.stringify(rows));
@@ -29,8 +34,15 @@
       retry_count: 0,
       last_error: '',
     };
-    queue.push(item);
-    saveQueue(queue);
+    if (nativeBridge && typeof nativeBridge.enqueueSync === 'function') {
+      try {
+        const r = parseJson(nativeBridge.enqueueSync(entityType, JSON.stringify(item.payload), item.offline_uuid), null);
+        if (r && r.ok && r.item && r.item.offline_uuid) item.offline_uuid = r.item.offline_uuid;
+      } catch (_) {}
+    } else {
+      queue.push(item);
+      saveQueue(queue);
+    }
     updateIndicators();
     return item;
   };
@@ -55,7 +67,8 @@
       queue[idx].sync_status = 'synced';
       queue[idx].last_error = '';
       queue[idx].retry_count = (queue[idx].retry_count || 0) + 1;
-      saveQueue(queue.filter((q) => q.sync_status !== 'synced'));
+      if (nativeBridge && typeof nativeBridge.markSyncResult === 'function') { try { nativeBridge.markSyncResult(offlineUuid, 'synced', ''); } catch (_) {} }
+      else saveQueue(queue.filter((q) => q.sync_status !== 'synced'));
       updateIndicators();
     }
   };
@@ -67,7 +80,8 @@
       queue[idx].sync_status = 'failed';
       queue[idx].last_error = message || 'Sync gagal';
       queue[idx].retry_count = (queue[idx].retry_count || 0) + 1;
-      saveQueue(queue);
+      if (nativeBridge && typeof nativeBridge.markSyncResult === 'function') { try { nativeBridge.markSyncResult(offlineUuid, 'failed', message || 'Sync gagal'); } catch (_) {} }
+      else saveQueue(queue);
       updateIndicators();
     }
   };
@@ -157,6 +171,10 @@
       customer_name: customerName,
       customer_phone: customerPhone,
       customer_gender: customerGender,
+      guide_name: String(form.querySelector('[name="guide_name"]')?.value || '').trim(),
+      tx_discount_amount: Number(form.querySelector('[name="tx_discount_amount"]')?.value || 0),
+      tx_discount_type: String(form.querySelector('[name="tx_discount_type"]')?.value || 'fixed'),
+      cash_received: Number(form.querySelector('[name="cash_received"]')?.value || 0),
       items: cartItems,
     });
 

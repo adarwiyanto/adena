@@ -28,6 +28,8 @@ ensure_adena14_schema();
 ensure_payment_methods_table();
 ensure_qris_banks_table();
 ensure_sales_payment_bank_column();
+ensure_sales_guide_column();
+ensure_sales_discount_columns();
 $me = current_user();
 $me = require_menu_access('pos', 'create');
 
@@ -132,10 +134,15 @@ try {
           if ($existingCustomer) { $customerId=(int)$existingCustomer['id']; $customerName=(string)$existingCustomer['name']; }
           else { $newCustomer=db()->prepare('INSERT INTO customers (name,phone,gender) VALUES (?,?,?)'); $newCustomer->execute([$customerName,$customerPhone,$customerGender ?: null]); $customerId=(int)db()->lastInsertId(); }
         }
+        $guideName = trim((string)($payload['guide_name'] ?? ''));
+        $txDiscountAmt = max(0.0, (float)($payload['tx_discount_amount'] ?? 0));
+        $txDiscountType = in_array((string)($payload['tx_discount_type'] ?? ''), ['fixed','percent'], true) ? (string)$payload['tx_discount_type'] : 'fixed';
+        if ($txDiscountType === 'percent') $txDiscountAmt = min(100.0, $txDiscountAmt);
+
         $db = db();
         $db->beginTransaction();
-        $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, customer_id, customer_name, customer_phone, created_by, branch_id, shift_id)
-          VALUES (?,?,?,'synced',?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+        $stmt = $db->prepare("INSERT INTO sales (transaction_code, transaction_group_uuid, offline_uuid, sync_status, base_sale_code, revision_suffix, revision_no, is_active_revision, revision_status, original_sale_id, product_id, qty, price_each, total, payment_method, payment_proof_path, payment_bank, guide_name, discount_amount, discount_type, tx_discount_amount, tx_discount_type, customer_id, customer_name, customer_phone, created_by, branch_id, shift_id)
+          VALUES (?,?,?,'synced',?,NULL,0,1,'active',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         $firstId = 0;
         foreach ($itemsPayload as $i => $s) {
           $pid = (int)($s['product_id'] ?? 0);
@@ -144,7 +151,7 @@ try {
           if ($pid <= 0 || $qty <= 0) continue;
           $total = $price * $qty;
           $rowOffline = $i === 0 ? $offlineUuid : null;
-          $stmt->execute([$transactionCode, $groupUuid, $rowOffline, $transactionCode, $pid, $qty, $price, $total, $paymentMethod, null, $paymentBank, $customerId, $customerName ?: null, $customerPhone ?: null, (int)$me['id'], $branchId, (int)$active['id']]);
+          $stmt->execute([$transactionCode, $groupUuid, $rowOffline, $transactionCode, $pid, $qty, $price, $total, $paymentMethod, null, $paymentBank, $guideName ?: null, 0, 'fixed', $txDiscountAmt, $txDiscountType, $customerId, $customerName ?: null, $customerPhone ?: null, (int)$me['id'], $branchId, (int)$active['id']]);
           $saleId = (int)$db->lastInsertId();
           if ($firstId <= 0) $firstId = $saleId;
           try {
