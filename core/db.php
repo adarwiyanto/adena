@@ -10,6 +10,8 @@ function app_config(): array {
     exit;
   }
   $cfg = require $path;
+  // Seluruh tanggal operasional Adena mengikuti WIB (Asia/Jakarta / UTC+7).
+  date_default_timezone_set($cfg['app']['timezone'] ?? 'Asia/Jakarta');
   return $cfg;
 }
 
@@ -23,5 +25,7 @@ function db(): PDO {
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
   ]);
+  // Samakan NOW(), CURDATE(), CURRENT_TIMESTAMP dan konversi TIMESTAMP MySQL dengan WIB.
+  $pdo->exec("SET time_zone = '+07:00'");
   return $pdo;
 }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#0F172A">
+  <Button android:id="@+id/btnOpenSettings" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:layout_margin="18dp" android:text="Setting" />
+  <LinearLayout android:id="@+id/loginForm" android:layout_width="440dp" android:layout_height="wrap_content" android:layout_gravity="center" android:orientation="vertical" android:padding="34dp" android:background="#FFFFFF">
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Adena POS" android:textSize="32sp" android:textStyle="bold" android:gravity="center" android:textColor="#0F172A" />
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Android cashier system" android:gravity="center" android:layout_marginBottom="22dp" android:textColor="#64748B" />
+    <EditText android:id="@+id/username" android:layout_width="match_parent" android:layout_height="52dp" android:hint="Username" android:singleLine="true" />
+    <EditText android:id="@+id/password" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="10dp" android:hint="Password" android:inputType="textPassword" android:singleLine="true" />
+    <Button android:id="@+id/btnLogin" android:layout_width="match_parent" android:layout_height="54dp" android:layout_marginTop="18dp" android:text="Login" />
+    <TextView android:id="@+id/loginStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:layout_marginTop="12dp" android:textColor="#475569" />
+    <TextView android:id="@+id/loginError" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:layout_marginTop="5dp" android:textColor="#B91C1C" />
+  </LinearLayout>
+</FrameLayout>

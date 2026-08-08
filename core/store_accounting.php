@@ -65,7 +65,9 @@ function store_acc_active_filter(string $alias = 's'): string {
 function store_acc_normalize_datetime(string $value, bool $end = false): string {
   $value = trim($value);
   if ($value === '') return $end ? '9999-12-31 23:59:59' : '1970-01-01 00:00:00';
-  if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) return $value . ($end ? ' 23:59:59' : ' 00:00:00');
+  // Range pada modul accounting memakai batas akhir eksklusif [start, end).
+  // Tanggal polos harus selalu berarti awal hari tersebut, termasuk saat dipakai sebagai $end.
+  if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) return $value . ' 00:00:00';
   $ts = strtotime($value);
   if ($ts === false) return $end ? '9999-12-31 23:59:59' : '1970-01-01 00:00:00';
   return date('Y-m-d H:i:s', $ts);

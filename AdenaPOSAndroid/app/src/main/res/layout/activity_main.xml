@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="#F1F5F9">
+  <LinearLayout android:layout_width="match_parent" android:layout_height="66dp" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="14dp" android:background="#0F172A">
+    <TextView android:id="@+id/brandName" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Adena POS" android:textStyle="bold" android:textSize="22sp" android:textColor="#FFFFFF" />
+    <TextView android:id="@+id/userLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="#E2E8F0" android:layout_marginEnd="16dp" />
+    <TextView android:id="@+id/shiftStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Shift: tidak aktif" android:textColor="#E2E8F0" android:layout_marginEnd="12dp" />
+    <Button android:id="@+id/btnShift" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Buka Shift" />
+    <Button android:id="@+id/btnExit" android:layout_width="wrap_content" android:layout_height="44dp" android:layout_marginStart="8dp" android:text="Keluar POS" />
+    <TextView android:id="@+id/offlineStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="offline" android:textColor="#86EFAC" android:textStyle="bold" android:layout_marginHorizontal="10dp" />
+    <TextView android:id="@+id/syncCount" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pending: 0" android:textColor="#E2E8F0" android:layout_marginEnd="8dp" />
+    <Button android:id="@+id/syncButton" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Manual Sync" />
+  </LinearLayout>
+  <HorizontalScrollView android:layout_width="match_parent" android:layout_height="52dp" android:scrollbars="none" android:background="#FFFFFF">
+    <LinearLayout android:layout_width="wrap_content" android:layout_height="match_parent" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="8dp">
+      <Button android:id="@+id/tabPos" android:layout_width="wrap_content" android:layout_height="42dp" android:text="POS" />
+      <Button android:id="@+id/tabReceipt" android:layout_width="wrap_content" android:layout_height="42dp" android:text="Receipt/Print" />
+      <Button android:id="@+id/tabHistory" android:layout_width="wrap_content" android:layout_height="42dp" android:text="Riwayat" />
+      <Button android:id="@+id/tabRecap" android:layout_width="wrap_content" android:layout_height="42dp" android:text="Rekapitulasi" />
+      <Button android:id="@+id/tabCustomers" android:layout_width="wrap_content" android:layout_height="42dp" android:text="Rekap Pelanggan" />
+      <Button android:id="@+id/tabOrders" android:layout_width="wrap_content" android:layout_height="42dp" android:text="Order Masuk" />
+    </LinearLayout>
+  </HorizontalScrollView>
+  <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+    <LinearLayout android:id="@+id/panelPos" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal" android:padding="10dp">
+      <LinearLayout android:layout_width="170dp" android:layout_height="match_parent" android:orientation="vertical" android:background="#F8FAFC" android:padding="8dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Menu" android:textStyle="bold" android:textSize="18sp" android:padding="8dp" />
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"><LinearLayout android:id="@+id/categoryContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" /></ScrollView>
+      </LinearLayout>
+      <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1.45" android:orientation="vertical" android:paddingHorizontal="10dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical"><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Produk" android:textStyle="bold" android:textSize="18sp"/><EditText android:id="@+id/searchInput" android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1" android:layout_marginStart="12dp" android:hint="Cari produk" android:singleLine="true" android:background="#FFFFFF" android:paddingHorizontal="12dp"/></LinearLayout>
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"><GridLayout android:id="@+id/productGrid" android:layout_width="match_parent" android:layout_height="wrap_content" android:columnCount="3" /></ScrollView>
+      </LinearLayout>
+      <LinearLayout android:layout_width="390dp" android:layout_height="match_parent" android:orientation="vertical" android:background="#FFFFFF" android:padding="10dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Keranjang" android:textStyle="bold" android:textSize="20sp" />
+        <TextView android:id="@+id/cartEmpty" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Belum ada produk" android:gravity="center" android:padding="18dp" />
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"><LinearLayout android:id="@+id/cartContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" /></ScrollView>
+        <TextView android:id="@+id/cartItemCount" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="0 item" />
+        <TextView android:id="@+id/totalText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Total: Rp 0" android:textStyle="bold" android:textSize="24sp" android:paddingVertical="6dp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal"><EditText android:id="@+id/txDiscountAmount" android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1" android:hint="Diskon transaksi" android:inputType="numberDecimal"/><Spinner android:id="@+id/txDiscountType" android:layout_width="90dp" android:layout_height="44dp"/></LinearLayout>
+        <EditText android:id="@+id/customerName" android:layout_width="match_parent" android:layout_height="42dp" android:hint="Nama pelanggan (opsional)" android:singleLine="true" />
+        <EditText android:id="@+id/customerPhone" android:layout_width="match_parent" android:layout_height="42dp" android:hint="No. telp (opsional)" android:singleLine="true" android:inputType="phone" />
+        <Spinner android:id="@+id/guideSpinner" android:layout_width="match_parent" android:layout_height="44dp" />
+        <CheckBox android:id="@+id/multiPaymentToggle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Multi pembayaran" />
+        <Spinner android:id="@+id/paymentMethod" android:layout_width="match_parent" android:layout_height="44dp" />
+        <Spinner android:id="@+id/paymentBank" android:layout_width="match_parent" android:layout_height="44dp" />
+        <LinearLayout android:id="@+id/cashWrap" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+          <EditText android:id="@+id/cashReceived" android:layout_width="match_parent" android:layout_height="42dp" android:hint="Uang diterima" android:inputType="number" />
+          <HorizontalScrollView android:layout_width="match_parent" android:layout_height="48dp" android:scrollbars="none"><LinearLayout android:id="@+id/cashQuickButtons" android:layout_width="wrap_content" android:layout_height="match_parent" android:orientation="horizontal" /></HorizontalScrollView>
+          <TextView android:id="@+id/cashChange" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Kembalian: Rp 0" android:textStyle="bold" />
+        </LinearLayout>
+        <Button android:id="@+id/payButton" android:layout_width="match_parent" android:layout_height="54dp" android:text="Bayar" android:textStyle="bold" />
+      </LinearLayout>
+    </LinearLayout>
+    <ScrollView android:id="@+id/panelReceipt" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"><LinearLayout android:id="@+id/receiptContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="22dp" /></ScrollView>
+    <LinearLayout android:id="@+id/panelHistory" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="14dp" android:visibility="gone"><LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:orientation="horizontal"><Button android:id="@+id/historyToday" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Hari ini"/><Button android:id="@+id/historyYesterday" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Kemarin"/><Button android:id="@+id/history7days" android:layout_width="wrap_content" android:layout_height="44dp" android:text="7 hari"/><Button android:id="@+id/historyMonth" android:layout_width="wrap_content" android:layout_height="44dp" android:text="Bulan ini"/><TextView android:id="@+id/historyOmzet" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="end|center_vertical" android:textStyle="bold" android:textSize="18sp"/></LinearLayout><ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"><LinearLayout android:id="@+id/historyList" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"/></ScrollView></LinearLayout>
+    <ScrollView android:id="@+id/panelRecap" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"><LinearLayout android:id="@+id/recapContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="22dp" /></ScrollView>
+    <ScrollView android:id="@+id/panelCustomers" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"><LinearLayout android:id="@+id/customerContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="22dp" /></ScrollView>
+    <ScrollView android:id="@+id/panelOrders" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone"><LinearLayout android:id="@+id/orderContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="22dp" /></ScrollView>
+  </FrameLayout>
+</LinearLayout>

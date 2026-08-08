@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Asia/Jakarta');
 // Installer Adena: mengikuti schema DB referensi di /db/adena_install_schema.sql.
 // Prinsip: tidak membuat desain DB baru, tidak membawa data dump lama, hanya schema + owner pertama + setting minimal.
 $lock = __DIR__ . '/install.lock';
@@ -233,6 +234,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $dsn = "mysql:host={$db_host};port={$db_port};charset=utf8mb4";
     $pdoRoot = new PDO($dsn, $db_user, $db_pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdoRoot->exec("SET time_zone = '+07:00'");
     $pdoRoot->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdoRoot->exec("USE `{$db_name}`");
 
@@ -250,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     seed_minimal_data($pdoRoot, $app_name, $admin_username, $admin_name, $admin_pass1);
 
     $config = [
-      'app' => ['name' => $app_name, 'base_url' => rtrim($base_url, '/')],
+      'app' => ['name' => $app_name, 'base_url' => rtrim($base_url, '/'), 'timezone' => 'Asia/Jakarta'],
       'db'  => ['host'=>$db_host,'port'=>$db_port,'name'=>$db_name,'user'=>$db_user,'pass'=>$db_pass,'charset'=>'utf8mb4'],
       'security' => ['session_name' => 'TOKOSESS'],
     ];
