@@ -1,23 +1,34 @@
 <?php
 /**
- * GET /api/auth.php  — verifikasi API token desktop.
- * POST /api/auth.php — login user kasir (tetap butuh device API token valid).
+ * Adena POS authentication.
+ *
+ * GET  /api/auth.php?ping=1 : public connectivity probe (no credential data).
+ * GET  /api/auth.php        : verify an existing device API token.
+ * POST /api/auth.php        : authenticate Adena user. Android may bootstrap without
+ *                             a preconfigured token; a restricted device token is
+ *                             provisioned automatically after valid user credentials.
+ * Existing POS Desktop clients that already send Bearer tokens remain compatible.
  */
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/single_branch.php';
 adena_enforce_single_branch_schema();
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+if ($method === 'GET' && isset($_GET['ping'])) {
+    api_ok(['service' => 'adena-pos-api']);
+}
+
+if ($method === 'GET') {
     $token = require_api_token();
     api_ok(['token' => $token]);
 }
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+if ($method !== 'POST') {
     api_err('Method tidak diizinkan.', 405);
 }
 
-$token = require_api_token();
 $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) api_err('Body JSON tidak valid.');
 
@@ -51,10 +62,76 @@ if (!$verified) {
 
 $roleKey = (string)($u['role_key'] ?? $u['role'] ?? '');
 if ($roleKey === '') $roleKey = 'kasir';
+
+$plainDeviceToken = null;
+$bearer = api_get_bearer_token();
+if ($bearer) {
+    // Backward compatible path for POS Desktop / devices that already have a token.
+    $token = require_api_token();
+} else {
+    // Android bootstrap: user credential is the gate. No token is ever typed by user.
+    ensure_api_tokens_table();
+    $requestedDeviceCode = strtoupper(trim((string)($body['device_code'] ?? '')));
+    if ($requestedDeviceCode !== '' && !preg_match('/^[A-Z0-9_-]{3,40}$/', $requestedDeviceCode)) {
+        $requestedDeviceCode = '';
+    }
+
+    $existing = null;
+    if ($requestedDeviceCode !== '') {
+        $q = db()->prepare("SELECT id, name, device_code, branch_id, token_plain, api_type, client_type, api_mode, unit_code, remote_base_url
+                            FROM api_tokens
+                            WHERE is_active=1 AND device_code=? AND client_type='android' AND token_plain IS NOT NULL AND token_plain<>''
+                            ORDER BY id DESC LIMIT 1");
+        $q->execute([$requestedDeviceCode]);
+        $existing = $q->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    if ($existing) {
+        $plainDeviceToken = (string)$existing['token_plain'];
+        $token = [
+            'id' => (int)$existing['id'],
+            'name' => (string)$existing['name'],
+            'device_code' => (string)$existing['device_code'],
+            'branch_id' => isset($existing['branch_id']) ? (int)$existing['branch_id'] : null,
+            'api_type' => (string)($existing['api_type'] ?? 'pos'),
+            'client_type' => (string)($existing['client_type'] ?? 'android'),
+            'api_mode' => (string)($existing['api_mode'] ?? 'sender'),
+            'unit_code' => (string)($existing['unit_code'] ?? ''),
+            'remote_base_url' => (string)($existing['remote_base_url'] ?? ''),
+        ];
+        db()->prepare('UPDATE api_tokens SET last_used_at=NOW() WHERE id=?')->execute([(int)$existing['id']]);
+    } else {
+        $deviceCode = $requestedDeviceCode !== ''
+            ? $requestedDeviceCode
+            : 'AND-' . strtoupper(substr(bin2hex(random_bytes(6)), 0, 10));
+        $plainDeviceToken = 'adena_android_' . bin2hex(random_bytes(32));
+        $tokenHash = password_hash($plainDeviceToken, PASSWORD_DEFAULT);
+        $name = 'Android POS - ' . substr((string)$u['username'], 0, 60);
+        $branchId = adena_single_branch_id();
+        $permissions = json_encode(['pos.sync.pull','pos.sync.push','pos.shift','pos.revision','pos.return']);
+        db()->prepare("INSERT INTO api_tokens
+            (name, token_hash, device_code, branch_id, token_plain, api_type, client_type, api_mode, permissions, is_active, last_used_at, created_at)
+            VALUES (?,?,?,?,?,'pos','android','sender',?,1,NOW(),NOW())")
+            ->execute([$name, $tokenHash, $deviceCode, $branchId, $plainDeviceToken, $permissions]);
+        $token = [
+            'id' => (int)db()->lastInsertId(),
+            'name' => $name,
+            'device_code' => $deviceCode,
+            'branch_id' => $branchId,
+            'api_type' => 'pos',
+            'client_type' => 'android',
+            'api_mode' => 'sender',
+            'unit_code' => '',
+            'remote_base_url' => '',
+        ];
+    }
+}
+
 $token['branch_id'] = adena_single_branch_id();
 $token['branch_code'] = adena_single_branch_code();
 $token['branch_name'] = adena_single_branch_name();
-api_ok([
+
+$response = [
     'user' => [
         'id' => (int)$u['id'],
         'username' => (string)$u['username'],
@@ -65,4 +142,6 @@ api_ok([
         'avatar_url' => !empty($u['avatar_path']) ? upload_url($u['avatar_path'], 'image') : '',
     ],
     'token' => $token,
-]);
+];
+if ($plainDeviceToken !== null) $response['api_token'] = $plainDeviceToken;
+api_ok($response);
