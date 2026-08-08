@@ -235,7 +235,7 @@ class AdenaHomeActivity : AppCompatActivity() {
             subtitle = "Mulai Transaksi",
             iconRes = R.drawable.ic_adena_pos,
         ) {
-            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
+            startActivity(Intent(this, SyncActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
         })
         commandPanel.addView(verticalDivider())
         commandPanel.addView(commandButton(

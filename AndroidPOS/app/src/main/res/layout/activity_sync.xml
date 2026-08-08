@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#24170F">
+
+    <LinearLayout android:layout_width="620dp" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:orientation="vertical" android:gravity="center_horizontal"
+        android:padding="32dp" android:background="#FFF9F2">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Menyiapkan Adena POS" android:textStyle="bold" android:textSize="28sp" android:textColor="#3C2415" />
+        <TextView android:id="@+id/syncStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="16dp" android:gravity="center" android:text="Memeriksa data lokal…" android:textSize="17sp" android:textColor="#6B4A35" />
+        <ProgressBar android:id="@+id/syncProgress" style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="16dp" android:layout_marginTop="22dp"
+            android:max="100" android:progress="5" />
+        <TextView android:id="@+id/syncDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:gravity="center" android:text="" android:textSize="14sp" android:textColor="#87654E" />
+        <Button android:id="@+id/continueOfflineButton" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="22dp" android:text="Gunakan Data Lokal" android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Compatibility bootstrap only. Never used as POS UI. -->
+    <WebView android:id="@+id/bootstrapWebView" android:layout_width="1dp" android:layout_height="1dp"
+        android:layout_gravity="bottom|end" android:visibility="invisible" />
+</FrameLayout>

@@ -11,8 +11,8 @@ android {
     applicationId = "id.co.adena.pos"
     minSdk = 30
     targetSdk = 35
-    versionCode = 5
-    versionName = "1.1.0-local-first"
+    versionCode = 6
+    versionName = "1.2.0-native-offline"
   }
 
   buildTypes {
