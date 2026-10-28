@@ -1,6 +1,6 @@
 {
   "name": "adena-pos-desktop",
-  "version": "1.5.8",
+  "version": "1.5.9",
   "description": "Adena POS Desktop offline-first (Electron + SQLite)",
   "main": "src/main/main.js",
   "author": "Adena",

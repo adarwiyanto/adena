@@ -589,7 +589,7 @@ ipcMain.handle('shift:closeReport', async (_, payload = {}) => {
 });
 ipcMain.handle('shift:open', async (_, payload) => performShift('open', payload));
 ipcMain.handle('shift:close', async (_, payload) => performShift('close', payload));
-ipcMain.handle('shift:retryPending', async () => retryPendingShiftSync());
+ipcMain.handle('shift:retryPending', async (_, options = {}) => retryPendingShiftSync(options || {}));
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

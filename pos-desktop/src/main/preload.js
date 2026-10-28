@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   getShiftCloseReport: (payload) => ipcRenderer.invoke('shift:closeReport', payload),
   openShift: (payload) => ipcRenderer.invoke('shift:open', payload),
   closeShift: (payload) => ipcRenderer.invoke('shift:close', payload),
-  retryPendingShift: () => ipcRenderer.invoke('shift:retryPending'),
+  retryPendingShift: (options = {}) => ipcRenderer.invoke('shift:retryPending', options),
   resetAllAppData: () => ipcRenderer.invoke('app:reset-all')
 });
 

@@ -224,6 +224,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $admin_pass2 = (string)($_POST['admin_pass2'] ?? '');
 
   try {
+    if (!extension_loaded('pdo_mysql')) throw new Exception('Ekstensi PHP pdo_mysql wajib aktif.');
+    if (is_file(__DIR__ . '/../config.php')) throw new Exception('Konfigurasi website sudah ada. Installer hanya untuk instalasi baru.');
     if (!$app_name) throw new Exception('Nama aplikasi wajib diisi.');
     if (!$base_url) throw new Exception('Base URL wajib diisi (contoh: http://localhost/adena).');
     if (!$db_name) throw new Exception('Nama database wajib diisi.');
@@ -238,21 +240,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdoRoot->exec("CREATE DATABASE IF NOT EXISTS `{$db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     $pdoRoot->exec("USE `{$db_name}`");
 
-    // Untuk keamanan clean install: jangan overwrite database yang sudah berisi tabel/data.
+    // Instalasi website baru wajib menggunakan database kosong.
+    // Jangan pernah mengubah database yang sudah berisi tabel atau data.
     $stmt = $pdoRoot->query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = " . $pdoRoot->quote($db_name));
     $tableCount = (int)$stmt->fetchColumn();
-    if ($tableCount > 0 && empty($_POST['allow_existing_schema'])) {
-      throw new Exception('Database sudah berisi tabel. Installer ini tidak menghapus/menimpa data. Gunakan database kosong, atau centang opsi lanjutan bila hanya ingin melanjutkan pada schema yang sudah sama.');
+    if ($tableCount !== 0) {
+      throw new Exception('Database tidak kosong. Demi keamanan, gunakan database baru yang kosong. Installer tidak memperbarui atau menimpa database lama.');
     }
 
-    if ($tableCount === 0) {
-      execute_schema_file($pdoRoot, __DIR__ . '/../db/adena_install_schema.sql');
+    execute_schema_file($pdoRoot, __DIR__ . '/../db/adena_install_schema.sql');
+    $expectedTables = ['api_connections', 'api_connection_test_logs', 'api_logs', 'api_notifications', 'api_pairing_requests', 'api_remote_connections', 'api_request_logs', 'api_tokens', 'api_token_permissions', 'api_web_tokens', 'backup_jobs', 'bom_headers', 'bom_items', 'branches', 'branch_product_prices', 'branch_stock_inputs', 'customers', 'customer_sessions', 'dapur_stock_transfers', 'device_tokens', 'expenses', 'expense_categories', 'finance_audit_logs', 'guides', 'initial_stock_entries', 'kitchen_api_received_items', 'kitchen_api_receive_logs', 'kitchen_api_tokens', 'loyalty_rewards', 'orders', 'order_items', 'password_resets', 'payment_methods', 'payment_requests', 'pos_cash_movements', 'pos_pending_orders', 'pos_pending_order_items', 'pos_print_jobs', 'pos_shifts', 'pos_shift_users', 'pos_sync_queue_log', 'production_headers', 'production_items', 'products', 'product_categories', 'product_import_logs', 'product_import_mappings', 'purchase_headers', 'purchase_items', 'purchase_revision_audit', 'qris_banks', 'roles', 'role_permissions', 'sales', 'sales_production_links', 'sales_returns', 'sales_return_items', 'sale_payments', 'settings', 'stock_ledger', 'stock_locations', 'stock_opname_headers', 'stock_opname_items', 'stock_transfers', 'stock_transfer_headers', 'stock_transfer_items', 'store_kpi_assessments', 'store_kpi_assessment_items', 'store_kpi_audit_logs', 'store_kpi_types', 'suppliers', 'sync_outbox', 'users', 'user_branches', 'user_invites', 'user_remember_tokens'];
+    $stmt = $pdoRoot->query("SELECT table_name FROM information_schema.tables WHERE table_schema = " . $pdoRoot->quote($db_name));
+    $actualTables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $missingTables = array_diff($expectedTables, $actualTables);
+    if ($missingTables) {
+      throw new Exception('Instalasi schema belum lengkap: ' . implode(', ', $missingTables));
     }
 
     seed_minimal_data($pdoRoot, $app_name, $admin_username, $admin_name, $admin_pass1);
 
     $config = [
-      'app' => ['name' => $app_name, 'base_url' => rtrim($base_url, '/'), 'timezone' => 'Asia/Jakarta'],
+      'app' => ['name' => $app_name, 'base_url' => rtrim($base_url, '/'), 'timezone' => 'Asia/Jakarta', 'version' => '2026.10.28'],
       'db'  => ['host'=>$db_host,'port'=>$db_port,'name'=>$db_name,'user'=>$db_user,'pass'=>$db_pass,'charset'=>'utf8mb4'],
       'security' => ['session_name' => 'TOKOSESS'],
     ];
@@ -287,7 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
   <div class="topbar">
     <div class="brand"><div class="brand-mark">A</div><div><div>Adena Installer</div><small>Setup awal aplikasi</small></div></div>
-    <small>Schema sesuai DB lampiran • Config lokal • Upload privat</small>
+    <small>Schema 28 Oktober 2026 • Config lokal • Upload privat</small>
   </div>
   <div class="wrap">
     <div class="hero">
@@ -297,7 +305,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="card">
       <?php if ($err): ?><div class="err"><?php echo h($err); ?></div><?php endif; ?>
       <form method="post">
-        <div class="notice"><strong>Catatan:</strong> installer tidak membuat schema versi baru sendiri dan tidak membawa data dump lama. Struktur tabel mengikuti DB yang Dok lampirkan. Data awal hanya owner pertama dan setting minimal.</div>
+        <div class="notice"><strong>Catatan:</strong> installer menginstal seluruh schema terbaru (76 tabel), tanpa membawa data transaksi, pelanggan, token API, atau akun lama. Struktur tabel mengikuti DB yang Dok lampirkan. Data awal hanya owner pertama dan setting minimal.</div>
         <div class="section-card">
           <h2>Identitas Aplikasi</h2>
           <div class="grid cols">
@@ -317,10 +325,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div><label>DB Name</label><input name="db_name" value="<?php echo h($_POST['db_name'] ?? 'adena'); ?>"></div>
             <div><label>DB User</label><input name="db_user" value="<?php echo h($_POST['db_user'] ?? 'root'); ?>"></div>
             <div><label>DB Password</label><input type="password" name="db_pass" value="<?php echo h($_POST['db_pass'] ?? ''); ?>"></div>
-          </div>
-          <div style="margin-top:14px" class="checkrow">
-            <input type="checkbox" name="allow_existing_schema" value="1" <?php echo !empty($_POST['allow_existing_schema']) ? 'checked' : ''; ?>>
-            <div><strong>Lanjutkan bila database sudah berisi schema yang sama</strong><small>Installer tidak akan import schema ulang dan tidak menghapus data. Dipakai hanya bila database sudah pernah dibuat manual dari file DB lampiran.</small></div>
           </div>
         </div>
         <div class="section-card">

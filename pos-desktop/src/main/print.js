@@ -174,7 +174,7 @@ async function buildShiftCloseThermalRawBuffer(payload = {}, options) {
   lines.push(lineText('Total Aktual', r.totalActualText || '-', cols));
   lines.push(lineText('Total Selisih', r.totalDifferenceText || '-', cols));
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.5.8', cols));
+  lines.push(sep, centerText(r.appFooter || 'Adena POS Desktop ver 1.5.9', cols));
   chunks.push(textToEscpos(lines.join('\n') + '\n' + feedLines));
   if (options.autoCut) chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));
   return Buffer.concat(chunks);
@@ -235,7 +235,7 @@ async function buildThermalRawBuffer(payload = {}, options) {
   }
 
   const feedLines = '\n'.repeat(Math.max(0, Number(options.feedBeforeCutLines ?? 3)));
-  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS Desktop ver 1.5.8', cols)}\n${feedLines}`));
+  chunks.push(textToEscpos(`${sep}\n${centerText('Terima kasih', cols)}\n${centerText(r.appFooter || 'Adena POS Desktop ver 1.5.9', cols)}\n${feedLines}`));
   if (options.autoCut) {
     // GS V B 0 = partial cut. Dipakai hanya pada mode Raw Thermal.
     chunks.push(Buffer.from([0x1d, 0x56, 0x42, 0x00]));

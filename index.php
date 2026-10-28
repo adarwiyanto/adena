@@ -1,4 +1,8 @@
 <?php
+if (!is_file(__DIR__ . '/config.php') || !is_file(__DIR__ . '/config.local.php')) {
+  header('Location: install/index.php');
+  exit;
+}
 require_once __DIR__ . '/config.local.php';
 require_once __DIR__ . '/core/db.php';
 require_once __DIR__ . '/core/functions.php';

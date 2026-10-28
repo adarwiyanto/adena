@@ -131,6 +131,15 @@ function require_web_product_api_token(string $permission): array {
       ];
     }
   }
+  // Read-only store pairing bearer; legacy API tokens remain unchanged.
+  require_once __DIR__ . '/api_pairing.php';
+  $st=db()->prepare("SELECT id,access_scope FROM api_connections WHERE connection_type='store' AND status='active' AND token_hash=? LIMIT 1");
+  $st->execute([hash('sha256',$input)]); $pair=$st->fetch(PDO::FETCH_ASSOC);
+  $allowed=['products.read','categories.read','product_images.read'];
+  if($pair && in_array($permission,$allowed,true) && pairing_scope_allows($pair['access_scope'],($permission==='product_images.read'?'images.read':$permission))) {
+    db()->prepare('UPDATE api_connections SET last_used_at=NOW() WHERE id=?')->execute([$pair['id']]);
+    return ['id'=>(int)$pair['id'],'name'=>'Store pairing','permissions'=>$allowed];
+  }
   web_product_api_err('API token antar website tidak valid.', 401);
 }
 
@@ -147,6 +156,7 @@ function remote_api_url(string $baseUrl, string $path): string {
 }
 
 function remote_api_fetch_json(string $baseUrl, string $token, string $path, int $timeout = 20): array {
+  if (str_starts_with($token, 'pairing:')) { require_once __DIR__.'/store_pairing.php'; $token=sp_resolve_token($token); }
   $url = remote_api_url($baseUrl, $path);
   $headers = "Authorization: Bearer " . trim($token) . "\r\n" .
              "Accept: application/json\r\n" .

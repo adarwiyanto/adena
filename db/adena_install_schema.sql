@@ -1,11 +1,11 @@
 -- phpMyAdmin SQL Dump
--- version 5.2.2
+-- version 5.2.3
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: May 15, 2026 at 10:59 AM
--- Server version: 11.4.10-MariaDB-cll-lve
--- PHP Version: 8.4.21
+-- Generation Time: Oct 28, 2026 at 09:28 AM
+-- Server version: 11.4.13-MariaDB-cll-lve
+-- PHP Version: 8.4.27
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -24,6 +24,57 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `api_connections`
+--
+
+CREATE TABLE `api_connections` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `connection_name` varchar(180) NOT NULL,
+  `connection_type` varchar(50) NOT NULL,
+  `remote_system_type` varchar(50) NOT NULL,
+  `remote_base_url` varchar(255) NOT NULL,
+  `access_scope` varchar(80) NOT NULL,
+  `token_hash` varchar(255) DEFAULT NULL,
+  `token_encrypted` longtext DEFAULT NULL,
+  `access_token_plain` text DEFAULT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'active',
+  `paired_from_request_code` varchar(90) DEFAULT NULL,
+  `paired_by` bigint(20) DEFAULT NULL,
+  `paired_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `revoked_by` bigint(20) DEFAULT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `last_used_at` datetime DEFAULT NULL,
+  `last_test_at` datetime DEFAULT NULL,
+  `last_test_status` varchar(30) DEFAULT NULL,
+  `last_test_message` text DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `api_connection_test_logs`
+--
+
+CREATE TABLE `api_connection_test_logs` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `connection_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `target_base_url` varchar(255) NOT NULL,
+  `target_type` varchar(50) DEFAULT NULL,
+  `endpoint` varchar(255) DEFAULT NULL,
+  `status` varchar(30) NOT NULL,
+  `http_status` int(11) DEFAULT NULL,
+  `message` text DEFAULT NULL,
+  `response_body` longtext DEFAULT NULL,
+  `tested_by` bigint(20) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `api_logs`
 --
 
@@ -38,6 +89,83 @@ CREATE TABLE `api_logs` (
   `ip_address` varchar(64) DEFAULT NULL,
   `message` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `api_notifications`
+--
+
+CREATE TABLE `api_notifications` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `notification_type` varchar(60) NOT NULL DEFAULT 'pairing',
+  `title` varchar(180) NOT NULL,
+  `message` text DEFAULT NULL,
+  `target_url` varchar(255) DEFAULT NULL,
+  `related_table` varchar(80) DEFAULT NULL,
+  `related_id` bigint(20) DEFAULT NULL,
+  `is_read` tinyint(1) NOT NULL DEFAULT 0,
+  `read_by` bigint(20) DEFAULT NULL,
+  `read_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `api_pairing_requests`
+--
+
+CREATE TABLE `api_pairing_requests` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `direction` varchar(20) NOT NULL DEFAULT 'incoming',
+  `request_code` varchar(90) NOT NULL,
+  `request_secret_hash` varchar(255) DEFAULT NULL,
+  `requester_name` varchar(180) NOT NULL,
+  `requester_type` varchar(50) NOT NULL,
+  `requester_base_url` varchar(255) NOT NULL,
+  `target_name` varchar(180) DEFAULT NULL,
+  `target_type` varchar(50) NOT NULL,
+  `target_base_url` varchar(255) DEFAULT NULL,
+  `requested_scope` varchar(80) NOT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'pending',
+  `callback_url` varchar(255) DEFAULT NULL,
+  `access_token_encrypted` longtext DEFAULT NULL,
+  `local_secret_encrypted` longtext DEFAULT NULL,
+  `access_token_plain` text DEFAULT NULL,
+  `token_hash` varchar(255) DEFAULT NULL,
+  `reject_reason` text DEFAULT NULL,
+  `approved_by` bigint(20) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `rejected_by` bigint(20) DEFAULT NULL,
+  `rejected_at` datetime DEFAULT NULL,
+  `expires_at` datetime DEFAULT NULL,
+  `last_checked_at` datetime DEFAULT NULL,
+  `last_message` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `api_remote_connections`
+--
+
+CREATE TABLE `api_remote_connections` (
+  `id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `base_url` varchar(255) NOT NULL,
+  `token` text NOT NULL,
+  `permissions` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `last_test_at` datetime DEFAULT NULL,
+  `last_test_status` varchar(30) DEFAULT NULL,
+  `last_test_message` text DEFAULT NULL,
+  `last_sync_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -100,6 +228,50 @@ CREATE TABLE `api_token_permissions` (
   `is_allowed` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `api_web_tokens`
+--
+
+CREATE TABLE `api_web_tokens` (
+  `id` int(11) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `token_hash` varchar(255) NOT NULL,
+  `token_plain` text DEFAULT NULL,
+  `permissions` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `last_used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `revoked_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `backup_jobs`
+--
+
+CREATE TABLE `backup_jobs` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `backup_type` varchar(30) NOT NULL,
+  `period_key` varchar(80) NOT NULL,
+  `status` varchar(30) NOT NULL DEFAULT 'queued',
+  `filename` varchar(255) DEFAULT NULL,
+  `bytes_size` bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+  `sha256` char(64) DEFAULT NULL,
+  `drive_file_id` varchar(160) DEFAULT NULL,
+  `drive_folder_id` varchar(160) DEFAULT NULL,
+  `dump_method` varchar(30) DEFAULT NULL,
+  `initiated_by` varchar(80) DEFAULT NULL,
+  `attempt_count` int(11) NOT NULL DEFAULT 0,
+  `message` text DEFAULT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -237,6 +409,27 @@ CREATE TABLE `customer_sessions` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `dapur_stock_transfers`
+--
+
+CREATE TABLE `dapur_stock_transfers` (
+  `id` bigint(20) NOT NULL,
+  `transfer_no` varchar(80) NOT NULL,
+  `direction` varchar(20) NOT NULL DEFAULT 'in',
+  `branch_id` int(11) NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `qty` decimal(18,4) NOT NULL DEFAULT 0.0000,
+  `unit_cost` decimal(18,2) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `source` varchar(30) NOT NULL DEFAULT 'admin',
+  `api_token_id` int(11) DEFAULT NULL,
+  `created_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `device_tokens`
 --
 
@@ -249,6 +442,78 @@ CREATE TABLE `device_tokens` (
   `last_used_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `expires_at` timestamp NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `expenses`
+--
+
+CREATE TABLE `expenses` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `record_uuid` char(36) DEFAULT NULL,
+  `expense_no` varchar(80) NOT NULL,
+  `expense_date` date NOT NULL,
+  `category_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `category_name_snapshot` varchar(160) NOT NULL,
+  `title` varchar(190) NOT NULL,
+  `description` text DEFAULT NULL,
+  `amount` decimal(18,2) NOT NULL DEFAULT 0.00,
+  `vendor_name` varchar(190) DEFAULT NULL,
+  `payment_method` varchar(80) DEFAULT NULL,
+  `reference_no` varchar(120) DEFAULT NULL,
+  `evidence_reference` varchar(255) DEFAULT NULL,
+  `status` enum('draft','submitted','approved','paid','rejected','cancelled') NOT NULL DEFAULT 'paid',
+  `due_date` date DEFAULT NULL,
+  `approved_by` bigint(20) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `paid_by` bigint(20) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `created_by` bigint(20) DEFAULT NULL,
+  `version_no` int(11) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  `deleted_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `expense_categories`
+--
+
+CREATE TABLE `expense_categories` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `record_uuid` char(36) DEFAULT NULL,
+  `category_code` varchar(80) NOT NULL,
+  `category_name` varchar(160) NOT NULL,
+  `group_name` varchar(120) DEFAULT NULL,
+  `description` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `requires_approval` tinyint(1) NOT NULL DEFAULT 0,
+  `requires_evidence` tinyint(1) NOT NULL DEFAULT 0,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_by` bigint(20) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  `deleted_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `finance_audit_logs`
+--
+
+CREATE TABLE `finance_audit_logs` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `entity_type` varchar(50) NOT NULL,
+  `entity_id` bigint(20) UNSIGNED NOT NULL,
+  `action_key` varchar(50) NOT NULL,
+  `payload_json` longtext DEFAULT NULL,
+  `acted_by` bigint(20) DEFAULT NULL,
+  `acted_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -282,6 +547,83 @@ CREATE TABLE `initial_stock_entries` (
   `approved_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `kitchen_api_received_items`
+--
+
+CREATE TABLE `kitchen_api_received_items` (
+  `id` bigint(20) NOT NULL,
+  `log_id` bigint(20) NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `sku` varchar(100) DEFAULT NULL,
+  `product_name` varchar(180) DEFAULT NULL,
+  `qty` decimal(18,4) NOT NULL DEFAULT 0.0000,
+  `qty_base` decimal(18,4) NOT NULL DEFAULT 0.0000,
+  `unit` varchar(50) DEFAULT NULL,
+  `transfer_price` decimal(18,2) DEFAULT 0.00,
+  `unit_cost` decimal(18,2) DEFAULT 0.00,
+  `line_total` decimal(18,2) DEFAULT 0.00,
+  `review_status` varchar(30) NOT NULL DEFAULT 'unchecked',
+  `reviewed_product_id` int(11) DEFAULT NULL,
+  `reviewed_qty` decimal(18,4) DEFAULT NULL,
+  `reviewed_qty_base` decimal(18,4) DEFAULT NULL,
+  `reviewed_unit` varchar(50) DEFAULT NULL,
+  `reviewed_unit_cost` decimal(18,2) DEFAULT NULL,
+  `reviewed_line_total` decimal(18,2) DEFAULT NULL,
+  `review_note` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `kitchen_api_receive_logs`
+--
+
+CREATE TABLE `kitchen_api_receive_logs` (
+  `id` bigint(20) NOT NULL,
+  `token_id` int(11) DEFAULT NULL,
+  `branch_id` int(11) DEFAULT NULL,
+  `supplier_id` int(11) DEFAULT NULL,
+  `transfer_no` varchar(80) DEFAULT NULL,
+  `endpoint` varchar(160) DEFAULT NULL,
+  `status` varchar(40) NOT NULL,
+  `purchase_id` int(11) DEFAULT NULL,
+  `purchase_no` varchar(80) DEFAULT NULL,
+  `message` text DEFAULT NULL,
+  `payload_json` longtext DEFAULT NULL,
+  `remote_ip` varchar(80) DEFAULT NULL,
+  `confirmed_by` int(11) DEFAULT NULL,
+  `confirmed_at` datetime DEFAULT NULL,
+  `returned_by` int(11) DEFAULT NULL,
+  `returned_at` datetime DEFAULT NULL,
+  `return_note` text DEFAULT NULL,
+  `reviewed_by` int(11) DEFAULT NULL,
+  `reviewed_at` datetime DEFAULT NULL,
+  `review_note` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `kitchen_api_tokens`
+--
+
+CREATE TABLE `kitchen_api_tokens` (
+  `id` int(11) NOT NULL,
+  `token_name` varchar(120) NOT NULL,
+  `token_hash` varchar(255) NOT NULL,
+  `store_code` varchar(80) DEFAULT NULL,
+  `permissions_json` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `last_used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `revoked_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -355,6 +697,40 @@ CREATE TABLE `payment_methods` (
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `sort_order` int(11) NOT NULL DEFAULT 0,
   `created_at` timestamp NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `payment_requests`
+--
+
+CREATE TABLE `payment_requests` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `record_uuid` char(36) DEFAULT NULL,
+  `request_no` varchar(80) NOT NULL,
+  `request_date` date NOT NULL,
+  `category_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `category_name_snapshot` varchar(160) NOT NULL,
+  `title` varchar(190) NOT NULL,
+  `description` text DEFAULT NULL,
+  `amount` decimal(18,2) NOT NULL DEFAULT 0.00,
+  `vendor_name` varchar(190) DEFAULT NULL,
+  `due_date` date DEFAULT NULL,
+  `reference_no` varchar(120) DEFAULT NULL,
+  `evidence_reference` varchar(255) DEFAULT NULL,
+  `status` enum('draft','submitted','approved','paid','rejected','cancelled') NOT NULL DEFAULT 'submitted',
+  `requested_by` bigint(20) DEFAULT NULL,
+  `approved_by` bigint(20) DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `paid_by` bigint(20) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
+  `linked_expense_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `rejection_reason` text DEFAULT NULL,
+  `version_no` int(11) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  `deleted_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -586,6 +962,42 @@ CREATE TABLE `product_categories` (
   `name` varchar(120) NOT NULL,
   `created_at` timestamp NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `product_import_logs`
+--
+
+CREATE TABLE `product_import_logs` (
+  `id` bigint(20) NOT NULL,
+  `connection_id` int(11) DEFAULT NULL,
+  `import_status` varchar(30) NOT NULL DEFAULT 'success',
+  `total_new` int(11) NOT NULL DEFAULT 0,
+  `total_updated` int(11) NOT NULL DEFAULT 0,
+  `total_skipped` int(11) NOT NULL DEFAULT 0,
+  `total_conflict` int(11) NOT NULL DEFAULT 0,
+  `message` text DEFAULT NULL,
+  `created_by` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `product_import_mappings`
+--
+
+CREATE TABLE `product_import_mappings` (
+  `id` bigint(20) NOT NULL,
+  `connection_id` int(11) NOT NULL,
+  `remote_base_url` varchar(255) NOT NULL,
+  `remote_product_id` int(11) NOT NULL,
+  `remote_hash` varchar(64) DEFAULT NULL,
+  `local_product_id` int(11) NOT NULL,
+  `last_imported_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -994,6 +1406,93 @@ CREATE TABLE `stock_transfer_items` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `store_kpi_assessments`
+--
+
+CREATE TABLE `store_kpi_assessments` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `record_uuid` char(36) DEFAULT NULL,
+  `period_month` date NOT NULL,
+  `employee_id` bigint(20) NOT NULL,
+  `employee_name_snapshot` varchar(160) NOT NULL,
+  `employee_role_snapshot` varchar(100) DEFAULT NULL,
+  `status` enum('draft','final','locked','cancelled') NOT NULL DEFAULT 'draft',
+  `total_weight` decimal(8,4) NOT NULL DEFAULT 0.0000,
+  `final_score` decimal(10,4) NOT NULL DEFAULT 0.0000,
+  `general_notes` text DEFAULT NULL,
+  `assessed_by` bigint(20) DEFAULT NULL,
+  `finalized_by` bigint(20) DEFAULT NULL,
+  `finalized_at` datetime DEFAULT NULL,
+  `locked_at` datetime DEFAULT NULL,
+  `version_no` int(11) NOT NULL DEFAULT 1,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  `deleted_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `store_kpi_assessment_items`
+--
+
+CREATE TABLE `store_kpi_assessment_items` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `record_uuid` char(36) DEFAULT NULL,
+  `assessment_id` bigint(20) UNSIGNED NOT NULL,
+  `kpi_type_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `kpi_name_snapshot` varchar(160) NOT NULL,
+  `max_score_snapshot` decimal(8,4) NOT NULL DEFAULT 100.0000,
+  `weight_snapshot` decimal(8,4) NOT NULL DEFAULT 0.0000,
+  `score` decimal(8,4) NOT NULL DEFAULT 0.0000,
+  `weighted_score` decimal(10,4) NOT NULL DEFAULT 0.0000,
+  `notes` text DEFAULT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `store_kpi_audit_logs`
+--
+
+CREATE TABLE `store_kpi_audit_logs` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `assessment_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `action_key` varchar(50) NOT NULL,
+  `old_status` varchar(30) DEFAULT NULL,
+  `new_status` varchar(30) DEFAULT NULL,
+  `payload_json` longtext DEFAULT NULL,
+  `acted_by` bigint(20) DEFAULT NULL,
+  `acted_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `store_kpi_types`
+--
+
+CREATE TABLE `store_kpi_types` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `record_uuid` char(36) DEFAULT NULL,
+  `kpi_name` varchar(160) NOT NULL,
+  `description` text DEFAULT NULL,
+  `weight` decimal(8,4) NOT NULL DEFAULT 0.0000,
+  `max_score` decimal(8,4) NOT NULL DEFAULT 100.0000,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` bigint(20) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `updated_at` datetime DEFAULT NULL ON UPDATE current_timestamp(),
+  `deleted_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `suppliers`
 --
 
@@ -1012,6 +1511,28 @@ CREATE TABLE `suppliers` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `sync_outbox`
+--
+
+CREATE TABLE `sync_outbox` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `event_uuid` char(36) NOT NULL,
+  `entity_type` varchar(80) NOT NULL,
+  `entity_id` varchar(120) NOT NULL,
+  `operation` varchar(30) NOT NULL,
+  `entity_version` int(11) NOT NULL DEFAULT 1,
+  `payload_json` longtext NOT NULL,
+  `occurred_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `available_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `sync_status` enum('pending','processing','synced','failed') NOT NULL DEFAULT 'pending',
+  `retry_count` int(11) NOT NULL DEFAULT 0,
+  `last_error` text DEFAULT NULL,
+  `synced_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `users`
 --
 
@@ -1020,7 +1541,7 @@ CREATE TABLE `users` (
   `username` varchar(50) NOT NULL,
   `email` varchar(190) DEFAULT NULL,
   `name` varchar(120) NOT NULL,
-  `role` enum('owner','admin','manager','manager_cabang','pegawai_cabang','kasir','gudang','user','pegawai') NOT NULL DEFAULT 'admin',
+  `role` enum('owner','admin','manager_cabang','manager','pegawai_cabang','kasir','gudang','user','pegawai') NOT NULL DEFAULT 'admin',
   `role_id` int(11) DEFAULT NULL,
   `avatar_path` varchar(255) DEFAULT NULL,
   `password_hash` varchar(255) NOT NULL,
@@ -1056,9 +1577,45 @@ CREATE TABLE `user_invites` (
   `created_at` timestamp NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `user_remember_tokens`
+--
+
+CREATE TABLE `user_remember_tokens` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `user_id` bigint(20) NOT NULL,
+  `selector` char(24) NOT NULL,
+  `validator_hash` char(64) NOT NULL,
+  `password_fingerprint` char(64) NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `last_used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 --
 -- Indexes for dumped tables
 --
+
+--
+-- Indexes for table `api_connections`
+--
+ALTER TABLE `api_connections`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_api_connections_type` (`connection_type`),
+  ADD KEY `idx_api_connections_remote_type` (`remote_system_type`),
+  ADD KEY `idx_api_connections_status` (`status`),
+  ADD KEY `idx_api_connections_request_code` (`paired_from_request_code`);
+
+--
+-- Indexes for table `api_connection_test_logs`
+--
+ALTER TABLE `api_connection_test_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_api_connection_test_connection` (`connection_id`),
+  ADD KEY `idx_api_connection_test_status` (`status`),
+  ADD KEY `idx_api_connection_test_created_at` (`created_at`);
 
 --
 -- Indexes for table `api_logs`
@@ -1068,6 +1625,33 @@ ALTER TABLE `api_logs`
   ADD KEY `idx_api_logs_created` (`created_at`),
   ADD KEY `idx_api_logs_token` (`token_id`),
   ADD KEY `idx_api_logs_endpoint` (`endpoint`);
+
+--
+-- Indexes for table `api_notifications`
+--
+ALTER TABLE `api_notifications`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_api_notifications_read` (`is_read`),
+  ADD KEY `idx_api_notifications_type` (`notification_type`),
+  ADD KEY `idx_api_notifications_created_at` (`created_at`);
+
+--
+-- Indexes for table `api_pairing_requests`
+--
+ALTER TABLE `api_pairing_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_api_pairing_request_code` (`request_code`),
+  ADD KEY `idx_api_pairing_status` (`status`),
+  ADD KEY `idx_api_pairing_direction` (`direction`),
+  ADD KEY `idx_api_pairing_requester_type` (`requester_type`),
+  ADD KEY `idx_api_pairing_created_at` (`created_at`);
+
+--
+-- Indexes for table `api_remote_connections`
+--
+ALTER TABLE `api_remote_connections`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_api_remote_active` (`is_active`);
 
 --
 -- Indexes for table `api_request_logs`
@@ -1098,6 +1682,22 @@ ALTER TABLE `api_token_permissions`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uniq_api_token_permission` (`token_id`,`permission_key`),
   ADD KEY `idx_api_token_permissions_token` (`token_id`);
+
+--
+-- Indexes for table `api_web_tokens`
+--
+ALTER TABLE `api_web_tokens`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_api_web_tokens_active` (`is_active`);
+
+--
+-- Indexes for table `backup_jobs`
+--
+ALTER TABLE `backup_jobs`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_backup_period` (`backup_type`,`period_key`),
+  ADD KEY `idx_backup_status` (`status`,`created_at`),
+  ADD KEY `idx_backup_created` (`created_at`);
 
 --
 -- Indexes for table `bom_headers`
@@ -1165,12 +1765,48 @@ ALTER TABLE `customer_sessions`
   ADD KEY `idx_customer_id` (`customer_id`);
 
 --
+-- Indexes for table `dapur_stock_transfers`
+--
+ALTER TABLE `dapur_stock_transfers`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_dapur_stock_transfer_no` (`transfer_no`),
+  ADD KEY `idx_dapur_stock_transfer_created` (`created_at`),
+  ADD KEY `idx_dapur_stock_transfer_product` (`product_id`),
+  ADD KEY `idx_dapur_stock_transfer_branch` (`branch_id`);
+
+--
 -- Indexes for table `device_tokens`
 --
 ALTER TABLE `device_tokens`
   ADD PRIMARY KEY (`id`),
   ADD KEY `token_hash` (`token_hash`),
   ADD KEY `user_id` (`user_id`);
+
+--
+-- Indexes for table `expenses`
+--
+ALTER TABLE `expenses`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_expenses_no` (`expense_no`),
+  ADD UNIQUE KEY `uq_expenses_uuid` (`record_uuid`),
+  ADD KEY `idx_expenses_date_status` (`expense_date`,`status`),
+  ADD KEY `idx_expenses_category` (`category_id`,`expense_date`);
+
+--
+-- Indexes for table `expense_categories`
+--
+ALTER TABLE `expense_categories`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_expense_categories_code` (`category_code`),
+  ADD UNIQUE KEY `uq_expense_categories_uuid` (`record_uuid`),
+  ADD KEY `idx_expense_categories_active` (`is_active`,`sort_order`);
+
+--
+-- Indexes for table `finance_audit_logs`
+--
+ALTER TABLE `finance_audit_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_finance_audit_entity` (`entity_type`,`entity_id`,`acted_at`);
 
 --
 -- Indexes for table `guides`
@@ -1186,6 +1822,25 @@ ALTER TABLE `initial_stock_entries`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uniq_initial_stock_once` (`location_id`,`product_id`),
   ADD KEY `idx_initial_stock_location` (`location_id`,`status`);
+
+--
+-- Indexes for table `kitchen_api_received_items`
+--
+ALTER TABLE `kitchen_api_received_items`
+  ADD PRIMARY KEY (`id`);
+
+--
+-- Indexes for table `kitchen_api_receive_logs`
+--
+ALTER TABLE `kitchen_api_receive_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_transfer_no` (`transfer_no`);
+
+--
+-- Indexes for table `kitchen_api_tokens`
+--
+ALTER TABLE `kitchen_api_tokens`
+  ADD PRIMARY KEY (`id`);
 
 --
 -- Indexes for table `loyalty_rewards`
@@ -1225,6 +1880,16 @@ ALTER TABLE `password_resets`
 ALTER TABLE `payment_methods`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `code` (`code`);
+
+--
+-- Indexes for table `payment_requests`
+--
+ALTER TABLE `payment_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_payment_requests_no` (`request_no`),
+  ADD UNIQUE KEY `uq_payment_requests_uuid` (`record_uuid`),
+  ADD KEY `idx_payment_requests_date_status` (`request_date`,`status`),
+  ADD KEY `idx_payment_requests_due` (`due_date`,`status`);
 
 --
 -- Indexes for table `pos_cash_movements`
@@ -1317,6 +1982,21 @@ ALTER TABLE `product_categories`
   ADD UNIQUE KEY `uniq_name` (`name`);
 
 --
+-- Indexes for table `product_import_logs`
+--
+ALTER TABLE `product_import_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_import_logs_connection` (`connection_id`,`created_at`);
+
+--
+-- Indexes for table `product_import_mappings`
+--
+ALTER TABLE `product_import_mappings`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uniq_remote_product` (`connection_id`,`remote_product_id`),
+  ADD KEY `idx_local_product` (`local_product_id`);
+
+--
 -- Indexes for table `purchase_headers`
 --
 ALTER TABLE `purchase_headers`
@@ -1376,7 +2056,10 @@ ALTER TABLE `sales`
   ADD KEY `idx_sales_device_local` (`local_device_id`,`local_transaction_id`),
   ADD KEY `idx_sales_unit_date` (`branch_id`,`sale_source`,`sold_at`),
   ADD KEY `idx_sales_branch_tx` (`branch_id`,`transaction_code`),
-  ADD KEY `idx_sales_branch_sold` (`branch_id`,`sold_at`);
+  ADD KEY `idx_sales_branch_sold` (`branch_id`,`sold_at`),
+  ADD KEY `idx_sales_customer_name` (`customer_name`),
+  ADD KEY `idx_sales_customer_phone` (`customer_phone`),
+  ADD KEY `idx_sales_customer_id` (`customer_id`);
 
 --
 -- Indexes for table `sales_production_links`
@@ -1474,11 +2157,55 @@ ALTER TABLE `stock_transfer_items`
   ADD KEY `idx_transfer_items_product` (`product_id`);
 
 --
+-- Indexes for table `store_kpi_assessments`
+--
+ALTER TABLE `store_kpi_assessments`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_store_kpi_assessment_period_employee` (`period_month`,`employee_id`),
+  ADD UNIQUE KEY `uq_store_kpi_assessment_uuid` (`record_uuid`),
+  ADD KEY `idx_store_kpi_assessment_period` (`period_month`,`status`),
+  ADD KEY `idx_store_kpi_assessment_employee` (`employee_id`,`period_month`);
+
+--
+-- Indexes for table `store_kpi_assessment_items`
+--
+ALTER TABLE `store_kpi_assessment_items`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_store_kpi_item_uuid` (`record_uuid`),
+  ADD KEY `idx_store_kpi_item_assessment` (`assessment_id`,`sort_order`),
+  ADD KEY `idx_store_kpi_item_type` (`kpi_type_id`);
+
+--
+-- Indexes for table `store_kpi_audit_logs`
+--
+ALTER TABLE `store_kpi_audit_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_store_kpi_audit_assessment` (`assessment_id`,`acted_at`);
+
+--
+-- Indexes for table `store_kpi_types`
+--
+ALTER TABLE `store_kpi_types`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_store_kpi_types_name` (`kpi_name`),
+  ADD UNIQUE KEY `uq_store_kpi_types_uuid` (`record_uuid`),
+  ADD KEY `idx_store_kpi_types_active` (`is_active`,`sort_order`);
+
+--
 -- Indexes for table `suppliers`
 --
 ALTER TABLE `suppliers`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `uniq_supplier_code` (`supplier_code`);
+
+--
+-- Indexes for table `sync_outbox`
+--
+ALTER TABLE `sync_outbox`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_sync_outbox_event` (`event_uuid`),
+  ADD KEY `idx_sync_outbox_status` (`sync_status`,`available_at`),
+  ADD KEY `idx_sync_outbox_entity` (`entity_type`,`entity_id`);
 
 --
 -- Indexes for table `users`
@@ -1506,14 +2233,53 @@ ALTER TABLE `user_invites`
   ADD KEY `idx_email` (`email`);
 
 --
+-- Indexes for table `user_remember_tokens`
+--
+ALTER TABLE `user_remember_tokens`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_user_remember_selector` (`selector`),
+  ADD KEY `idx_user_remember_user` (`user_id`),
+  ADD KEY `idx_user_remember_expires` (`expires_at`);
+
+--
 -- AUTO_INCREMENT for dumped tables
 --
+
+--
+-- AUTO_INCREMENT for table `api_connections`
+--
+ALTER TABLE `api_connections`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `api_connection_test_logs`
+--
+ALTER TABLE `api_connection_test_logs`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `api_logs`
 --
 ALTER TABLE `api_logs`
   MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `api_notifications`
+--
+ALTER TABLE `api_notifications`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `api_pairing_requests`
+--
+ALTER TABLE `api_pairing_requests`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `api_remote_connections`
+--
+ALTER TABLE `api_remote_connections`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `api_request_logs`
@@ -1532,6 +2298,18 @@ ALTER TABLE `api_tokens`
 --
 ALTER TABLE `api_token_permissions`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `api_web_tokens`
+--
+ALTER TABLE `api_web_tokens`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `backup_jobs`
+--
+ALTER TABLE `backup_jobs`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `bom_headers`
@@ -1576,10 +2354,34 @@ ALTER TABLE `customer_sessions`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `dapur_stock_transfers`
+--
+ALTER TABLE `dapur_stock_transfers`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `device_tokens`
 --
 ALTER TABLE `device_tokens`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `expenses`
+--
+ALTER TABLE `expenses`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `expense_categories`
+--
+ALTER TABLE `expense_categories`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `finance_audit_logs`
+--
+ALTER TABLE `finance_audit_logs`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `guides`
@@ -1592,6 +2394,24 @@ ALTER TABLE `guides`
 --
 ALTER TABLE `initial_stock_entries`
   MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `kitchen_api_received_items`
+--
+ALTER TABLE `kitchen_api_received_items`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `kitchen_api_receive_logs`
+--
+ALTER TABLE `kitchen_api_receive_logs`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `kitchen_api_tokens`
+--
+ALTER TABLE `kitchen_api_tokens`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `loyalty_rewards`
@@ -1622,6 +2442,12 @@ ALTER TABLE `password_resets`
 --
 ALTER TABLE `payment_methods`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `payment_requests`
+--
+ALTER TABLE `payment_requests`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `pos_cash_movements`
@@ -1688,6 +2514,18 @@ ALTER TABLE `products`
 --
 ALTER TABLE `product_categories`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `product_import_logs`
+--
+ALTER TABLE `product_import_logs`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `product_import_mappings`
+--
+ALTER TABLE `product_import_mappings`
+  MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `purchase_headers`
@@ -1798,10 +2636,40 @@ ALTER TABLE `stock_transfer_items`
   MODIFY `id` bigint(20) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `store_kpi_assessments`
+--
+ALTER TABLE `store_kpi_assessments`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `store_kpi_assessment_items`
+--
+ALTER TABLE `store_kpi_assessment_items`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `store_kpi_audit_logs`
+--
+ALTER TABLE `store_kpi_audit_logs`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `store_kpi_types`
+--
+ALTER TABLE `store_kpi_types`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `suppliers`
 --
 ALTER TABLE `suppliers`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `sync_outbox`
+--
+ALTER TABLE `sync_outbox`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `users`
@@ -1820,6 +2688,12 @@ ALTER TABLE `user_branches`
 --
 ALTER TABLE `user_invites`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `user_remember_tokens`
+--
+ALTER TABLE `user_remember_tokens`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- Constraints for dumped tables

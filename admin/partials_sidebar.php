@@ -188,7 +188,7 @@ if ($apiPairingCanSee) {
     <?php if (has_menu_access($u, 'users') || has_menu_access($u, 'settings') || has_menu_access($u, 'roles') || has_menu_access($u, 'customers')): ?>
       <?php
         $currentAdminPage = basename((string)($_SERVER['PHP_SELF'] ?? ''));
-        $systemSettingsPagesForAdmin = ['api_desktop.php', 'api_pairing.php', 'inventory_settings.php', 'backup.php'];
+        $systemSettingsPagesForAdmin = ['api_desktop.php', 'api_pairing.php', 'store_pairing.php', 'inventory_settings.php', 'backup.php'];
         $adminSystemOpen = in_array($currentAdminPage, $systemSettingsPagesForAdmin, true);
       ?>
       <div class="item">
@@ -215,7 +215,7 @@ if ($apiPairingCanSee) {
           <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/guides.php')); ?>">Daftar Guide</a><?php endif; ?>
           <?php
             $systemSettingsVisible = has_menu_access($u, 'settings') || $apiPairingCanSee || current_user_is_owner();
-            $systemSettingsPages = ['api_desktop.php', 'api_pairing.php', 'inventory_settings.php', 'backup.php'];
+            $systemSettingsPages = ['api_desktop.php', 'api_pairing.php', 'store_pairing.php', 'inventory_settings.php', 'backup.php'];
             $systemSettingsOpen = in_array(basename((string)($_SERVER['PHP_SELF'] ?? '')), $systemSettingsPages, true);
           ?>
           <?php if ($systemSettingsVisible): ?>
@@ -230,6 +230,7 @@ if ($apiPairingCanSee) {
             <div class="submenu admin-nested-submenu<?php echo $systemSettingsOpen ? ' open' : ''; ?>" id="m-system-settings">
               <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/api_desktop.php')); ?>">API &amp; Integrasi</a><?php endif; ?>
               <?php if ($apiPairingCanSee): ?><a href="<?php echo e(base_url('admin/api_pairing.php')); ?>">Pairing Back Office</a><?php endif; ?>
+              <?php if ($apiPairingCanSee): ?><a href="<?php echo e(base_url('admin/store_pairing.php')); ?>">Pairing Antar Toko</a><?php endif; ?>
               <?php if (has_menu_access($u, 'settings')): ?><a href="<?php echo e(base_url('admin/inventory_settings.php')); ?>">Setting Produksi/Inventory</a><?php endif; ?>
               <?php if (current_user_is_owner()): ?><a href="<?php echo e(base_url('admin/backup.php')); ?>">Setting Backup Google Drive</a><?php endif; ?>
             </div>

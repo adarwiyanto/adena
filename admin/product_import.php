@@ -7,6 +7,7 @@ require_once __DIR__ . '/../core/csrf.php';
 require_once __DIR__ . '/../core/rbac.php';
 require_once __DIR__ . '/../core/inventory.php';
 require_once __DIR__ . '/../core/api_web_products.php';
+require_once __DIR__ . '/../core/store_pairing.php';
 
 start_secure_session();
 $me = require_menu_access('settings', 'view');
@@ -111,7 +112,10 @@ function import_remote_products(array $conn, array $options): array {
       $localId = (int)($row['local_id'] ?? 0);
       $imagePath = null;
       if (!empty($options['import_images']) && !empty($r['image_url'])) {
-        $downloaded = web_product_download_image((string)$r['image_url'], (string)$conn['token']);
+        $imageUrl=(string)$r['image_url'];
+        $origin=parse_url((string)$conn['base_url']); $img=parse_url($imageUrl);
+        $allowedImg=is_array($origin)&&is_array($img)&&strtolower($img['scheme']??'')==='https'&&strtolower($img['host']??'')===strtolower($origin['host']??'')&&!isset($img['port'])&&!isset($img['user']);
+        $downloaded=$allowedImg?web_product_download_image($imageUrl, sp_resolve_token((string)$conn['token'])):null;
         if ($downloaded) { $imagePath = $downloaded; $images++; } else { $imageFail++; }
       }
 

@@ -816,7 +816,7 @@ async function runSyncFlow({ allowOffline = false } = {}) {
     moduleStatus['Pending transaksi lokal'] = pendingResp?.ok ? 'ok' : `gagal: ${pendingResp?.message || '-'}`;
 
     setSyncProgress(80, 'Retry pending shift lokal...');
-    const shiftResp = await window.desktopAPI.retryPendingShift();
+    const shiftResp = await window.desktopAPI.retryPendingShift({ skipClose: true });
     moduleStatus['Pending shift lokal'] = shiftResp?.ok ? `ok (${shiftResp.synced || 0})` : 'gagal';
     syncModuleList(moduleStatus);
 
@@ -969,7 +969,7 @@ function buildReceiptRawPayload(receipt) {
     cashReceivedText: Number(receipt?.cashReceived || 0) > 0 ? rupiah(receipt.cashReceived) : '',
     cashChangeText: Number(receipt?.cashChange || 0) > 0 ? rupiah(receipt.cashChange) : '',
     paymentLines,
-    appFooter: 'Adena POS Desktop ver 1.5.8'
+    appFooter: 'Adena POS Desktop ver 1.5.9'
   };
 }
 
@@ -1007,7 +1007,7 @@ function buildShiftCloseRawPayload(closeReport) {
     totalExpectedText: rupiah(closeReport?.totalExpected || 0),
     totalActualText: rupiah(closeReport?.totalActual || 0),
     totalDifferenceText: rupiah(closeReport?.totalDifference || 0),
-    appFooter: 'Adena POS Desktop ver 1.5.8'
+    appFooter: 'Adena POS Desktop ver 1.5.9'
   };
 }
 
@@ -1242,7 +1242,9 @@ async function bootstrap() {
   document.querySelector('[data-category=""]').onclick = () => { state.activeCategory = null; renderProducts($('#product-search').value); renderCategories(); document.querySelector('[data-category=""]').classList.add('active'); };
   $('#btn-manual-sync').onclick = async () => {
     await window.desktopAPI.syncPending();
-    await window.desktopAPI.retryPendingShift();
+    // Manual sync data bukan perintah menutup shift. Pending close hanya boleh
+    // diproses dari alur tombol Tutup Shift.
+    await window.desktopAPI.retryPendingShift({ skipClose: true });
     await window.desktopAPI.syncMaster({ incremental: false });
     await loadPosState();
   };
